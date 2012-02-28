@@ -43,6 +43,7 @@ import Data.Typeable
 
 newtype PTM a = PTM (State# RealWorld -> (# State# RealWorld, a #))
 
+
 unPTM :: PTM a -> (State# RealWorld -> (# State# RealWorld, a #))
 unPTM (PTM a) = a
 
@@ -99,6 +100,7 @@ atomically :: PTM a -> IO a
 atomically (PTM c) = IO $ \s10 ->
   atomically# c s10
 
+---------------------------------------------------------------------------------
 
 data PVar a = PVar (TVar# RealWorld a)
 
@@ -137,7 +139,7 @@ writePVar (PVar tvar#) val = PTM $ \s1# ->
     case writeTVar# tvar# val s1# of
     	 s2# -> (# s2#, () #)
 
-
+---------------------------------------------------------------------------------
 
 data SCont = SCont SCont#
 

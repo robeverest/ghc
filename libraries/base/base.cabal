@@ -186,6 +186,7 @@ Library {
         Foreign.StablePtr,
         Foreign.Storable,
         LwConc.Substrate,
+        LwConc.ConcLib,
         Numeric,
         Prelude,
         System.Console.GetOpt
