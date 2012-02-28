@@ -609,6 +609,7 @@ stg_atomicSwitchzh
   W_ trec;
   W_ outer;
   W_ r;
+  W_ valid;
 
   tso = R1;
   MAYBE_GC (NO_PTRS, stg_retryzh); // STM operations may allocate
@@ -625,6 +626,7 @@ retry_pop_stack:
   if (frame_type == CATCH_RETRY_FRAME) {
     foreign "C" barf("Not implemented! stg_atomicSwitchzh->CATCH_RETRY_FRAME"); // Not tested
 
+    /*
     // The retry reaches a CATCH_RETRY_FRAME before the atomic frame
     ASSERT(outer != NO_TREC);
     // Abort the transaction attempting the current branch
@@ -643,6 +645,7 @@ retry_pop_stack:
       Sp = Sp + SIZEOF_StgCatchRetryFrame;
       goto retry_pop_stack;
     }
+    */
   }
 
   ASSERT(frame_type == ATOMICALLY_FRAME);
@@ -665,11 +668,11 @@ retry_pop_stack:
     StgStack_sp(StgTSO_stackobj(CurrentTSO)) = Sp + SIZEOF_StgAtomicallyFrame;
 
     if (CurrentTSO != tso) {
-      dirty_TSO (tso);
+      foreign "C" dirty_TSO (MyCapability() "ptr", tso "ptr") [];
       CurrentTSO = tso;
     }
     Sp = StgStack_sp(StgTSO_stackobj(CurrentTSO));
-    jump %ENTRY_CODE(Sp(SP_OFF));
+    jump %ENTRY_CODE(Sp(0));
   } else {
     /* Transaction was not valid: try again */
     ("ptr" trec) = foreign "C" stmStartTransaction(MyCapability() "ptr", NO_TREC "ptr") [];

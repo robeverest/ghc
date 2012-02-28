@@ -55,7 +55,7 @@ endef
 # This gets used in the default docdir when autoconf >= 2.60 is used
 PACKAGE_TARNAME = ghc
 
-prefix          = /usr/local
+prefix          = /home/t-sichan/test-install/ghc-7.4.1-lwc
 
 datarootdir = ${prefix}/share
 $(eval $(call set_default,datarootdir,$${prefix}/share))

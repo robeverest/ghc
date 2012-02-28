@@ -128,6 +128,7 @@ primTyCons
     , stableNamePrimTyCon
     , statePrimTyCon
     , threadIdPrimTyCon
+    , sContPrimTyCon
     , wordPrimTyCon
     , word32PrimTyCon
     , word64PrimTyCon
