@@ -2,7 +2,7 @@
 % (c) The AQUA Project, Glasgow University, 1994-1998
 %
 
-     
+
 \section[TysPrim]{Wired-in knowledge about primitive types}
 
 \begin{code}
@@ -13,7 +13,7 @@
 --     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
 -- for details
 
--- | This module defines TyCons that can't be expressed in Haskell. 
+-- | This module defines TyCons that can't be expressed in Haskell.
 --   They are all, therefore, wired-in TyCons.  C.f module TysWiredIn
 module TysPrim(
 	mkPrimTyConName, -- For implicit parameters in TysWiredIn only
@@ -52,22 +52,23 @@ module TysPrim(
 	statePrimTyCon,		mkStatePrimTy,
 	realWorldTyCon,		realWorldTy, realWorldStatePrimTy,
 
-	arrayPrimTyCon,	mkArrayPrimTy, 
+	arrayPrimTyCon,	mkArrayPrimTy,
 	byteArrayPrimTyCon,	byteArrayPrimTy,
-	arrayArrayPrimTyCon, mkArrayArrayPrimTy, 
+	arrayArrayPrimTyCon, mkArrayArrayPrimTy,
 	mutableArrayPrimTyCon, mkMutableArrayPrimTy,
 	mutableByteArrayPrimTyCon, mkMutableByteArrayPrimTy,
 	mutableArrayArrayPrimTyCon, mkMutableArrayArrayPrimTy,
 	mutVarPrimTyCon, mkMutVarPrimTy,
 
-	mVarPrimTyCon,			mkMVarPrimTy,	
+	mVarPrimTyCon,			mkMVarPrimTy,
         tVarPrimTyCon,                  mkTVarPrimTy,
 	stablePtrPrimTyCon,		mkStablePtrPrimTy,
 	stableNamePrimTyCon,		mkStableNamePrimTy,
 	bcoPrimTyCon,			bcoPrimTy,
 	weakPrimTyCon,  		mkWeakPrimTy,
 	threadIdPrimTyCon,		threadIdPrimTy,
-	
+  sContPrimTyCon, sContPrimTy,
+
 	int32PrimTyCon,		int32PrimTy,
 	word32PrimTyCon,	word32PrimTy,
 
@@ -103,7 +104,7 @@ import Data.Char
 
 \begin{code}
 primTyCons :: [TyCon]
-primTyCons 
+primTyCons
   = [ addrPrimTyCon
     , arrayPrimTyCon
     , byteArrayPrimTyCon
@@ -144,12 +145,12 @@ primTyCons
 
 mkPrimTc :: FastString -> Unique -> TyCon -> Name
 mkPrimTc fs unique tycon
-  = mkWiredInName gHC_PRIM (mkTcOccFS fs) 
+  = mkWiredInName gHC_PRIM (mkTcOccFS fs)
 		  unique
 		  (ATyCon tycon)	-- Relevant TyCon
 		  UserSyntax		-- None are built-in syntax
 
-charPrimTyConName, intPrimTyConName, int32PrimTyConName, int64PrimTyConName, wordPrimTyConName, word32PrimTyConName, word64PrimTyConName, addrPrimTyConName, floatPrimTyConName, doublePrimTyConName, statePrimTyConName, realWorldTyConName, arrayPrimTyConName, arrayArrayPrimTyConName, byteArrayPrimTyConName, mutableArrayPrimTyConName, mutableByteArrayPrimTyConName, mutableArrayArrayPrimTyConName, mutVarPrimTyConName, mVarPrimTyConName, tVarPrimTyConName, stablePtrPrimTyConName, stableNamePrimTyConName, bcoPrimTyConName, weakPrimTyConName, threadIdPrimTyConName, eqPrimTyConName :: Name
+charPrimTyConName, intPrimTyConName, int32PrimTyConName, int64PrimTyConName, wordPrimTyConName, word32PrimTyConName, word64PrimTyConName, addrPrimTyConName, floatPrimTyConName, doublePrimTyConName, statePrimTyConName, realWorldTyConName, arrayPrimTyConName, arrayArrayPrimTyConName, byteArrayPrimTyConName, mutableArrayPrimTyConName, mutableByteArrayPrimTyConName, mutableArrayArrayPrimTyConName, mutVarPrimTyConName, mVarPrimTyConName, tVarPrimTyConName, stablePtrPrimTyConName, stableNamePrimTyConName, bcoPrimTyConName, weakPrimTyConName, threadIdPrimTyConName, sContPrimTyConName, eqPrimTyConName :: Name
 charPrimTyConName    	      = mkPrimTc (fsLit "Char#") charPrimTyConKey charPrimTyCon
 intPrimTyConName     	      = mkPrimTc (fsLit "Int#") intPrimTyConKey  intPrimTyCon
 int32PrimTyConName	      = mkPrimTc (fsLit "Int32#") int32PrimTyConKey int32PrimTyCon
@@ -177,6 +178,7 @@ stableNamePrimTyConName       = mkPrimTc (fsLit "StableName#") stableNamePrimTyC
 bcoPrimTyConName 	      = mkPrimTc (fsLit "BCO#") bcoPrimTyConKey bcoPrimTyCon
 weakPrimTyConName  	      = mkPrimTc (fsLit "Weak#") weakPrimTyConKey weakPrimTyCon
 threadIdPrimTyConName  	      = mkPrimTc (fsLit "ThreadId#") threadIdPrimTyConKey threadIdPrimTyCon
+sContPrimTyConName            = mkPrimTc (fsLit "SCont#") sContPrimTyConKey sContPrimTyCon
 \end{code}
 
 %************************************************************************
@@ -185,12 +187,12 @@ threadIdPrimTyConName  	      = mkPrimTc (fsLit "ThreadId#") threadIdPrimTyConKe
 %*									*
 %************************************************************************
 
-alphaTyVars is a list of type variables for use in templates: 
+alphaTyVars is a list of type variables for use in templates:
 	["a", "b", ..., "z", "t1", "t2", ... ]
 
 \begin{code}
 tyVarList :: Kind -> [TyVar]
-tyVarList kind = [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u) 
+tyVarList kind = [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u)
 				(mkTyVarOccFS (mkFastString name))
 			 	noSrcSpan) kind
 	         | u <- [2..],
@@ -214,7 +216,7 @@ alphaTy, betaTy, gammaTy, deltaTy :: Type
 (alphaTy:betaTy:gammaTy:deltaTy:_) = alphaTys
 
 	-- openAlphaTyVar is prepared to be instantiated
-	-- to a lifted or unlifted type variable.  It's used for the 
+	-- to a lifted or unlifted type variable.  It's used for the
 	-- result type for "error", so that we can have (error Int# "Help")
 openAlphaTyVars :: [TyVar]
 openAlphaTyVar, openBetaTyVar :: TyVar
@@ -248,7 +250,7 @@ funTyConName :: Name
 funTyConName = mkPrimTyConName (fsLit "(->)") funTyConKey funTyCon
 
 funTyCon :: TyCon
-funTyCon = mkFunTyCon funTyConName $ 
+funTyCon = mkFunTyCon funTyConName $
            mkArrowKinds [liftedTypeKind, liftedTypeKind] liftedTypeKind
         -- You might think that (->) should have type (?? -> ? -> *), and you'd be right
 	-- But if we do that we get kind errors when saying
@@ -316,8 +318,8 @@ argTypeKindTyConName      = mkPrimTyConName (fsLit "ArgKind") argTypeKindTyConKe
 constraintKindTyConName   = mkPrimTyConName (fsLit "Constraint") constraintKindTyConKey constraintKindTyCon
 
 mkPrimTyConName :: FastString -> Unique -> TyCon -> Name
-mkPrimTyConName occ key tycon = mkWiredInName gHC_PRIM (mkTcOccFS occ) 
-					      key 
+mkPrimTyConName occ key tycon = mkWiredInName gHC_PRIM (mkTcOccFS occ)
+					      key
 					      (ATyCon tycon)
 					      BuiltInSyntax
 	-- All of the super kinds and kinds are defined in Prim and use BuiltInSyntax,
@@ -350,7 +352,7 @@ mkArrowKinds :: [Kind] -> Kind -> Kind
 mkArrowKinds arg_kinds result_kind = foldr mkArrowKind result_kind arg_kinds
 
 tySuperKind :: SuperKind
-tySuperKind = kindTyConType tySuperKindTyCon 
+tySuperKind = kindTyConType tySuperKindTyCon
 \end{code}
 
 %************************************************************************
@@ -598,7 +600,7 @@ bcoPrimTy    = mkTyConTy bcoPrimTyCon
 bcoPrimTyCon :: TyCon
 bcoPrimTyCon = pcPrimTyCon0 bcoPrimTyConName PtrRep
 \end{code}
-  
+
 %************************************************************************
 %*									*
 \subsection[TysPrim-Weak]{The ``weak pointer'' type}
@@ -637,6 +639,20 @@ threadIdPrimTyCon = pcPrimTyCon0 threadIdPrimTyConName PtrRep
 
 %************************************************************************
 %*									*
+\subsection[TysPrim-HEC]{The ``HEC'' type}
+%*									*
+%************************************************************************
+
+
+\begin{code}
+sContPrimTy :: Type
+sContPrimTy    = mkTyConTy sContPrimTyCon
+sContPrimTyCon :: TyCon
+sContPrimTyCon = pcPrimTyCon0 sContPrimTyConName PtrRep
+\end{code}
+
+%************************************************************************
+%*									*
 		Any
 %*									*
 %************************************************************************
@@ -645,10 +661,10 @@ Note [Any types]
 ~~~~~~~~~~~~~~~~
 The type constructor Any of kind forall k. k -> k has these properties:
 
-  * It is defined in module GHC.Prim, and exported so that it is 
-    available to users.  For this reason it's treated like any other 
+  * It is defined in module GHC.Prim, and exported so that it is
+    available to users.  For this reason it's treated like any other
     primitive type:
-      - has a fixed unique, anyTyConKey, 
+      - has a fixed unique, anyTyConKey,
       - lives in the global name cache
       - built with TyCon.PrimTyCon
 
@@ -660,7 +676,7 @@ The type constructor Any of kind forall k. k -> k has these properties:
 
   * It does not claim to be a *data* type, and that's important for
     the code generator, because the code gen may *enter* a data value
-    but never enters a function value. 
+    but never enters a function value.
 
   * It is used to instantiate otherwise un-constrained type variables
     For example   	length Any []

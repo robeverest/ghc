@@ -1211,12 +1211,12 @@ arrayArrayPrimTyConKey                  = mkPreludeTyConUnique 39
 mutableArrayArrayPrimTyConKey           = mkPreludeTyConUnique 40
 
 statePrimTyConKey, stableNamePrimTyConKey, stableNameTyConKey,
-    mutVarPrimTyConKey, ioTyConKey,
-    wordPrimTyConKey, wordTyConKey, word8TyConKey, word16TyConKey,
-    word32PrimTyConKey, word32TyConKey, word64PrimTyConKey, word64TyConKey,
-    liftedConKey, unliftedConKey, anyBoxConKey, kindConKey, boxityConKey,
-    typeConKey, threadIdPrimTyConKey, bcoPrimTyConKey, ptrTyConKey,
-    funPtrTyConKey, tVarPrimTyConKey, eqPrimTyConKey :: Unique
+  mutVarPrimTyConKey, ioTyConKey, wordPrimTyConKey, wordTyConKey, word8TyConKey,
+  word16TyConKey, word32PrimTyConKey, word32TyConKey, word64PrimTyConKey,
+  word64TyConKey, liftedConKey, unliftedConKey, anyBoxConKey, kindConKey,
+  boxityConKey, typeConKey, threadIdPrimTyConKey, sContPrimTyConKey,
+  bcoPrimTyConKey, ptrTyConKey, funPtrTyConKey, tVarPrimTyConKey, eqPrimTyConKey:: Unique
+
 statePrimTyConKey                       = mkPreludeTyConUnique 50
 stableNamePrimTyConKey                  = mkPreludeTyConUnique 51
 stableNameTyConKey                      = mkPreludeTyConUnique 52
@@ -1333,6 +1333,9 @@ noSelTyConKey = mkPreludeTyConUnique 154
 
 repTyConKey  = mkPreludeTyConUnique 155
 rep1TyConKey = mkPreludeTyConUnique 156
+
+
+sContPrimTyConKey = mkPreludeTyConUnique 157
 
 ---------------- Template Haskell -------------------
 --      USES TyConUniques 200-299

@@ -229,7 +229,7 @@ RTS_THUNK(stg_ap_5_upd);
 RTS_THUNK(stg_ap_6_upd);
 RTS_THUNK(stg_ap_7_upd);
 
-/* standard application routines (see also rts/gen_apply.py, 
+/* standard application routines (see also rts/gen_apply.py,
  * and compiler/codeGen/CgStackery.lhs).
  */
 RTS_RET(stg_ap_v);
@@ -423,6 +423,10 @@ RTS_FUN_DECL(stg_myThreadIdzh);
 RTS_FUN_DECL(stg_labelThreadzh);
 RTS_FUN_DECL(stg_isCurrentThreadBoundzh);
 RTS_FUN_DECL(stg_threadStatuszh);
+
+RTS_FUN_DECL(stg_newSContzh);
+RTS_FUN_DECL(stg_getSContzh);
+RTS_FUN_DECL(stg_atomicSwitchzh);
 
 RTS_FUN_DECL(stg_mkWeakzh);
 RTS_FUN_DECL(stg_mkWeakForeignzh);

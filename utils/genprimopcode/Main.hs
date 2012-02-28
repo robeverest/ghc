@@ -35,52 +35,52 @@ main = getArgs >>= \args ->
                 -> seq (sanityTop p_o_specs) (
                    case head args of
 
-                      "--data-decl" 
+                      "--data-decl"
                          -> putStr (gen_data_decl p_o_specs)
 
-                      "--has-side-effects" 
-                         -> putStr (gen_switch_from_attribs 
-                                       "has_side_effects" 
+                      "--has-side-effects"
+                         -> putStr (gen_switch_from_attribs
+                                       "has_side_effects"
                                        "primOpHasSideEffects" p_o_specs)
 
-                      "--out-of-line" 
-                         -> putStr (gen_switch_from_attribs 
-                                       "out_of_line" 
+                      "--out-of-line"
+                         -> putStr (gen_switch_from_attribs
+                                       "out_of_line"
                                        "primOpOutOfLine" p_o_specs)
 
-                      "--commutable" 
-                         -> putStr (gen_switch_from_attribs 
-                                       "commutable" 
+                      "--commutable"
+                         -> putStr (gen_switch_from_attribs
+                                       "commutable"
                                        "commutableOp" p_o_specs)
 
                       "--code-size"
-                         -> putStr (gen_switch_from_attribs 
+                         -> putStr (gen_switch_from_attribs
                                        "code_size"
                                        "primOpCodeSize" p_o_specs)
 
                       "--can-fail"
                          -> putStr (gen_switch_from_attribs
-                                       "can_fail" 
+                                       "can_fail"
                                        "primOpCanFail" p_o_specs)
 
-                      "--strictness" 
-                         -> putStr (gen_switch_from_attribs 
-                                       "strictness" 
+                      "--strictness"
+                         -> putStr (gen_switch_from_attribs
+                                       "strictness"
                                        "primOpStrictness" p_o_specs)
 
-                      "--primop-primop-info" 
+                      "--primop-primop-info"
                          -> putStr (gen_primop_info p_o_specs)
 
-                      "--primop-tag" 
+                      "--primop-tag"
                          -> putStr (gen_primop_tag p_o_specs)
 
-                      "--primop-list" 
+                      "--primop-list"
                          -> putStr (gen_primop_list p_o_specs)
 
-                      "--make-haskell-wrappers" 
+                      "--make-haskell-wrappers"
                          -> putStr (gen_wrappers p_o_specs)
-			
-                      "--make-haskell-source" 
+
+                      "--make-haskell-source"
                          -> putStr (gen_hs_source p_o_specs)
 
                       "--make-ext-core-source"
@@ -93,7 +93,7 @@ main = getArgs >>= \args ->
                    )
 
 known_args :: [String]
-known_args 
+known_args
    = [ "--data-decl",
        "--has-side-effects",
        "--out-of-line",
@@ -133,7 +133,7 @@ gen_hs_source (Info defaults entries) =
 	++ "-- GHC\'s primitive types and operations.\n"
 	++ "-- Use GHC.Exts from the base package instead of importing this\n"
 	++ "-- module directly.\n"
-	++ "--\n" 
+	++ "--\n"
 	++ "-----------------------------------------------------------------------------\n"
 	++ "module GHC.Prim (\n"
 	++ unlines (map (("\t" ++) . hdr) entries)
@@ -224,7 +224,7 @@ gen_ext_core_source entries =
    ++ "\nimport Language.Core.Encoding\n\n"
    ++ "primTcs :: [(Tcon, Kind)]\n"
    ++ "primTcs = [\n"
-   ++ printList tcEnt entries 
+   ++ printList tcEnt entries
    ++ "   ]\n"
    ++ "primVals :: [(Var, Ty)]\n"
    ++ "primVals = [\n"
@@ -247,15 +247,15 @@ gen_ext_core_source entries =
    ++ printList tyEnt (stringLitTys entries)
    ++ "]\n\n"
 
-  where printList f = concat . intersperse ",\n" . filter (not . null) . map f   
-        tcEnt  (PrimTypeSpec {ty=t}) = 
+  where printList f = concat . intersperse ",\n" . filter (not . null) . map f
+        tcEnt  (PrimTypeSpec {ty=t}) =
            case t of
             TyApp tc args -> parens tc (tcKind tc args)
             _             -> error ("tcEnt: type in PrimTypeSpec is not a type"
-                              ++ " constructor: " ++ show t)  
+                              ++ " constructor: " ++ show t)
         tcEnt  _                = ""
         -- hack alert!
-        -- The primops.txt.pp format doesn't have enough information in it to 
+        -- The primops.txt.pp format doesn't have enough information in it to
         -- print out some of the information that ext-core needs (like kinds,
         -- and later on in this code, module names) so we special-case. An
         -- alternative would be to refer to things indirectly and hard-wire
@@ -272,19 +272,19 @@ gen_ext_core_source entries =
         valEnt _                             = ""
         valEntry name' ty' = parens name' (mkForallTy (freeTvars ty') (pty ty'))
             where pty (TyF t1 t2) = mkFunTy (pty t1) (pty t2)
-                  pty (TyApp tc ts) = mkTconApp (mkTcon tc) (map pty ts)  
+                  pty (TyApp tc ts) = mkTconApp (mkTcon tc) (map pty ts)
                   pty (TyUTup ts)   = mkUtupleTy (map pty ts)
                   pty (TyVar tv)    = paren $ "Tvar \"" ++ tv ++ "\""
 
-                  mkFunTy s1 s2 = "Tapp " ++ (paren ("Tapp (Tcon tcArrow)" 
+                  mkFunTy s1 s2 = "Tapp " ++ (paren ("Tapp (Tcon tcArrow)"
                                                ++ " " ++ paren s1))
                                           ++ " " ++ paren s2
                   mkTconApp tc args = foldl tapp tc args
                   mkTcon tc = paren $ "Tcon " ++ paren (qualify True tc)
-                  mkUtupleTy args = foldl tapp (tcUTuple (length args)) args   
+                  mkUtupleTy args = foldl tapp (tcUTuple (length args)) args
                   mkForallTy [] t = t
-                  mkForallTy vs t = foldr 
-                     (\ v s -> "Tforall " ++ 
+                  mkForallTy vs t = foldr
+                     (\ v s -> "Tforall " ++
                                (paren (quote v ++ ", " ++ vKind v)) ++ " "
                                ++ paren s) t vs
 
@@ -299,7 +299,7 @@ gen_ext_core_source entries =
                   freeTvarss = nub . concatMap freeTvars
 
                   tapp s nextArg = paren $ "Tapp " ++ s ++ " " ++ paren nextArg
-                  tcUTuple n = paren $ "Tcon " ++ paren (qualify False $ "Z" 
+                  tcUTuple n = paren $ "Tcon " ++ paren (qualify False $ "Z"
                                                           ++ show n ++ "H")
 
         tyEnt (PrimTypeSpec {ty=(TyApp tc _args)}) = "   " ++ paren ("Tcon " ++
@@ -308,7 +308,7 @@ gen_ext_core_source entries =
 
         -- more hacks. might be better to do this on the ext-core side,
         -- as per earlier comment
-        qualify _ tc | tc == "Bool" = "Just boolMname" ++ ", " 
+        qualify _ tc | tc == "Bool" = "Just boolMname" ++ ", "
                                                 ++ ze True tc
         qualify _ tc | tc == "()"  = "Just baseMname" ++ ", "
                                                 ++ ze True tc
@@ -332,12 +332,12 @@ gen_ext_core_source entries =
 
 gen_latex_doc :: Info -> String
 gen_latex_doc (Info defaults entries)
-   = "\\primopdefaults{" 
+   = "\\primopdefaults{"
 	 ++ mk_options defaults
 	 ++ "}\n"
      ++ (concat (map mk_entry entries))
      where mk_entry (PrimOpSpec {cons=constr,name=n,ty=t,cat=c,desc=d,opts=o}) =
-   		 "\\primopdesc{" 
+   		 "\\primopdesc{"
 		 ++ latex_encode constr ++ "}{"
 		 ++ latex_encode n ++ "}{"
 		 ++ latex_encode (zencode n) ++ "}{"
@@ -348,7 +348,7 @@ gen_latex_doc (Info defaults entries)
 		 ++ mk_options o
 		 ++ "}\n"
            mk_entry (Section {title=ti,desc=d}) =
-		 "\\primopsection{" 
+		 "\\primopsection{"
 		 ++ latex_encode ti ++ "}{"
 		 ++ d ++ "}\n"
            mk_entry (PrimTypeSpec {ty=t,desc=d,opts=o}) =
@@ -374,7 +374,7 @@ gen_latex_doc (Info defaults entries)
 		   pbty t = paty t
 		   paty (TyVar tv) = tv
 		   paty t = "(" ++ pty t ++ ")"
-	   
+
 	   mk_core_ty typ = foralls ++ (pty typ)
 	     where pty (TyF t1 t2) = pbty t1 ++ " -> " ++ pty t2
 		   pty t = pbty t
@@ -388,14 +388,14 @@ gen_latex_doc (Info defaults entries)
 		   utuplenm n = "(#" ++ (replicate (n-1) ',') ++ "#)"
 		   foralls = if tvars == [] then "" else "%forall " ++ (tbinds tvars)
 		   tvars = tvars_of typ
-		   tbinds [] = ". " 
+		   tbinds [] = ". "
 		   tbinds ("o":tbs) = "(o::?) " ++ (tbinds tbs)
 		   tbinds (tv:tbs) = tv ++ " " ++ (tbinds tbs)
 	   tvars_of (TyF t1 t2) = tvars_of t1 `union` tvars_of t2
 	   tvars_of (TyApp _ ts) = foldl union [] (map tvars_of ts)
 	   tvars_of (TyUTup ts) = foldr union [] (map tvars_of ts)
 	   tvars_of (TyVar tv) = [tv]
-	   
+
            mk_options o =
 	     "\\primoptions{"
 	      ++ mk_has_side_effects o ++ "}{"
@@ -419,12 +419,12 @@ gen_latex_doc (Info defaults entries)
 	       Just (OptionString _ _) -> error "String value for boolean option"
                Just (OptionInteger _ _) -> error "Integer value for boolean option"
                Nothing -> ""
-	   
-	   mk_strictness o = 
+
+	   mk_strictness o =
 	     case lookup_attrib "strictness" o of
 	       Just (OptionString _ s) -> s  -- for now
 	       Just _ -> error "Boolean value for strictness"
-	       Nothing -> "" 
+	       Nothing -> ""
 
 	   zencode xs =
 	     case maybe_tuple xs of
@@ -440,19 +440,19 @@ gen_latex_doc (Info defaults entries)
 						(n, ')' : _) -> Just ('Z' : shows (n+1) "T")
 						_	     -> Nothing
 	       maybe_tuple _    	     = Nothing
-	       
+
 	       count_commas :: Int -> String -> (Int, String)
 	       count_commas n (',' : cs) = count_commas (n+1) cs
 	       count_commas n cs	  = (n,cs)
-	       
+
 	       unencodedChar :: Char -> Bool	-- True for chars that don't need encoding
 	       unencodedChar 'Z' = False
 	       unencodedChar 'z' = False
 	       unencodedChar c   = isAlphaNum c
-	       
+
 	       encode_ch :: Char -> String
 	       encode_ch c | unencodedChar c = [c]	-- Common case first
-	       
+
 	       -- Constructors
 	       encode_ch '('  = "ZL"	-- Needed for things like (,), and (->)
 	       encode_ch ')'  = "ZR"	-- For symmetry with (
@@ -460,7 +460,7 @@ gen_latex_doc (Info defaults entries)
 	       encode_ch ']'  = "ZN"
 	       encode_ch ':'  = "ZC"
 	       encode_ch 'Z'  = "ZZ"
-	       
+
 	       -- Variables
 	       encode_ch 'z'  = "zz"
 	       encode_ch '&'  = "za"
@@ -482,7 +482,7 @@ gen_latex_doc (Info defaults entries)
 	       encode_ch '_'  = "zu"
 	       encode_ch '%'  = "zv"
 	       encode_ch c    = 'z' : shows (ord c) "U"
-		       
+
 	   latex_encode [] = []
 	   latex_encode (c:cs) | c `elem` "#$%&_^{}" = "\\" ++ c:(latex_encode cs)
 	   latex_encode ('~':cs) = "\\verb!~!" ++ (latex_encode cs)
@@ -494,8 +494,8 @@ gen_wrappers (Info _ entries)
    = "{-# LANGUAGE NoImplicitPrelude, UnboxedTuples #-}\n"
 	-- Dependencies on Prelude must be explicit in libraries/base, but we
 	-- don't need the Prelude here so we add NoImplicitPrelude.
-     ++ "module GHC.PrimopWrappers where\n" 
-     ++ "import qualified GHC.Prim\n" 
+     ++ "module GHC.PrimopWrappers where\n"
+     ++ "import qualified GHC.Prim\n"
      ++ "import GHC.Types (Bool)\n"
      ++ "import GHC.Tuple ()\n"
      ++ "import GHC.Prim (" ++ types ++ ")\n"
@@ -516,13 +516,13 @@ gen_wrappers (Info _ entries)
                 | otherwise = "(" ++ nm ++ ")"
 
         dodgy spec
-           = name spec `elem` 
+           = name spec `elem`
              [-- C code generator can't handle these
-              "seq#", 
+              "seq#",
               "tagToEnum#",
               -- not interested in parallel support
-              "par#", "parGlobal#", "parLocal#", "parAt#", 
-              "parAtAbs#", "parAtRel#", "parAtForNow#" 
+              "par#", "parGlobal#", "parLocal#", "parAt#",
+              "parAtAbs#", "parAtRel#", "parAtForNow#"
              ]
 
 gen_primop_list :: Info -> String
@@ -531,7 +531,7 @@ gen_primop_list (Info _ entries)
         [      "   [" ++ cons first       ]
         ++
         map (\p -> "   , " ++ cons p) rest
-        ++ 
+        ++
         [     "   ]"     ]
      ) where (first:rest) = filter is_primop entries
 
@@ -570,7 +570,7 @@ gen_switch_from_attribs attrib_name fn_name (Info defaults entries)
      in
          case defv of
             Nothing -> error ("gen_switch_from: " ++ attrib_name)
-            Just xx 
+            Just xx
                -> unlines alternatives
                   ++ fn_name ++ " _ = " ++ getAltRhs xx ++ "\n"
 
@@ -592,9 +592,9 @@ mkPOI_LHS_text i
 mkPOI_RHS_text :: Entry -> String
 mkPOI_RHS_text i
    = case cat i of
-        Compare 
+        Compare
            -> case ty i of
-                 TyF t1 (TyF _ _) 
+                 TyF t1 (TyF _ _)
                     -> "mkCompare " ++ sl_name i ++ ppType t1
                  _ -> error "Type error in comparison op"
         Monadic
@@ -611,7 +611,7 @@ mkPOI_RHS_text i
            -> let (argTys, resTy) = flatTys (ty i)
                   tvs = nub (tvsIn (ty i))
               in
-                  "mkGenPrimOp " ++ sl_name i ++ " " 
+                  "mkGenPrimOp " ++ sl_name i ++ " "
                       ++ listify (map ppTyVar tvs) ++ " "
                       ++ listify (map ppType argTys) ++ " "
                       ++ "(" ++ ppType resTy ++ ")"
@@ -644,6 +644,7 @@ ppType (TyApp "Double#"     []) = "doublePrimTy"
 ppType (TyApp "ByteArray#"  []) = "byteArrayPrimTy"
 ppType (TyApp "RealWorld"   []) = "realWorldTy"
 ppType (TyApp "ThreadId#"   []) = "threadIdPrimTy"
+ppType (TyApp "SCont#"      []) = "sContPrimTy"
 ppType (TyApp "ForeignObj#" []) = "foreignObjPrimTy"
 ppType (TyApp "BCO#"        []) = "bcoPrimTy"
 ppType (TyApp "()"          []) = "unitTy" 	-- unitTy is TysWiredIn's name for ()
@@ -655,27 +656,26 @@ ppType (TyVar "s")                      = "deltaTy"
 ppType (TyVar "o")                      = "openAlphaTy"
 
 ppType (TyApp "State#" [x])             = "mkStatePrimTy " ++ ppType x
-ppType (TyApp "MutVar#" [x,y])          = "mkMutVarPrimTy " ++ ppType x 
+ppType (TyApp "MutVar#" [x,y])          = "mkMutVarPrimTy " ++ ppType x
                                           ++ " " ++ ppType y
 ppType (TyApp "MutableArray#" [x,y])    = "mkMutableArrayPrimTy " ++ ppType x
                                            ++ " " ++ ppType y
 ppType (TyApp "MutableArrayArray#" [x]) = "mkMutableArrayArrayPrimTy " ++ ppType x
-ppType (TyApp "MutableByteArray#" [x])  = "mkMutableByteArrayPrimTy " 
+ppType (TyApp "MutableByteArray#" [x])  = "mkMutableByteArrayPrimTy "
                                           ++ ppType x
 ppType (TyApp "Array#" [x])             = "mkArrayPrimTy " ++ ppType x
 ppType (TyApp "ArrayArray#" [])         = "mkArrayArrayPrimTy"
 
+ppType (TyApp "Weak#"  [x])             = "mkWeakPrimTy " ++ ppType x
+ppType (TyApp "StablePtr#"  [x])        = "mkStablePtrPrimTy " ++ ppType x
+ppType (TyApp "StableName#"  [x])       = "mkStableNamePrimTy " ++ ppType x
 
-ppType (TyApp "Weak#"  [x])      = "mkWeakPrimTy " ++ ppType x
-ppType (TyApp "StablePtr#"  [x])      = "mkStablePtrPrimTy " ++ ppType x
-ppType (TyApp "StableName#"  [x])      = "mkStableNamePrimTy " ++ ppType x
-
-ppType (TyApp "MVar#" [x,y])     = "mkMVarPrimTy " ++ ppType x 
-                                   ++ " " ++ ppType y
-ppType (TyApp "TVar#" [x,y])     = "mkTVarPrimTy " ++ ppType x 
-                                   ++ " " ++ ppType y
-ppType (TyUTup ts)               = "(mkTupleTy UnboxedTuple " 
-                                   ++ listify (map ppType ts) ++ ")"
+ppType (TyApp "MVar#" [x,y])            = "mkMVarPrimTy " ++ ppType x
+                                          ++ " " ++ ppType y
+ppType (TyApp "TVar#" [x,y])            = "mkTVarPrimTy " ++ ppType x
+                                          ++ " " ++ ppType y
+ppType (TyUTup ts)                      = "(mkTupleTy UnboxedTuple "
+                                          ++ listify (map ppType ts) ++ ")"
 
 ppType (TyF s d) = "(mkFunTy (" ++ ppType s ++ ") (" ++ ppType d ++ "))"
 
