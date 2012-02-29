@@ -1,6 +1,15 @@
+{-# LANGUAGE Trustworthy #-}
+{-# LANGUAGE CPP
+           , ForeignFunctionInterface
+           , MagicHash
+           , UnboxedTuples
+           , ScopedTypeVariables
+  #-}
+{-# OPTIONS_GHC -fno-warn-unused-imports #-}
+
 -----------------------------------------------------------------------------
 -- |
--- Module      :  concurrentRRScheduler
+-- Module      :  LwConc.Schedulers.ConcRRSched
 -- Copyright   :  (c) The University of Glasgow 2001
 -- License     :  BSD-style (see the file libraries/base/LICENSE)
 -- 
@@ -8,12 +17,12 @@
 -- Stability   :  experimental
 -- Portability :  non-portable (concurrency)
 --
--- A concurrent round-robin scheduler
+-- A concurrent round-robin scheduler.
 --
 -----------------------------------------------------------------------------
 
 
-module ConcRRSched
+module LwConc.Schedulers.ConcRRSched
 (ConcRRSched
 , newConcRRSched      -- IO (ConcRRSched)
 , forkIO              -- ConcRRSched -> IO () -> IO ()

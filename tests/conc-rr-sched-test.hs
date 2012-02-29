@@ -1,4 +1,4 @@
-import ConcRRSched
+import LwConc.Schedulers.ConcRRSched
 
 task n = do
   print $ "In thread"++show n

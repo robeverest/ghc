@@ -187,6 +187,7 @@ Library {
         Foreign.Storable,
         LwConc.Substrate,
         LwConc.MVarPrim,
+        LwConc.Schedulers.ConcRRSched,
         Numeric,
         Prelude,
         System.Console.GetOpt
