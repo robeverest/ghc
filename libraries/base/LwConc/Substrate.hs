@@ -24,16 +24,19 @@
 
 module LwConc.Substrate
 ( PTM
-, PVar
-, unsafeIOToPTM
-, newPVar
-, newPVarIO
-, readPVar
-, writePVar
-, atomically
+, unsafeIOToPTM   -- IO a -> PTM a
+, atomically      -- PTM a -> IO a
 
-, newSCont  -- IO () -> IO SCont
-, switch    -- (SCont -> PTM SCont) -> IO ()
+, PVar
+, newPVar         -- a -> PTM (PVar a)
+, newPVarIO       -- a -> IO (PVar a)
+, readPVar        -- PVar a -> PTM a
+, writePVar       -- PVar a -> a -> PTM ()
+
+, newSCont        -- IO () -> IO SCont
+, switch          -- (SCont -> PTM SCont) -> IO ()
+, getSCont        -- PTM SCont
+, switchSContPTM  -- SCont -> PTM ()
 ) where
 
 import Prelude

@@ -23,10 +23,10 @@
 
 module LwConc.MVarPrim
 ( MVarPrim
-, newMVarPrim
-, newEmptyMVarPrim
-, putMVarPrim
-, takeMVarPrim
+, newMVarPrim       -- a -> IO (MVarPrim a)
+, newEmptyMVarPrim  -- IO (MVarPrim a)
+, putMVarPrim       -- PTM () -> PTM () -> MVarPrim a -> a -> IO ()
+, takeMVarPrim      -- PTM () -> PTM () -> MVarPrim a -> IO a
 ) where
 
 import Prelude
@@ -50,6 +50,20 @@ newEmptyMVarPrim = do
   ref <- newPVarIO (Empty [])
   return $ MVarPrim ref
 
+{-# INLINE putMVarPrim #-}
+putMVarPrim :: PTM () -> PTM () -> MVarPrim a -> a -> IO ()
+putMVarPrim blockAct unblockAct (MVarPrim ref) x = atomically $ do
+  st <- readPVar ref
+  case st of
+       Empty [] -> do
+         writePVar ref $ Full x []
+       Empty ((hole, wakeup):ts) -> do
+         unsafeIOToPTM $ writeIORef hole x
+         writePVar ref $ Empty ts
+         wakeup
+       Full x' ts -> do
+         writePVar ref $ Full x' $ ts++[(x, unblockAct)]
+         blockAct
 
 {-# INLINE takeMVarPrim #-}
 takeMVarPrim :: PTM () -> PTM () -> MVarPrim a -> IO a
@@ -71,17 +85,3 @@ takeMVarPrim blockAct unblockAct (MVarPrim ref) = do
   readIORef hole
 
 
-{-# INLINE putMVarPrim #-}
-putMVarPrim :: PTM () -> PTM () -> MVarPrim a -> a -> IO ()
-putMVarPrim blockAct unblockAct (MVarPrim ref) x = atomically $ do
-  st <- readPVar ref
-  case st of
-       Empty [] -> do
-         writePVar ref $ Full x []
-       Empty ((hole, wakeup):ts) -> do
-         unsafeIOToPTM $ writeIORef hole x
-         writePVar ref $ Empty ts
-         wakeup
-       Full x' ts -> do
-         writePVar ref $ Full x' $ ts++[(x, unblockAct)]
-         blockAct
