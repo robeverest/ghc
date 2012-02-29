@@ -9,5 +9,5 @@ main = do
       fork n = do
         forkIO sched $ task n
         fork $ n-1
-  fork 10
+  fork 100
   yield sched

@@ -22,69 +22,52 @@ module ConcRRSched
 ) where
 
 import LwConc.Substrate
-import GHC.IORef
 
-type CurrentHolePtr = IORef (IORef SCont)
-newtype ConcRRSched = ConcRRSched (PVar [(SCont, IORef SCont)], CurrentHolePtr)
+newtype ConcRRSched = ConcRRSched (PVar [SCont])
 
 newConcRRSched :: IO (ConcRRSched)
 newConcRRSched = do
   ref <- newPVarIO []
-  newHole <- newIORef undefined
-  currentHolePtr <- newIORef newHole
-  return $ ConcRRSched (ref, currentHolePtr)
+  return $ ConcRRSched (ref)
 
 forkIO :: ConcRRSched -> IO () -> IO ()
-forkIO sched task = do
-  let (ConcRRSched (ref, _)) = sched
+forkIO (ConcRRSched ref) task = do
   let yieldingTask = do {
     task;
-    yield sched;
+    yield $ ConcRRSched ref
   }
   thread <- newSCont yieldingTask
-  hole <- newIORef undefined
   atomically $ do
     contents <- readPVar ref
-    writePVar ref $ contents++[(thread, hole)]
+    writePVar ref $ contents++[thread]
+
+
+enqueAndSwitchToNext :: ConcRRSched -> SCont -> PTM ()
+enqueAndSwitchToNext (ConcRRSched ref) s = do
+  contents <- readPVar ref
+  case contents of
+       [] -> switchSContPTM s
+       (x:tail) -> do
+         writePVar ref $ tail++[s]
+         switchSContPTM x
+
+enque :: ConcRRSched -> SCont -> PTM ()
+enque (ConcRRSched ref) s = do
+  contents <- readPVar ref
+  writePVar ref $ contents++[s]
 
 yield :: ConcRRSched -> IO ()
-yield (ConcRRSched (ref, currentHolePtr)) = do
-  oldCurrentHole <- readIORef currentHolePtr
-  switch (\s -> do
-    contents <- readPVar ref
-    case contents of
-         [] -> return s
-         ((x, newCurrentHole):tail) -> do
-           writePVar ref $ tail++[(s, oldCurrentHole)]
-           unsafeIOToPTM $ writeIORef currentHolePtr newCurrentHole
-           return x)
-
-
+yield sched = atomically $ do
+  s <- getSCont
+  enqueAndSwitchToNext sched s
 
 -- blockAction must be called by the same thread (say t) which invoked
 -- getSchedActionPair. unblockAction must be called by a thread other than t,
 -- which adds t back to its scheduler.
 
 getSchedActionPair :: ConcRRSched -> IO (PTM (), PTM ())
-getSchedActionPair (ConcRRSched (ref, currentHolePtr)) = do
-  currentHole <- readIORef currentHolePtr
-  let blockAction = do {
-    s <- getSCont;
-    contents <- readPVar ref;
-    case contents of
-         [] -> undefined -- what happens if I am blocked but I have no other
-                         -- thread on my scheduler? (1) Should I abort the
-                         -- transaction? (2) Should I throw an exception that will
-                         -- be caught by my parent scheduler?
-         ((x, newCurrentHole):tail) -> do
-           unsafeIOToPTM $ writeIORef currentHole s
-           writePVar ref tail
-           unsafeIOToPTM $ writeIORef currentHolePtr newCurrentHole
-           switchSContPTM x
-  }
-  let unblockAction = do {
-    s <- unsafeIOToPTM $ readIORef currentHole;
-    contents <- readPVar ref;
-    writePVar ref $ contents++[(s, currentHole)]
-  }
+getSchedActionPair sched = do
+  s <- atomically $ getSCont
+  let blockAction   = enqueAndSwitchToNext sched s
+  let unblockAction = enque sched s
   return (blockAction, unblockAction)
