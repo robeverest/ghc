@@ -6,5 +6,8 @@ task n = do
 main = do
   sched <- newConcRRSched
   let fork 0 = return ()
-      fork n = forkIO sched $ task n
+      fork n = do
+        forkIO sched $ task n
+        fork $ n-1
+  fork 10
   yield sched

@@ -16,6 +16,7 @@ all: $(TARGETS)
 %.bin:	%.hs
 	$(GHC) $< -o $@
 
+
 %.cmm:  %.hs
 	$(GHC) -c $< -ddump-cmm >$@
 
