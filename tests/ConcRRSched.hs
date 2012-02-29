@@ -15,7 +15,7 @@
 
 module ConcRRSched
 (ConcRRSched
-, newConcRRSched      -- IO () -> IO (ConcRRSched)
+, newConcRRSched      -- IO (ConcRRSched)
 , forkIO              -- ConcRRSched -> IO () -> IO ()
 , yield               -- ConcRRSched -> IO ()
 , getSchedActionPair  -- ConcRRSched -> IO (PTM (), PTM ())
@@ -27,10 +27,11 @@ import GHC.IORef
 type CurrentHolePtr = IORef (IORef SCont)
 newtype ConcRRSched = ConcRRSched (PVar [(SCont, IORef SCont)], CurrentHolePtr)
 
-newConcRRSched :: IO () -> IO (ConcRRSched)
+newConcRRSched :: IO (ConcRRSched)
 newConcRRSched = do
   ref <- newPVarIO []
-  currentHolePtr <- newIORef $ newIORef undefined
+  newHole <- newIORef undefined
+  currentHolePtr <- newIORef newHole
   return $ ConcRRSched (ref, currentHolePtr)
 
 forkIO :: ConcRRSched -> IO () -> IO ()
@@ -64,7 +65,7 @@ yield (ConcRRSched (ref, currentHolePtr)) = do
 -- getSchedActionPair. unblockAction must be called by a thread other than t,
 -- which adds t back to its scheduler.
 
-getSchedActionPair :: ConcRRSched -> (PTM (), PTM ())
+getSchedActionPair :: ConcRRSched -> IO (PTM (), PTM ())
 getSchedActionPair (ConcRRSched (ref, currentHolePtr)) = do
   currentHole <- readIORef currentHolePtr
   let blockAction = do {
@@ -86,3 +87,4 @@ getSchedActionPair (ConcRRSched (ref, currentHolePtr)) = do
     contents <- readPVar ref;
     writePVar ref $ contents++[(s, currentHole)]
   }
+  return (blockAction, unblockAction)
