@@ -13,7 +13,7 @@
 -----------------------------------------------------------------------------
 
 
-module concurrentRRScheduler
+module ConcRRSched
 (ConcRRSched
 , newConcRRSched      -- IO () -> IO (ConcRRSched)
 , forkIO              -- ConcRRSched -> IO () -> IO ()
@@ -24,7 +24,7 @@ module concurrentRRScheduler
 import LwConc.Substrate
 import GHC.IORef
 
-type CurrentHolePtr = IORef $ IORef SCont
+type CurrentHolePtr = IORef (IORef SCont)
 newtype ConcRRSched = ConcRRSched (PVar [(SCont, IORef SCont)], CurrentHolePtr)
 
 newConcRRSched :: IO () -> IO (ConcRRSched)
@@ -34,8 +34,13 @@ newConcRRSched = do
   return $ ConcRRSched (ref, currentHolePtr)
 
 forkIO :: ConcRRSched -> IO () -> IO ()
-forkIO (ConcRRSched (ref, _)) task = do
-  thread <- newSCont task
+forkIO sched task = do
+  let (ConcRRSched (ref, _)) = sched
+  let yieldingTask = do {
+    task;
+    yield sched;
+  }
+  thread <- newSCont yieldingTask
   hole <- newIORef undefined
   atomically $ do
     contents <- readPVar ref
@@ -62,9 +67,9 @@ yield (ConcRRSched (ref, currentHolePtr)) = do
 getSchedActionPair :: ConcRRSched -> (PTM (), PTM ())
 getSchedActionPair (ConcRRSched (ref, currentHolePtr)) = do
   currentHole <- readIORef currentHolePtr
-  let blockAction = do
-    s <- getSCont
-    contents <- readPVar ref
+  let blockAction = do {
+    s <- getSCont;
+    contents <- readPVar ref;
     case contents of
          [] -> undefined -- what happens if I am blocked but I have no other
                          -- thread on my scheduler? (1) Should I abort the
@@ -75,7 +80,9 @@ getSchedActionPair (ConcRRSched (ref, currentHolePtr)) = do
            writePVar ref tail
            unsafeIOToPTM $ writeIORef currentHolePtr newCurrentHole
            switchSContPTM x
-  let unblockAction = do
-    s <- unsafeIOToPTM $ readIORef currentHole
-    contents <- readPVar ref
+  }
+  let unblockAction = do {
+    s <- unsafeIOToPTM $ readIORef currentHole;
+    contents <- readPVar ref;
     writePVar ref $ contents++[(s, currentHole)]
+  }

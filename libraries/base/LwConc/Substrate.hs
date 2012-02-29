@@ -33,6 +33,7 @@ module LwConc.Substrate
 , readPVar        -- PVar a -> PTM a
 , writePVar       -- PVar a -> a -> PTM ()
 
+, SCont
 , newSCont        -- IO () -> IO SCont
 , switch          -- (SCont -> PTM SCont) -> IO ()
 , getSCont        -- PTM SCont
