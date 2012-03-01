@@ -6,7 +6,7 @@
  *
  * Documentation on the architecture of the Storage Manager can be
  * found in the online commentary:
- * 
+ *
  *   http://hackage.haskell.org/trac/ghc/wiki/Commentary/Rts/Storage
  *
  * ---------------------------------------------------------------------------*/
@@ -34,7 +34,7 @@
 
 #include "ffi.h"
 
-/* 
+/*
  * All these globals require sm_mutex to access in THREADED_RTS mode.
  */
 StgClosure    *caf_list         = NULL;
@@ -110,22 +110,22 @@ initStorage( void )
   ASSERT(LOOKS_LIKE_INFO_PTR_NOT_NULL((StgWord)&stg_BLOCKING_QUEUE_CLEAN_info));
   ASSERT(LOOKS_LIKE_CLOSURE_PTR(&stg_dummy_ret_closure));
   ASSERT(!HEAP_ALLOCED(&stg_dummy_ret_closure));
-  
+
   if (RtsFlags.GcFlags.maxHeapSize != 0 &&
-      RtsFlags.GcFlags.heapSizeSuggestion > 
+      RtsFlags.GcFlags.heapSizeSuggestion >
       RtsFlags.GcFlags.maxHeapSize) {
     RtsFlags.GcFlags.maxHeapSize = RtsFlags.GcFlags.heapSizeSuggestion;
   }
 
   if (RtsFlags.GcFlags.maxHeapSize != 0 &&
-      RtsFlags.GcFlags.minAllocAreaSize > 
+      RtsFlags.GcFlags.minAllocAreaSize >
       RtsFlags.GcFlags.maxHeapSize) {
       errorBelch("maximum heap size (-M) is smaller than minimum alloc area size (-A)");
       RtsFlags.GcFlags.minAllocAreaSize = RtsFlags.GcFlags.maxHeapSize;
   }
 
   initBlockAllocator();
-  
+
 #if defined(THREADED_RTS)
   initMutex(&sm_mutex);
 #endif
@@ -133,7 +133,7 @@ initStorage( void )
   ACQUIRE_SM_LOCK;
 
   /* allocate generation info array */
-  generations = (generation *)stgMallocBytes(RtsFlags.GcFlags.generations 
+  generations = (generation *)stgMallocBytes(RtsFlags.GcFlags.generations
 					     * sizeof(struct generation_),
 					     "initStorage: gens");
 
@@ -151,7 +151,7 @@ initStorage( void )
       generations[g].to = &generations[g+1];
   }
   oldest_gen->to = oldest_gen;
-  
+
   /* The oldest generation has one step. */
   if (RtsFlags.GcFlags.compact || RtsFlags.GcFlags.sweep) {
       if (RtsFlags.GcFlags.generations == 1) {
@@ -168,7 +168,7 @@ initStorage( void )
   weak_ptr_list = NULL;
   caf_list = END_OF_STATIC_LIST;
   revertible_caf_list = END_OF_STATIC_LIST;
-   
+
   /* initialise the allocate() interface */
   large_alloc_lim = RtsFlags.GcFlags.minAllocAreaSize * BLOCK_SIZE_W;
 
@@ -247,7 +247,7 @@ freeStorage (rtsBool free_heap)
    CAF management.
 
    The entry code for every CAF does the following:
-     
+
       - builds a CAF_BLACKHOLE in the heap
 
       - calls newCaf, which atomically updates the CAF with
@@ -265,7 +265,7 @@ freeStorage (rtsBool free_heap)
    frames would also need special cases for static update frames.
 
    newCaf() does the following:
-       
+
       - it updates the CAF with an IND_STATIC pointing to the
         CAF_BLACKHOLE, atomically.
 
@@ -476,7 +476,7 @@ assignNurseriesToCapabilities (nat from, nat to)
 
 static void
 allocNurseries (nat from, nat to)
-{ 
+{
     nat i;
 
     for (i = from; i < to; i++) {
@@ -487,7 +487,7 @@ allocNurseries (nat from, nat to)
     }
     assignNurseriesToCapabilities(from, to);
 }
-      
+
 lnat // words allocated
 clearNurseries (void)
 {
@@ -536,14 +536,14 @@ resizeNursery ( nursery *nursery, nat blocks )
   if (nursery_blocks == blocks) return;
 
   if (nursery_blocks < blocks) {
-      debugTrace(DEBUG_gc, "increasing size of nursery to %d blocks", 
+      debugTrace(DEBUG_gc, "increasing size of nursery to %d blocks",
 		 blocks);
     nursery->blocks = allocNursery(nursery->blocks, blocks-nursery_blocks);
-  } 
+  }
   else {
     bdescr *next_bd;
-    
-    debugTrace(DEBUG_gc, "decreasing size of nursery to %d blocks", 
+
+    debugTrace(DEBUG_gc, "decreasing size of nursery to %d blocks",
 	       blocks);
 
     bd = nursery->blocks;
@@ -561,12 +561,12 @@ resizeNursery ( nursery *nursery, nat blocks )
 	nursery->blocks = allocNursery(nursery->blocks, blocks-nursery_blocks);
     }
   }
-  
+
   nursery->n_blocks = blocks;
   ASSERT(countBlocks(nursery->blocks) == nursery->n_blocks);
 }
 
-// 
+//
 // Resize each of the nurseries to the specified size.
 //
 void
@@ -578,7 +578,7 @@ resizeNurseriesFixed (nat blocks)
     }
 }
 
-// 
+//
 // Resize the nurseries to the total specified size.
 //
 void
@@ -600,8 +600,8 @@ move_STACK (StgStack *src, StgStack *dest)
 {
     ptrdiff_t diff;
 
-    // relocate the stack pointer... 
-    diff = (StgPtr)dest - (StgPtr)src; // In *words* 
+    // relocate the stack pointer...
+    diff = (StgPtr)dest - (StgPtr)src; // In *words*
     dest->sp = (StgPtr)dest->sp + diff;
 }
 
@@ -626,13 +626,13 @@ allocate (Capability *cap, lnat n)
 
     TICK_ALLOC_HEAP_NOCTR(n);
     CCS_ALLOC(cap->r.rCCCS,n);
-    
+
     if (n >= LARGE_OBJECT_THRESHOLD/sizeof(W_)) {
 	lnat req_blocks =  (lnat)BLOCK_ROUND_UP(n*sizeof(W_)) / BLOCK_SIZE;
 
         // Attempting to allocate an object larger than maxHeapSize
         // should definitely be disallowed.  (bug #1791)
-        if (RtsFlags.GcFlags.maxHeapSize > 0 && 
+        if (RtsFlags.GcFlags.maxHeapSize > 0 &&
             req_blocks >= RtsFlags.GcFlags.maxHeapSize) {
             heapOverflow();
             // heapOverflow() doesn't exit (see #2592), but we aren't
@@ -660,12 +660,12 @@ allocate (Capability *cap, lnat n)
 
     bd = cap->r.rCurrentAlloc;
     if (bd == NULL || bd->free + n > bd->start + BLOCK_SIZE_W) {
-        
+
         // The CurrentAlloc block is full, we need to find another
         // one.  First, we try taking the next block from the
         // nursery:
         bd = cap->r.rCurrentNursery->link;
-        
+
         if (bd == NULL || bd->free + n > bd->start + BLOCK_SIZE_W) {
             // The nursery is empty, or the next block is already
             // full: allocate a fresh block (we can't fail here).
@@ -739,7 +739,7 @@ allocatePinned (Capability *cap, lnat n)
     CCS_ALLOC(cap->r.rCCCS,n);
 
     bd = cap->pinned_object_block;
-    
+
     // If we don't have a block of pinned objects yet, or the current
     // one isn't large enough to hold the new object, allocate a new one.
     if (bd == NULL || (bd->free + n) > (bd->start + BLOCK_SIZE_W)) {
@@ -820,6 +820,13 @@ setTSOPrev (Capability *cap, StgTSO *tso, StgTSO *target)
     tso->block_info.prev = target;
 }
 
+StgPtr
+tso_SpLim (StgTSO* tso)
+{
+    return tso->stackobj->stack + RESERVED_STACK_WORDS;
+}
+
+
 void
 dirty_TSO (Capability *cap, StgTSO *tso)
 {
@@ -884,7 +891,7 @@ calcAllocated (rtsBool include_nurseries)
   allocated += g0->n_new_large_words;
 
   return allocated;
-}  
+}
 
 lnat countOccupied (bdescr *bd)
 {
@@ -963,19 +970,19 @@ lnat calcLiveBlocks (void)
  * that will be collected next time will therefore need twice as many
  * blocks since all the data will be copied.
  */
-extern lnat 
+extern lnat
 calcNeeded(void)
 {
     lnat needed = 0;
     nat g;
     generation *gen;
-    
+
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
         gen = &generations[g];
 
         // we need at least this much space
         needed += gen->n_blocks + gen->n_large_blocks;
-        
+
         // any additional space needed to collect this gen next time?
         if (g == 0 || // always collect gen 0
             (gen->n_blocks + gen->n_large_blocks > gen->max_blocks)) {
@@ -1034,7 +1041,7 @@ void *allocateExec (nat bytes, void **exec_ret)
     return (ret + 1);
 }
 
-// freeExec gets passed the executable address, not the writable address. 
+// freeExec gets passed the executable address, not the writable address.
 void freeExec (void *addr)
 {
     void *writable;
@@ -1060,7 +1067,7 @@ void *allocateExec (nat bytes, void **exec_ret)
 	barf("allocateExec: can't handle large objects");
     }
 
-    if (exec_block == NULL || 
+    if (exec_block == NULL ||
 	exec_block->free + n + 1 > exec_block->start + BLOCK_SIZE_W) {
 	bdescr *bd;
 	lnat pagesize = getPageSize();
@@ -1118,7 +1125,7 @@ void freeExec (void *addr)
     }
 
     RELEASE_SM_LOCK
-}    
+}
 
 #endif /* mingw32_HOST_OS */
 

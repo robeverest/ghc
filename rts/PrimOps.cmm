@@ -610,6 +610,7 @@ stg_atomicSwitchzh
   W_ outer;
   W_ r;
   W_ valid;
+  W_ limit;
 
   tso = R1;
   MAYBE_GC (NO_PTRS, stg_retryzh); // STM operations may allocate
@@ -669,7 +670,10 @@ retry_pop_stack:
 
     if (CurrentTSO != tso) {
       foreign "C" dirty_TSO (MyCapability() "ptr", tso "ptr") [];
+      foreign "C" dirty_STACK (MyCapability() "ptr", StgTSO_stackobj(tso) "ptr") [];
       CurrentTSO = tso;
+      ("ptr" limit)  = foreign "C" tso_SpLim (tso "ptr") [];
+      SpLim = limit;
     }
     Sp = StgStack_sp(StgTSO_stackobj(CurrentTSO));
     jump %ENTRY_CODE(Sp(0));

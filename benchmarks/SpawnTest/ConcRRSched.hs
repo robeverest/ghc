@@ -35,24 +35,23 @@ forkIO :: ConcRRSched -> IO () -> IO ()
 forkIO (ConcRRSched ref) task = do
   let yieldingTask = do {
     task;
-    yield $ ConcRRSched ref
+    atomically $ switchToNextWith (ConcRRSched ref) (\tail -> tail)
   }
   thread <- newSCont yieldingTask
   atomically $ do
     contents <- readPVar ref
     writePVar ref $ contents Seq.|> thread
 
-
-enqueAndSwitchToNext :: ConcRRSched -> SCont -> PTM ()
-enqueAndSwitchToNext (ConcRRSched ref) s = do
-  contents <- readPVar ref
+switchToNextWith :: ConcRRSched -> (Seq.Seq SCont -> Seq.Seq SCont) -> PTM ()
+switchToNextWith (ConcRRSched ref) f = do
+  oldContents <- readPVar ref
+  let contents = f oldContents
   if Seq.length contents == 0
-     then switchSContPTM s
+     then undefined
      else do
        let x = Seq.index contents 0
        let tail = Seq.drop 1 contents
-       let newSeq = tail Seq.|> s
-       writePVar ref $ newSeq
+       writePVar ref $ tail
        switchSContPTM x
 
 enque :: ConcRRSched -> SCont -> PTM ()
@@ -64,7 +63,7 @@ enque (ConcRRSched ref) s = do
 yield :: ConcRRSched -> IO ()
 yield sched = atomically $ do
   s <- getSCont
-  enqueAndSwitchToNext sched s
+  switchToNextWith sched (\tail -> tail Seq.|> s)
 
 -- blockAction must be called by the same thread (say t) which invoked
 -- getSchedActionPair. unblockAction must be called by a thread other than t,
@@ -73,6 +72,6 @@ yield sched = atomically $ do
 getSchedActionPair :: ConcRRSched -> IO (PTM (), PTM ())
 getSchedActionPair sched = do
   s <- atomically $ getSCont
-  let blockAction   = enqueAndSwitchToNext sched s
+  let blockAction   = switchToNextWith sched (\tail -> tail Seq.|> s)
   let unblockAction = enque sched s
   return (blockAction, unblockAction)
