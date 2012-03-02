@@ -2,18 +2,23 @@ import ConcRRSched
 import System.Environment
 
 task n = do
-  --print $ "Running" ++ show n
+  -- print $ "Running" ++ show n
   return ()
 
-loop _ 0 = return ()
-loop s n = do
-  forkIO s $ task n
-  yield s
-  loop s $ n-1
+loop _ tick (0, maxTick) = return ()
+loop sched tick (n, maxTick) = do
+  forkIO sched $ task n
+  tick <- if tick == maxTick
+             then do {
+              yield sched;
+              return 0
+             }
+             else return (tick+1)
+  loop sched tick (n-1, maxTick)
 
 
-parse [] = "1"
-parse (a:_) = a
+parse (a:b:_) = (rInt a, rInt b)
+parse otherwise = undefined
 
 rInt :: String -> Int
 rInt = read
@@ -21,5 +26,5 @@ rInt = read
 main = do
   args <- getArgs
   sched <- newConcRRSched
-  loop sched $ rInt $ parse args
+  loop sched 0 $ parse args
   yield sched

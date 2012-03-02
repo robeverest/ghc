@@ -15,20 +15,23 @@
 #ifndef RTS_THREADS_H
 #define RTS_THREADS_H
 
-// 
+//
 // Creating threads
 //
-StgTSO *createThread (Capability *cap, nat stack_size);
+StgTSO *createThread (Capability *cap, nat stack_size,
+                      rtsBool is_user_level_thread);
 
 void scheduleWaitThread (/* in    */ StgTSO *tso,
                          /* out   */ HaskellObj* ret,
                          /* inout */ Capability **cap);
 
-StgTSO *createGenThread       (Capability *cap, nat stack_size,  
+StgTSO *createGenThread       (Capability *cap, nat stack_size,
 			       StgClosure *closure);
-StgTSO *createIOThread        (Capability *cap, nat stack_size,  
+StgTSO *createIOThread        (Capability *cap, nat stack_size,
 			       StgClosure *closure);
-StgTSO *createStrictIOThread  (Capability *cap, nat stack_size,  
+StgTSO *createUserLevelThread (Capability *cap, nat stack_size,
+			       StgClosure *closure);
+StgTSO *createStrictIOThread  (Capability *cap, nat stack_size,
 			       StgClosure *closure);
 
 // Suspending/resuming threads around foreign calls

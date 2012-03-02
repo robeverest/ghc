@@ -697,7 +697,7 @@ stg_newSContzh
   W_ threadid;
   closure = R1;
 
-  ("ptr" threadid) = foreign "C" createIOThread( MyCapability() "ptr",
+  ("ptr" threadid) = foreign "C" createUserLevelThread( MyCapability() "ptr",
 				RtsFlags_GcFlags_initialStkSize(RtsFlags),
 				closure "ptr") [];
 

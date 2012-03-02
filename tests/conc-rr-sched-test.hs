@@ -1,13 +1,30 @@
-import LwConc.Schedulers.ConcRRSched
+import ConcRRSched
+import System.Environment
 
 task n = do
-  print $ "In thread"++show n
+  -- print $ "Running" ++ show n
+  return ()
+
+loop _ tick (0, maxTick) = return ()
+loop sched tick (n, maxTick) = do
+  forkIO sched $ task n
+  tick <- if tick == maxTick
+             then do {
+              yield sched;
+              return 0
+             }
+             else return (tick+1)
+  loop sched tick (n-1, maxTick)
+
+
+parse (a:b:_) = (rInt a, rInt b)
+parse otherwise = undefined
+
+rInt :: String -> Int
+rInt = read
 
 main = do
+  args <- getArgs
   sched <- newConcRRSched
-  let fork 0 = return ()
-      fork n = do
-        forkIO sched $ task n
-        fork $ n-1
-  fork 100
+  loop sched 0 $ parse args
   yield sched

@@ -383,7 +383,7 @@ StgTSO *
 createGenThread (Capability *cap, nat stack_size,  StgClosure *closure)
 {
   StgTSO *t;
-  t = createThread (cap, stack_size);
+  t = createThread (cap, stack_size, rtsFalse);
   pushClosure(t, (W_)closure);
   pushClosure(t, (W_)&stg_enter_info);
   return t;
@@ -393,12 +393,25 @@ StgTSO *
 createIOThread (Capability *cap, nat stack_size,  StgClosure *closure)
 {
   StgTSO *t;
-  t = createThread (cap, stack_size);
+  t = createThread (cap, stack_size, rtsFalse);
   pushClosure(t, (W_)&stg_ap_v_info);
   pushClosure(t, (W_)closure);
   pushClosure(t, (W_)&stg_enter_info);
   return t;
 }
+
+StgTSO *
+createUserLevelThread (Capability *cap, nat stack_size,  StgClosure *closure)
+{
+  StgTSO *t;
+  t = createThread (cap, stack_size, rtsTrue);
+  pushClosure(t, (W_)&stg_ap_v_info);
+  pushClosure(t, (W_)closure);
+  pushClosure(t, (W_)&stg_enter_info);
+  return t;
+}
+
+
 
 /*
  * Same as above, but also evaluate the result of the IO action
@@ -409,7 +422,7 @@ StgTSO *
 createStrictIOThread(Capability *cap, nat stack_size,  StgClosure *closure)
 {
   StgTSO *t;
-  t = createThread(cap, stack_size);
+  t = createThread(cap, stack_size, rtsFalse);
   pushClosure(t, (W_)&stg_forceIO_info);
   pushClosure(t, (W_)&stg_ap_v_info);
   pushClosure(t, (W_)closure);
@@ -426,7 +439,7 @@ void rts_eval (/* inout */ Capability **cap,
                /* out */   HaskellObj *ret)
 {
     StgTSO *tso;
-    
+
     tso = createGenThread(*cap, RtsFlags.GcFlags.initialStkSize, p);
     scheduleWaitThread(tso,ret,cap);
 }
@@ -450,8 +463,8 @@ void rts_evalIO (/* inout */ Capability **cap,
                  /* in    */ HaskellObj p,
                  /* out */   HaskellObj *ret)
 {
-    StgTSO* tso; 
-    
+    StgTSO* tso;
+
     tso = createStrictIOThread(*cap, RtsFlags.GcFlags.initialStkSize, p);
     scheduleWaitThread(tso,ret,cap);
 }
@@ -524,7 +537,7 @@ rts_checkSchedStatus (char* site, Capability *cap)
 	errorBelch("%s: interrupted", site);
 	stg_exit(EXIT_FAILURE);
     default:
-	errorBelch("%s: Return code (%d) not ok",(site),(rc));	
+	errorBelch("%s: Return code (%d) not ok",(site),(rc));
 	stg_exit(EXIT_FAILURE);
     }
 }
