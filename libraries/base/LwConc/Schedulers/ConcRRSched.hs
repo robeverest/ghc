@@ -35,48 +35,17 @@ import LwConc.Substrate
 newtype ConcRRSched = ConcRRSched (PVar [SCont])
 
 newConcRRSched :: IO (ConcRRSched)
-newConcRRSched = do
-  ref <- newPVarIO []
-  return $ ConcRRSched (ref)
+newConcRRSched = undefined
 
 forkIO :: ConcRRSched -> IO () -> IO ()
-forkIO (ConcRRSched ref) task = do
-  let yieldingTask = do {
-    task;
-    yield $ ConcRRSched ref
-  }
-  thread <- newSCont yieldingTask
-  atomically $ do
-    contents <- readPVar ref
-    writePVar ref $ contents++[thread]
-
-
-enqueAndSwitchToNext :: ConcRRSched -> SCont -> PTM ()
-enqueAndSwitchToNext (ConcRRSched ref) s = do
-  contents <- readPVar ref
-  case contents of
-       [] -> switchSContPTM s
-       (x:tail) -> do
-         writePVar ref $ tail++[s]
-         switchSContPTM x
-
-enque :: ConcRRSched -> SCont -> PTM ()
-enque (ConcRRSched ref) s = do
-  contents <- readPVar ref
-  writePVar ref $ contents++[s]
+forkIO (ConcRRSched ref) task = undefined
 
 yield :: ConcRRSched -> IO ()
-yield sched = atomically $ do
-  s <- getSCont
-  enqueAndSwitchToNext sched s
+yield sched = undefined
 
 -- blockAction must be called by the same thread (say t) which invoked
 -- getSchedActionPair. unblockAction must be called by a thread other than t,
 -- which adds t back to its scheduler.
 
 getSchedActionPair :: ConcRRSched -> IO (PTM (), PTM ())
-getSchedActionPair sched = do
-  s <- atomically $ getSCont
-  let blockAction   = enqueAndSwitchToNext sched s
-  let unblockAction = enque sched s
-  return (blockAction, unblockAction)
+getSchedActionPair sched = undefined

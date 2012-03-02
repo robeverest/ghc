@@ -2,7 +2,7 @@ import ConcRRSched
 import System.Environment
 
 task n = do
-  -- print $ "Running" ++ show n
+  print $ "Running" ++ show n
   return ()
 
 loop _ tick (0, maxTick) = return ()
