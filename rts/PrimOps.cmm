@@ -613,7 +613,7 @@ stg_atomicSwitchzh
   W_ limit;
 
   tso = R1;
-  MAYBE_GC (NO_PTRS, stg_retryzh); // STM operations may allocate
+  MAYBE_GC (NO_PTRS, stg_atomicSwitchzh); // STM operations may allocate
 
   // Find the enclosing ATOMICALLY_FRAME or CATCH_RETRY_FRAME
 retry_pop_stack:
@@ -691,7 +691,7 @@ stg_newSContzh
 {
   /* args: R1 = closure to spark */
 
-  MAYBE_GC(R1_PTR, stg_forkzh);
+  MAYBE_GC(R1_PTR, stg_newSContzh);
 
   W_ closure;
   W_ threadid;

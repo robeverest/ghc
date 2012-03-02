@@ -129,6 +129,8 @@ createThread(Capability *cap, nat size, rtsBool is_user_level_thread)
       tso->global_link = g0->threads;
       g0->threads = tso;
     }
+    else
+      tso->global_link = END_TSO_QUEUE;
     RELEASE_LOCK(&sched_mutex);
 
     // ToDo: report the stack size in the event?
