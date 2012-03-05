@@ -1,6 +1,8 @@
-import ConcRRSched
+import ParRRSched
+import LwConc.Substrate
 import LwConc.MVarPrim
 import System.Environment
+import Control.Concurrent (myThreadId, threadCapability, forkOn, getNumCapabilities)
 
 parse (a:b:_) = return (rInt a, rInt b)
 parse otherwise = undefined
@@ -11,15 +13,29 @@ rInt = read
 main = do
   -- Initialization
   args <- getArgs
-  sched <- newConcRRSched
+  sched <- newParRRSched
   mv <- newEmptyMVarPrim
   (numThreads, maxTick) <- parse args
-  (blockAct, unblockAct) <- getSchedActionPair sched
+  numCaps <- getNumCapabilities
+  mainSCont <- atomically $ getSCont
+  let blockAct = switchToNext sched (\_ -> return ())
+  let unblockAct = scheduleThread mainSCont
+  -- Worker
+  let worker = atomically $ switchToNext sched $ \s -> return ()
+  let spawnWorkers n | n == numCaps = return ()
+                     | otherwise    = do {
+                          forkOn n worker;
+                          spawnWorkers $ n+1
+                          }
+  spawnWorkers 1
   -- task
   let task n = do {
-    print $ "Running" ++ show n;
+    tid <- myThreadId;
+    (t, _) <- threadCapability tid;
+    print $ "Running task " ++ show n ++ " On " ++ show t;
     (b, u) <- getSchedActionPair sched;
-    putMVarPrim b u mv ()
+    putMVarPrim b u mv ();
+    -- print $ "Finishing task " ++ show n
   }
   -- Create the threads
   let loop _ 0 = return ()
@@ -34,9 +50,16 @@ main = do
         loop tick $ n-1
   loop 0 numThreads
   -- Wait for thread finish
-  let wait finishedThreads = if finishedThreads==numThreads
-                                then return ()
-                                else do
-                                  takeMVarPrim blockAct unblockAct mv
-                                  wait $ finishedThreads + 1
-  wait 0
+  finalExit <- newEmptyMVarPrim
+  let loop finishedThreads (b,u) = if finishedThreads==numThreads
+                                then putMVarPrim b u finalExit ()
+                                else do {
+                                  takeMVarPrim b u mv;
+                                  loop (finishedThreads + 1) (b,u);
+                                  }
+  let wait = do {
+    (b,u) <- getSchedActionPair sched;
+    loop 0 (b,u)
+    }
+  forkIO sched wait
+  takeMVarPrim blockAct unblockAct finalExit

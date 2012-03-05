@@ -1803,6 +1803,12 @@ primop  GetSContOp "getSCont#" GenPrimOp
    with
    out_of_line = True
 
+primop ScheduleThreadOp "scheduleThread#" GenPrimOp
+   SCont# -> State# RealWorld -> State# RealWorld
+   with
+   out_of_line      = True
+   has_side_effects = True
+
 ------------------------------------------------------------------------
 section "Weak pointers"
 ------------------------------------------------------------------------

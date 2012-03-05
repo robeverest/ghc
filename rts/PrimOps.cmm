@@ -710,6 +710,17 @@ stg_getSContzh
   RET_P(CurrentTSO);
 }
 
+/* XXX This is unsafe for transaction abort */
+stg_scheduleThreadzh
+{
+  /* args: R1 = scont */
+  W_ tso;
+
+  tso = R1;
+  foreign "C" scheduleThread(StgTSO_cap (tso) "ptr", tso "ptr") [];
+  jump %ENTRY_CODE(Sp(0));
+}
+
 
 /* -----------------------------------------------------------------------------
  * Concurrency primitives

@@ -38,6 +38,7 @@ module LwConc.Substrate
 , switch          -- (SCont -> PTM SCont) -> IO ()
 , getSCont        -- PTM SCont
 , switchSContPTM  -- SCont -> PTM ()
+, scheduleThread  -- SCont -> PTM ()
 ) where
 
 import Prelude
@@ -169,3 +170,8 @@ switch arg = atomically $ do
   s1 <- getSCont
   s2 <- arg s1
   switchSContPTM s2
+
+{-# INLINE scheduleThread #-}
+scheduleThread :: SCont -> PTM ()
+scheduleThread (SCont sc) = PTM $ \s30 ->
+  case scheduleThread# sc s30 of s40 -> (# s40, () #)
