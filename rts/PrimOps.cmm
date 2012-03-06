@@ -600,20 +600,31 @@ stg_decodeDoublezu2Intzh
  * Lightweight concurrency primitives
  * -------------------------------------------------------------------------- */
 
+
+STRING(finish_string,"Finishing thread\n")
+
 stg_atomicSwitchzh
 {
-  /* args: R1 = scont */
+  /* args: R1 = scont, R2 = finish_current_thread */
   W_ tso;
+  W_ finish_current_thread;
+
   W_ frame_type;
   W_ frame;
   W_ trec;
   W_ outer;
-  W_ r;
   W_ valid;
   W_ limit;
 
   tso = R1;
-  MAYBE_GC (NO_PTRS, stg_atomicSwitchzh); // STM operations may allocate
+  finish_current_thread = R2;
+
+  MAYBE_GC (R1_PTR, stg_atomicSwitchzh); // STM operations may allocate
+
+  /* Make sure that the thread we are switching to is alive */
+  ASSERT (StgTSO_what_next(tso) != ThreadComplete::I16);
+  ASSERT (StgTSO_what_next(tso) != ThreadKilled::I16);
+
 
   // Find the enclosing ATOMICALLY_FRAME or CATCH_RETRY_FRAME
 retry_pop_stack:
@@ -671,6 +682,9 @@ retry_pop_stack:
     if (CurrentTSO != tso) {
       foreign "C" dirty_TSO (MyCapability() "ptr", tso "ptr") [];
       foreign "C" dirty_STACK (MyCapability() "ptr", StgTSO_stackobj(tso) "ptr") [];
+      if (finish_current_thread != 0) {
+        StgTSO_what_next(CurrentTSO) = ThreadComplete::I16;
+      }
       CurrentTSO = tso;
       ("ptr" limit)  = foreign "C" tso_SpLim (tso "ptr") [];
       SpLim = limit;
@@ -697,7 +711,7 @@ stg_newSContzh
   W_ threadid;
   closure = R1;
 
-  ("ptr" threadid) = foreign "C" createUserLevelThread( MyCapability() "ptr",
+  ("ptr" threadid) = foreign "C" createIOThread( MyCapability() "ptr",
 				RtsFlags_GcFlags_initialStkSize(RtsFlags),
 				closure "ptr") [];
 

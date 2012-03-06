@@ -2,7 +2,7 @@ import ConcRRSched
 import System.Environment
 
 task n = do
-  print $ "Running" ++ show n
+  -- print $ "Running" ++ show n
   return ()
 
 loop _ tick (0, maxTick) = return ()
@@ -10,6 +10,7 @@ loop sched tick (n, maxTick) = do
   forkIO sched $ task n
   tick <- if tick == maxTick
              then do {
+              -- print "Main yield";
               yield sched;
               return 0
              }

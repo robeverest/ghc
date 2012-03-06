@@ -31,11 +31,22 @@ newConcRRSched = do
   ref <- newPVarIO Seq.empty
   return $ ConcRRSched (ref)
 
+switchToNextAndFinish :: ConcRRSched -> IO ()
+switchToNextAndFinish (ConcRRSched ref) = atomically $ do
+  contents <- readPVar ref
+  if Seq.length contents == 0
+      then undefined
+      else do
+        let x = Seq.index contents 0
+        let tail = Seq.drop 1 contents
+        writePVar ref $ tail
+        switchToAndFinish x
+
 forkIO :: ConcRRSched -> IO () -> IO ()
 forkIO (ConcRRSched ref) task = do
   let yieldingTask = do {
     task;
-    atomically $ switchToNextWith (ConcRRSched ref) (\tail -> tail);
+    switchToNextAndFinish (ConcRRSched ref);
     print "ConcRRSched.forkIO: Should not see this!"
   }
   thread <- newSCont yieldingTask
@@ -53,7 +64,7 @@ switchToNextWith (ConcRRSched ref) f = do
        let x = Seq.index contents 0
        let tail = Seq.drop 1 contents
        writePVar ref $ tail
-       switchSContPTM x
+       switchTo x
 
 enque :: ConcRRSched -> SCont -> PTM ()
 enque (ConcRRSched ref) s = do

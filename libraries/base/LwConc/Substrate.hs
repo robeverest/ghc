@@ -5,7 +5,7 @@
            , UnboxedTuples
            , ScopedTypeVariables
   #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
+{-# OPTIONS_GHC -fno-warn-unused-imports -w #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -24,24 +24,29 @@
 
 module LwConc.Substrate
 ( PTM
-, unsafeIOToPTM   -- IO a -> PTM a
-, atomically      -- PTM a -> IO a
+, unsafeIOToPTM     -- IO a -> PTM a
+, atomically        -- PTM a -> IO a
 
 , PVar
-, newPVar         -- a -> PTM (PVar a)
-, newPVarIO       -- a -> IO (PVar a)
-, readPVar        -- PVar a -> PTM a
-, writePVar       -- PVar a -> a -> PTM ()
+, newPVar           -- a -> PTM (PVar a)
+, newPVarIO         -- a -> IO (PVar a)
+, readPVar          -- PVar a -> PTM a
+, writePVar         -- PVar a -> a -> PTM ()
 
 , SCont
-, newSCont        -- IO () -> IO SCont
-, switch          -- (SCont -> PTM SCont) -> IO ()
-, getSCont        -- PTM SCont
-, switchSContPTM  -- SCont -> PTM ()
-, scheduleThread  -- SCont -> PTM ()
+, newSCont          -- IO () -> IO SCont
+, switch            -- (SCont -> PTM SCont) -> IO ()
+, getSCont          -- PTM SCont
+, switchTo          -- SCont -> PTM ()
+, switchToAndFinish -- SCont -> PTM ()
+
+-- Unused
+, scheduleThread    -- SCont -> PTM ()
 ) where
 
+
 import Prelude
+import GHC.Base
 import GHC.Prim
 import GHC.IO
 import Data.Typeable
@@ -148,15 +153,25 @@ writePVar (PVar tvar#) val = PTM $ \s1# ->
 
 data SCont = SCont SCont#
 
+
 {-# INLINE newSCont #-}
 newSCont :: IO () -> IO SCont
 newSCont x = IO $ \s ->
    case (newSCont# x s) of (# s1, scont #) -> (# s1, SCont scont #)
 
-{-# INLINE switchSContPTM #-}
-switchSContPTM :: SCont -> PTM ()
-switchSContPTM (SCont sc) = PTM $ \s ->
-   case (atomicSwitch# sc s) of s1 -> (# s1, () #)
+{-# INLINE switchTo #-}
+switchTo :: SCont -> PTM ()
+switchTo (SCont sc) = do
+  let (I# dontFinishCurrentThread) = 0
+  PTM $ \s ->
+    case (atomicSwitch# sc dontFinishCurrentThread s) of s1 -> (# s1, () #)
+
+{-# INLINE switchToAndFinish #-}
+switchToAndFinish :: SCont -> PTM ()
+switchToAndFinish (SCont sc) = do
+  let (I# finishCurrentThread) = 1
+  PTM $ \s ->
+    case (atomicSwitch# sc finishCurrentThread s) of s1 -> (# s1, () #)
 
 {-# INLINE getSCont #-}
 getSCont :: PTM SCont
@@ -169,7 +184,7 @@ switch :: (SCont -> PTM SCont) -> IO ()
 switch arg = atomically $ do
   s1 <- getSCont
   s2 <- arg s1
-  switchSContPTM s2
+  switchTo s2
 
 {-# INLINE scheduleThread #-}
 scheduleThread :: SCont -> PTM ()

@@ -1793,7 +1793,7 @@ primop  NewSContOp "newSCont#" GenPrimOp
    out_of_line      = True
 
 primop	AtomicSwitchOp "atomicSwitch#" GenPrimOp
-   SCont# -> State# RealWorld -> State# RealWorld
+   SCont# -> Int# -> State# RealWorld -> State# RealWorld
    with
    out_of_line = True
    has_side_effects = True
