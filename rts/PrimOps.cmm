@@ -600,6 +600,7 @@ stg_decodeDoublezu2Intzh
  * Lightweight concurrency primitives
  * -------------------------------------------------------------------------- */
 
+STRING(stg_switch_msg,"Switching from thread %d to thread %d\n")
 
 stg_atomicSwitchzh
 {
@@ -608,20 +609,13 @@ stg_atomicSwitchzh
    *                1 - Blocking on a concurrent data structure
    *                2 - yielding on the scheduler
    */
-  W_ tso;
-  W_ switch_reason;
+  W_ tso, switch_reason;
+  W_ frame_type, frame, trec, outer, valid, limit, q, next_invariant;
 
-  W_ frame_type;
-  W_ frame;
-  W_ trec;
-  W_ outer;
-  W_ valid;
-  W_ limit;
+  MAYBE_GC (R1_PTR, stg_atomicSwitchzh); // STM operations may allocate
 
   tso = R1;
   switch_reason = R2;
-
-  MAYBE_GC (R1_PTR, stg_atomicSwitchzh); // STM operations may allocate
 
   /* Make sure that the thread we are switching to is alive and not running,
    * unless we are switching to the same thread. */
@@ -631,9 +625,12 @@ stg_atomicSwitchzh
             StgTSO_why_blocked(tso) == BlockedOnConcDS::I16); //Thread is blocked
   }
 
+  #if defined(DEBUG) || defined (TRACING)
+  foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO), StgTSO_id(tso)) [];
+  #endif
+
 
   // Find the enclosing ATOMICALLY_FRAME or CATCH_RETRY_FRAME
-retry_pop_stack:
   SAVE_THREAD_STATE();
   (frame_type) = foreign "C" findRetryFrameHelper(MyCapability(), CurrentTSO "ptr") [];
   LOAD_THREAD_STATE();
@@ -643,70 +640,55 @@ retry_pop_stack:
 
   if (frame_type == CATCH_RETRY_FRAME) {
     foreign "C" barf("Not implemented! stg_atomicSwitchzh->CATCH_RETRY_FRAME"); // Not tested
-
-    /*
-    // The retry reaches a CATCH_RETRY_FRAME before the atomic frame
-    ASSERT(outer != NO_TREC);
-    // Abort the transaction attempting the current branch
-    foreign "C" stmAbortTransaction(MyCapability() "ptr", trec "ptr") [];
-    foreign "C" stmFreeAbortedTRec(MyCapability() "ptr", trec "ptr") [];
-    if (!StgCatchRetryFrame_running_alt_code(frame) != 0::I32) {
-      // Retry in the first branch: try the alternative
-      ("ptr" trec) = foreign "C" stmStartTransaction(MyCapability() "ptr", outer "ptr") [];
-      StgTSO_trec(CurrentTSO) = trec;
-      StgCatchRetryFrame_running_alt_code(frame) = 1 :: CInt; // true;
-      R1 = StgCatchRetryFrame_alt_code(frame);
-      jump stg_ap_v_fast;
-    } else {
-      // Retry in the alternative code: propagate the retry
-      StgTSO_trec(CurrentTSO) = outer;
-      Sp = Sp + SIZEOF_StgCatchRetryFrame;
-      goto retry_pop_stack;
-    }
-    */
   }
 
   ASSERT(frame_type == ATOMICALLY_FRAME);
-  if (outer != NO_TREC) {
-    // We called retry while checking invariants, so abort the current
-    // invariant check (merging its TVar accesses into the parents read
-    // set so we'll wait on them)
-    foreign "C" stmAbortTransaction(MyCapability() "ptr", trec "ptr") [];
-    foreign "C" stmFreeAbortedTRec(MyCapability() "ptr", trec "ptr") [];
-    trec = outer;
-    StgTSO_trec(CurrentTSO) = trec;
-    outer  = StgTRecHeader_enclosing_trec(trec);
-  }
   ASSERT(outer == NO_TREC);
 
-  (valid) = foreign "C" stmCommitTransaction(MyCapability() "ptr", trec "ptr") [];
-  if (valid != 0) {
-    /* Transaction was valid: commit succeeded */
-    StgTSO_trec(CurrentTSO) = NO_TREC;
-    StgStack_sp(StgTSO_stackobj(CurrentTSO)) = Sp + SIZEOF_StgAtomicallyFrame;
 
-    if (CurrentTSO != tso) {
-      foreign "C" dirty_TSO (MyCapability() "ptr", tso "ptr") [];
-      foreign "C" dirty_STACK (MyCapability() "ptr", StgTSO_stackobj(tso) "ptr") [];
-      switch (switch_reason) {
-        case 0: { StgTSO_what_next (CurrentTSO) = ThreadComplete::I16; }
-        case 1: { StgTSO_why_blocked (CurrentTSO) = BlockedOnConcDS::I16; }
-        case 2: { StgTSO_why_blocked (CurrentTSO) = BlockedOnSched::I16; }
-      }
-      CurrentTSO = tso;
-      StgTSO_why_blocked(CurrentTSO) = NotBlocked::I16;
-      ("ptr" limit)  = foreign "C" tso_SpLim (tso "ptr") [];
-      SpLim = limit;
-    }
-    Sp = StgStack_sp(StgTSO_stackobj(CurrentTSO));
-    jump %ENTRY_CODE(Sp(0));
-  } else {
-    /* Transaction was not valid: try again */
-    ("ptr" trec) = foreign "C" stmStartTransaction(MyCapability() "ptr", NO_TREC "ptr") [];
+  ("ptr" q) = foreign "C" stmGetInvariantsToCheck(MyCapability() "ptr", trec "ptr") [];
+
+  if (q != END_INVARIANT_CHECK_QUEUE) {
+    /* We can't commit yet: another invariant to check */
+    ("ptr" trec) = foreign "C" stmStartTransaction(MyCapability() "ptr", trec "ptr") [];
     StgTSO_trec(CurrentTSO) = trec;
-    R1 = StgAtomicallyFrame_code(frame);
-    Sp = frame;
+
+    next_invariant = StgInvariantCheckQueue_invariant(q);
+    R1 = StgAtomicInvariant_code(next_invariant);
     jump stg_ap_v_fast;
+
+  } else {
+    /* We've got no more invariants to check, try to commit */
+    (valid) = foreign "C" stmCommitTransaction(MyCapability() "ptr", trec "ptr") [];
+    if (valid != 0) {
+      /* Transaction was valid: commit succeeded */
+      StgTSO_trec(CurrentTSO) = NO_TREC;
+      StgStack_sp(StgTSO_stackobj(CurrentTSO)) = Sp + SIZEOF_StgAtomicallyFrame;
+
+      if (CurrentTSO != tso) {
+        foreign "C" dirty_TSO (MyCapability() "ptr", tso "ptr") [];
+        foreign "C" dirty_STACK (MyCapability() "ptr", StgTSO_stackobj(tso) "ptr") [];
+        switch (switch_reason) {
+          case 0: { StgTSO_what_next (CurrentTSO) = ThreadComplete::I16; }
+          case 1: { StgTSO_why_blocked (CurrentTSO) = BlockedOnConcDS::I16; }
+          case 2: { StgTSO_why_blocked (CurrentTSO) = BlockedOnSched::I16; }
+        }
+          CurrentTSO = tso;
+        StgTSO_why_blocked(CurrentTSO) = NotBlocked::I16;
+        ("ptr" limit)  = foreign "C" tso_SpLim (tso "ptr") [];
+        SpLim = limit;
+      }
+      Sp = StgStack_sp(StgTSO_stackobj(CurrentTSO));
+      jump %ENTRY_CODE(Sp(0));
+    } else {
+      /* Transaction was not valid: try again */
+      ("ptr" trec) = foreign "C" stmStartTransaction(MyCapability() "ptr", NO_TREC "ptr") [];
+      StgTSO_trec(CurrentTSO) = trec;
+      StgAtomicallyFrame_next_invariant_to_check(frame) = END_INVARIANT_CHECK_QUEUE;
+      R1 = StgAtomicallyFrame_code(frame);
+      Sp = frame;
+      jump stg_ap_v_fast;
+    }
   }
 }
 
