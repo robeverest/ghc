@@ -601,8 +601,6 @@ stg_decodeDoublezu2Intzh
  * -------------------------------------------------------------------------- */
 
 
-STRING(finish_string,"Finishing thread\n")
-
 stg_atomicSwitchzh
 {
   /* args: R1 = scont, R2 = finish_current_thread */
@@ -621,9 +619,12 @@ stg_atomicSwitchzh
 
   MAYBE_GC (R1_PTR, stg_atomicSwitchzh); // STM operations may allocate
 
-  /* Make sure that the thread we are switching to is alive */
-  ASSERT (StgTSO_what_next(tso) != ThreadComplete::I16);
-  ASSERT (StgTSO_what_next(tso) != ThreadKilled::I16);
+  /* Make sure that the thread we are switching to is alive and not running,
+   * unless we are switching to the same thread. */
+  if (tso != CurrentTSO) {
+    ASSERT (StgTSO_what_next(tso) == ThreadRunGHC::I16); //Thread is alive
+    ASSERT (StgTSO_why_blocked(tso) == BlockedOnMVar::I16); //Thread is blocked
+  }
 
 
   // Find the enclosing ATOMICALLY_FRAME or CATCH_RETRY_FRAME
@@ -682,10 +683,14 @@ retry_pop_stack:
     if (CurrentTSO != tso) {
       foreign "C" dirty_TSO (MyCapability() "ptr", tso "ptr") [];
       foreign "C" dirty_STACK (MyCapability() "ptr", StgTSO_stackobj(tso) "ptr") [];
-      if (finish_current_thread != 0) {
+      if (finish_current_thread == 1) {
         StgTSO_what_next(CurrentTSO) = ThreadComplete::I16;
       }
+      else {
+        StgTSO_why_blocked(CurrentTSO) = BlockedOnMVar::I16;
+      }
       CurrentTSO = tso;
+      StgTSO_why_blocked(CurrentTSO) = NotBlocked::I16;
       ("ptr" limit)  = foreign "C" tso_SpLim (tso "ptr") [];
       SpLim = limit;
     }
@@ -714,6 +719,7 @@ stg_newSContzh
   ("ptr" threadid) = foreign "C" createIOThread( MyCapability() "ptr",
 				RtsFlags_GcFlags_initialStkSize(RtsFlags),
 				closure "ptr") [];
+  StgTSO_why_blocked (threadid) = BlockedOnMVar::I16;
 
   RET_P(threadid);
 }
@@ -723,18 +729,6 @@ stg_getSContzh
   /* no args */
   RET_P(CurrentTSO);
 }
-
-/* XXX This is unsafe for transaction abort */
-stg_scheduleThreadzh
-{
-  /* args: R1 = scont */
-  W_ tso;
-
-  tso = R1;
-  foreign "C" scheduleThread(StgTSO_cap (tso) "ptr", tso "ptr") [];
-  jump %ENTRY_CODE(Sp(0));
-}
-
 
 /* -----------------------------------------------------------------------------
  * Concurrency primitives

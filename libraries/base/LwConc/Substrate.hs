@@ -34,14 +34,11 @@ module LwConc.Substrate
 , writePVar         -- PVar a -> a -> PTM ()
 
 , SCont
+, ThreadStatus (Blocked, Completed)
 , newSCont          -- IO () -> IO SCont
-, switch            -- (SCont -> PTM SCont) -> IO ()
+, switch            -- (SCont -> PTM (SCont, ThreadStatus)) -> IO ()
 , getSCont          -- PTM SCont
-, switchTo          -- SCont -> PTM ()
-, switchToAndFinish -- SCont -> PTM ()
-
--- Unused
-, scheduleThread    -- SCont -> PTM ()
+, switchTo          -- SCont -> ThreadStatus -> PTM ()
 ) where
 
 
@@ -153,6 +150,14 @@ writePVar (PVar tvar#) val = PTM $ \s1# ->
 
 data SCont = SCont SCont#
 
+data ThreadStatus = Blocked | Completed
+
+getIntStatus status =
+  let (I# intStatus) = case status of
+                               Blocked -> 0
+                               Completed -> 1
+  in intStatus
+
 
 {-# INLINE newSCont #-}
 newSCont :: IO () -> IO SCont
@@ -160,18 +165,11 @@ newSCont x = IO $ \s ->
    case (newSCont# x s) of (# s1, scont #) -> (# s1, SCont scont #)
 
 {-# INLINE switchTo #-}
-switchTo :: SCont -> PTM ()
-switchTo (SCont sc) = do
-  let (I# dontFinishCurrentThread) = 0
+switchTo :: SCont -> ThreadStatus -> PTM ()
+switchTo (SCont sc) status = do
+  let intStatus = getIntStatus status
   PTM $ \s ->
-    case (atomicSwitch# sc dontFinishCurrentThread s) of s1 -> (# s1, () #)
-
-{-# INLINE switchToAndFinish #-}
-switchToAndFinish :: SCont -> PTM ()
-switchToAndFinish (SCont sc) = do
-  let (I# finishCurrentThread) = 1
-  PTM $ \s ->
-    case (atomicSwitch# sc finishCurrentThread s) of s1 -> (# s1, () #)
+    case (atomicSwitch# sc intStatus s) of s1 -> (# s1, () #)
 
 {-# INLINE getSCont #-}
 getSCont :: PTM SCont
@@ -180,13 +178,8 @@ getSCont = PTM $ \s10 ->
    (# s20, scont #) -> (# s20, SCont scont #)
 
 {-# INLINE switch  #-}
-switch :: (SCont -> PTM SCont) -> IO ()
+switch :: (SCont -> PTM (SCont, ThreadStatus)) -> IO ()
 switch arg = atomically $ do
   s1 <- getSCont
-  s2 <- arg s1
-  switchTo s2
-
-{-# INLINE scheduleThread #-}
-scheduleThread :: SCont -> PTM ()
-scheduleThread (SCont sc) = PTM $ \s30 ->
-  case scheduleThread# sc s30 of s40 -> (# s40, () #)
+  (s2, status) <- arg s1
+  switchTo s2 status

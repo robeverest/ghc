@@ -40,7 +40,7 @@ switchToNextAndFinish (ConcRRSched ref) = atomically $ do
         let x = Seq.index contents 0
         let tail = Seq.drop 1 contents
         writePVar ref $ tail
-        switchToAndFinish x
+        switchTo x Completed
 
 forkIO :: ConcRRSched -> IO () -> IO ()
 forkIO (ConcRRSched ref) task = do
@@ -64,7 +64,7 @@ switchToNextWith (ConcRRSched ref) f = do
        let x = Seq.index contents 0
        let tail = Seq.drop 1 contents
        writePVar ref $ tail
-       switchTo x
+       switchTo x Blocked
 
 enque :: ConcRRSched -> SCont -> PTM ()
 enque (ConcRRSched ref) s = do

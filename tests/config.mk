@@ -1,4 +1,4 @@
-
+PROFILE := false
 DEBUG := false
 
 ifeq ($(DEBUG),true)
@@ -7,9 +7,16 @@ else
   DEBUG_FLG :=
 endif
 
+
+ifeq ($(PROFILE),true)
+  PROFILE_FLG := -prof -auto-all
+else
+  PROFILE_FLG :=
+endif
+
 GHC_OPTS = -rtsopts --make
 
-GHC    := $(HOME)/test-install/ghc-7.4.1-lwc/bin/ghc $(DEBUG_FLG) $(GHC_OPTS) $(GHC_OPTS_EXTRA)
+GHC    := $(HOME)/test-install/ghc-7.4.1-lwc/bin/ghc $(DEBUG_FLG) $(PROFILE_FLG) $(GHC_OPTS) $(GHC_OPTS_EXTRA)
 
 all: $(TARGETS)
 

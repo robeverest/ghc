@@ -35,7 +35,7 @@
    -------------------------------------------------------------------------- */
 
 /* We have some pre-compiled selector thunks defined in rts/StgStdThunks.hc.
- * This constant defines the highest selectee index that we can replace with a 
+ * This constant defines the highest selectee index that we can replace with a
  * reference to the pre-compiled code.
  */
 
@@ -44,7 +44,7 @@
 /* Vector-apply thunks.  These thunks just push their free variables
  * on the stack and enter the first one.  They're a bit like PAPs, but
  * don't have a dynamic size.  We've pre-compiled a few to save
- * space. 
+ * space.
  */
 
 #define MAX_SPEC_AP_SIZE       7
@@ -55,8 +55,8 @@
 #define MAX_SPEC_FUN_SIZE      2
 #define MAX_SPEC_CONSTR_SIZE   2
 
-/* Range of built-in table of static small int-like and char-like closures. 
- * 
+/* Range of built-in table of static small int-like and char-like closures.
+ *
  *   NB. This corresponds with the number of actual INTLIKE/CHARLIKE
  *   closures defined in rts/StgMiscClosures.cmm.
  */
@@ -92,7 +92,7 @@
 
    Tags for indirection nodes and ``other'' (probably unevaluated) nodes;
    normal-form values of algebraic data types will have tags 0, 1, ...
-   
+
    @INFO_IND_TAG@ is different from @INFO_OTHER_TAG@ just so we can count
    how often we bang into indirection nodes; that's all.  (WDP 95/11)
 
@@ -113,11 +113,11 @@
 /* -----------------------------------------------------------------------------
    How much Haskell stack space to reserve for the saving of registers
    etc. in the case of a stack/heap overflow.
-   
+
    This must be large enough to accomodate the largest stack frame
    pushed in one of the heap check fragments in HeapStackCheck.hc
    (ie. currently the generic heap checks - 3 words for StgRetDyn,
-   18 words for the saved registers, see StgMacros.h).  
+   18 words for the saved registers, see StgMacros.h).
 
    In the event of an unboxed tuple or let-no-escape stack/heap check
    failure, there will be other words on the stack which are covered
@@ -168,8 +168,8 @@
    -------------------------------------------------------------------------- */
 
 /*
-  An LDV word is divided into 3 parts: state bits (LDV_STATE_MASK), creation 
-  time bits (LDV_CREATE_MASK), and last use time bits (LDV_LAST_MASK). 
+  An LDV word is divided into 3 parts: state bits (LDV_STATE_MASK), creation
+  time bits (LDV_CREATE_MASK), and last use time bits (LDV_LAST_MASK).
  */
 #if SIZEOF_VOID_P == 8
 #define LDV_SHIFT               30
@@ -180,7 +180,7 @@
 #define LDV_STATE_USE           0x1000000000000000
 #else
 #define LDV_SHIFT               15
-#define LDV_STATE_MASK          0x40000000 
+#define LDV_STATE_MASK          0x40000000
 #define LDV_CREATE_MASK         0x3FFF8000
 #define LDV_LAST_MASK           0x00007FFF
 #define LDV_STATE_CREATE        0x00000000
@@ -197,8 +197,8 @@
  */
 #define ThreadRunGHC    1	/* return to address on top of stack */
 #define ThreadInterpret 2	/* interpret this thread */
-#define ThreadKilled	3	/* thread has died, don't run it */
-#define ThreadComplete  4       /* thread has finished */
+#define ThreadKilled	  3	/* thread has died, don't run it */
+#define ThreadComplete  4 /* thread has finished */
 
 /*
  * Constants for the why_blocked field of a TSO
@@ -228,7 +228,7 @@
 /* Involved in a message sent to tso->msg_cap */
 #define BlockedOnMsgThrowTo 12
 
-/* The thread is not on any run queues, but can be woken up 
+/* The thread is not on any run queues, but can be woken up
    by tryWakeupThread() */
 #define ThreadMigrating     13
 
@@ -243,7 +243,7 @@
 #define ThreadBlocked  4
 #define ThreadFinished 5
 
-/* 
+/*
  * Flags for the tso->flags field.
  */
 
@@ -262,7 +262,7 @@
  */
 #define TSO_BLOCKEX       4
 #define TSO_INTERRUPTIBLE 8
-#define TSO_STOPPED_ON_BREAKPOINT 16 
+#define TSO_STOPPED_ON_BREAKPOINT 16
 
 /*
  * Used by the sanity checker to check whether TSOs are on the correct
@@ -281,7 +281,7 @@
    RET_DYN stack frames
    -------------------------------------------------------------------------- */
 
-/* VERY MAGIC CONSTANTS! 
+/* VERY MAGIC CONSTANTS!
  * must agree with code in HeapStackCheck.c, stg_gen_chk, and
  * RESERVED_STACK_WORDS in Constants.h.
  */
