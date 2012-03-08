@@ -10,7 +10,7 @@ loop sched tick (n, maxTick) = do
   forkIO sched $ task n
   tick <- if tick == maxTick
              then do {
-              -- print "Main yield";
+              print "Main yield";
               yield sched;
               return 0
              }

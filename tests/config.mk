@@ -16,7 +16,7 @@ endif
 
 GHC_OPTS = -rtsopts --make
 
-GHC    := $(HOME)/test-install/ghc-7.4.1-lwc/bin/ghc $(DEBUG_FLG) $(PROFILE_FLG) $(GHC_OPTS) $(GHC_OPTS_EXTRA)
+GHC    := $(HOME)/ghc-7.4.1-lwc/inplace/bin/ghc-stage2 $(DEBUG_FLG) $(PROFILE_FLG) $(GHC_OPTS) $(GHC_OPTS_EXTRA)
 
 all: $(TARGETS)
 
