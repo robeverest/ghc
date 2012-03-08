@@ -34,7 +34,7 @@ module LwConc.Substrate
 , writePVar         -- PVar a -> a -> PTM ()
 
 , SCont
-, ThreadStatus (Blocked, Completed)
+, ThreadStatus (..)
 , newSCont          -- IO () -> IO SCont
 , switch            -- (SCont -> PTM (SCont, ThreadStatus)) -> IO ()
 , getSCont          -- PTM SCont
@@ -150,12 +150,13 @@ writePVar (PVar tvar#) val = PTM $ \s1# ->
 
 data SCont = SCont SCont#
 
-data ThreadStatus = Blocked | Completed
+data ThreadStatus = BlockedOnConcDS | BlockedOnSched | Completed
 
 getIntStatus status =
   let (I# intStatus) = case status of
-                               Blocked -> 0
-                               Completed -> 1
+                               Completed -> 0
+                               BlockedOnConcDS -> 1
+                               BlockedOnSched -> 2
   in intStatus
 
 

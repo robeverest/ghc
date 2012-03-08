@@ -47,7 +47,7 @@ static GdkPixmap *res_pixmap = NULL;
 
 #define N_GENS 10
 
-static GdkColor 
+static GdkColor
     bdescr_color = { 0, 0xffff, 0, 0 },	/* red */
     free_color   = { 0, 0, 0, 0xffff },	/* blue */
     gen_colors[N_GENS] = {
@@ -67,8 +67,8 @@ GdkGC *my_gc = NULL;
 
 static void *mem_start = (void *) 0x50000000;
 
-static void colorBlock( void *addr, GdkColor *color, 
-			nat block_width, nat block_height, 
+static void colorBlock( void *addr, GdkColor *color,
+			nat block_width, nat block_height,
 			nat blocks_per_line );
 
 static void residencyCensus( void );
@@ -80,7 +80,7 @@ static void updateThreadsPanel( void );
  */
 
 /* Create a new backing pixmap of the appropriate size */
-static gint 
+static gint
 configure_event( GtkWidget *widget, GdkEventConfigure *event STG_UNUSED,
 		 GdkPixmap **pixmap )
 {
@@ -105,7 +105,7 @@ configure_event( GtkWidget *widget, GdkEventConfigure *event STG_UNUSED,
 }
 
 /* Redraw the screen from the backing pixmap */
-static gint 
+static gint
 expose_event( GtkWidget *widget, GdkEventExpose *event, GdkPixmap **pixmap )
 {
   gdk_draw_pixmap(widget->window,
@@ -151,8 +151,8 @@ initFrontPanel( void )
     b_throwto_label   = lookup_widget(window, "blockthrowto_label");
     sleeping_label    = lookup_widget(window, "sleeping_label");
     total_label       = lookup_widget(window, "total_label");
-    
-    status_context_id = 
+
+    status_context_id =
 	gtk_statusbar_get_context_id( GTK_STATUSBAR(statusbar), "context" );
 
     /* hook up some signals for the mem map drawing area */
@@ -170,7 +170,7 @@ initFrontPanel( void )
 			(GtkSignalFunc)configure_event, &gen_pixmap);
 
     gtk_widget_set_events(gen_drawing_area, GDK_EXPOSURE_MASK);
-    
+
     /* hook up some signals for the res drawing area */
     gtk_signal_connect (GTK_OBJECT(res_drawing_area), "expose_event",
 			(GtkSignalFunc)expose_event, &res_pixmap);
@@ -178,7 +178,7 @@ initFrontPanel( void )
 			(GtkSignalFunc)configure_event, &res_pixmap);
 
     gtk_widget_set_events(res_drawing_area, GDK_EXPOSURE_MASK);
-    
+
     /* allocate our colors */
     colormap = gdk_colormap_get_system();
     gdk_colormap_alloc_color(colormap, &bdescr_color, TRUE, TRUE);
@@ -211,7 +211,7 @@ initFrontPanel( void )
     gtk_widget_show(window);
 
     /* wait for the user to press "Continue" before getting going... */
-    gtk_statusbar_push( GTK_STATUSBAR(statusbar), status_context_id, 
+    gtk_statusbar_push( GTK_STATUSBAR(statusbar), status_context_id,
 			"Program start");
     gtk_widget_set_sensitive( stop_but, FALSE );
     continue_now = FALSE;
@@ -219,7 +219,7 @@ initFrontPanel( void )
 	gtk_main_iteration();
     }
     gtk_statusbar_pop( GTK_STATUSBAR(statusbar), status_context_id );
-    gtk_statusbar_push( GTK_STATUSBAR(statusbar), status_context_id, 
+    gtk_statusbar_push( GTK_STATUSBAR(statusbar), status_context_id,
 			"Running");
 
     gtk_widget_set_sensitive( continue_but, FALSE );
@@ -240,7 +240,7 @@ stopFrontPanel( void )
 
     updateFrontPanel();
 
-    gtk_statusbar_push( GTK_STATUSBAR(statusbar), status_context_id, 
+    gtk_statusbar_push( GTK_STATUSBAR(statusbar), status_context_id,
 			"Program finished");
 
     quit = FALSE;
@@ -270,7 +270,7 @@ updateFrontPanelBeforeGC( nat N )
 
     updateFrontPanel();
 
-    if (update_mode == BeforeGC 
+    if (update_mode == BeforeGC
 	|| update_mode == BeforeAfterGC
 	|| stop_now == TRUE) {
 	g_snprintf( buf, 1000, "Stopped (before GC, generation %d)", N );
@@ -309,7 +309,7 @@ updateFrontPanelAfterGC( nat N, lnat live )
 
     updateFrontPanel();
 
-    if (update_mode == AfterGC 
+    if (update_mode == AfterGC
 	|| update_mode == BeforeAfterGC
 	|| stop_now == TRUE) {
 	snprintf( buf, 1000, "Stopped (after GC, generation %d)", N );
@@ -358,7 +358,7 @@ updateFrontPanel( void )
     }
 
     if (map_pixmap != NULL) {
-	nat height, width, blocks_per_line, 
+	nat height, width, blocks_per_line,
 	    block_height, block_width, mblock_height;
 
 	height = map_drawing_area->allocation.height;
@@ -366,11 +366,11 @@ updateFrontPanel( void )
 
 	mblock_height =  height / mblocks_allocated;
 	blocks_per_line = 16;
-	block_height  = mblock_height / 
+	block_height  = mblock_height /
 	    ((MBLOCK_SIZE/BLOCK_SIZE) / blocks_per_line);
 	while (block_height == 0) {
 	    blocks_per_line *= 2;
-	    block_height  = mblock_height / 
+	    block_height  = mblock_height /
 		((MBLOCK_SIZE/BLOCK_SIZE) / blocks_per_line);
 	}
 	block_width = width / blocks_per_line;
@@ -381,25 +381,25 @@ updateFrontPanel( void )
 			    0, 0,
 			    map_drawing_area->allocation.width,
 			    map_drawing_area->allocation.height);
-	
-	for ( m = mem_start; 
-	      (char *)m < (char *)mem_start + 
-		  (mblocks_allocated * MBLOCK_SIZE); 
+
+	for ( m = mem_start;
+	      (char *)m < (char *)mem_start +
+		  (mblocks_allocated * MBLOCK_SIZE);
 	      (char *)m += MBLOCK_SIZE ) {
-	    
+
 	    /* color the bdescr area first */
 	    for (a = m; a < FIRST_BLOCK(m); (char *)a += BLOCK_SIZE) {
-		colorBlock( a, &bdescr_color, 
+		colorBlock( a, &bdescr_color,
 			    block_width, block_height, blocks_per_line );
 	    }
-	    
+
 #if 0 /* Segfaults because bd appears to be bogus but != NULL. stolz, 2003-06-24 */
 	    /* color each block */
 	    for (; a <= LAST_BLOCK(m); (char *)a += BLOCK_SIZE) {
 		bd = Bdescr((P_)a);
 		ASSERT(bd->start == a);
                 if (bd->flags & BF_FREE) {
-		    colorBlock( a, &free_color, 
+		    colorBlock( a, &free_color,
 				block_width, block_height, blocks_per_line );
 		} else {
 		    colorBlock( a, &gen_colors[bd->gen_no],
@@ -409,26 +409,26 @@ updateFrontPanel( void )
 #endif
 	}
 
-	
-	{ 
+
+	{
 	    nat height = map_drawing_area->allocation.height,
 		block_height, mblock_height;
 
-	    block_height = (height / mblocks_allocated) / 
+	    block_height = (height / mblocks_allocated) /
 		((MBLOCK_SIZE/BLOCK_SIZE) / blocks_per_line);
 	    if (block_height < 1) block_height = 1;
-	    mblock_height = block_height * 
+	    mblock_height = block_height *
 		((MBLOCK_SIZE/BLOCK_SIZE) / blocks_per_line);
 
-	    gtk_ruler_set_range( GTK_RULER(map_ruler), 0, 
-				 (double)(height * mblocks_allocated) / 
+	    gtk_ruler_set_range( GTK_RULER(map_ruler), 0,
+				 (double)(height * mblocks_allocated) /
 				 (double)((mblock_height * mblocks_allocated)),
 				 0,
-				 (double)(height * mblocks_allocated) / 
+				 (double)(height * mblocks_allocated) /
 				 (double)((mblock_height * mblocks_allocated))
 		);
 	}
-				  
+
 	gtk_widget_draw( map_drawing_area, NULL );
     }
 
@@ -437,7 +437,7 @@ updateFrontPanel( void )
 	GdkRectangle rect;
 	nat g, s, columns, column, max_blocks, height_blocks,
 	    width, height;
-	
+
 	gdk_draw_rectangle (gen_pixmap,
 			    gen_drawing_area->style->white_gc,
 			    TRUE,
@@ -459,7 +459,7 @@ updateFrontPanel( void )
 	}
 
 	/* find a reasonable height value larger than max_blocks */
-	{ 
+	{
 	    nat n = 0;
 	    while (max_blocks != 0) {
 		max_blocks >>= 1; n++;
@@ -477,20 +477,20 @@ updateFrontPanel( void )
 		if (generations[g].steps[s].n_blocks == 0)
 		    rect.y = height;
 		else
-		    rect.y = height - 
+		    rect.y = height -
 			(height * generations[g].steps[s].n_blocks
 			 / height_blocks);
 
 		rect.width = (width / columns);
 		rect.height = height - rect.y;
 
-		gdk_draw_rectangle( gen_pixmap, my_gc, TRUE/*filled*/, 
+		gdk_draw_rectangle( gen_pixmap, my_gc, TRUE/*filled*/,
 				    rect.x, rect.y, rect.width,
 				    rect.height );
 	    }
 	}
 
-	gtk_ruler_set_range( GTK_RULER(gen_ruler), 
+	gtk_ruler_set_range( GTK_RULER(gen_ruler),
 			     height_blocks * BLOCK_SIZE / (1024 * 1024),
 			     0, 0,
 			     height_blocks * BLOCK_SIZE / (1024 * 1024)
@@ -509,7 +509,7 @@ updateFrontPanel( void )
 }
 
 static void
-colorBlock( void *addr, GdkColor *color, 
+colorBlock( void *addr, GdkColor *color,
 	    nat block_width, nat block_height, nat blocks_per_line )
 {
     GdkRectangle rect;
@@ -523,7 +523,7 @@ colorBlock( void *addr, GdkColor *color,
     rect.y = block_no / blocks_per_line * block_height;
     rect.width = block_width;
     rect.height = block_height;
-    gdk_draw_rectangle( map_pixmap, my_gc, TRUE/*filled*/, 
+    gdk_draw_rectangle( map_pixmap, my_gc, TRUE/*filled*/,
 			rect.x, rect.y, rect.width, rect.height );
 }
 
@@ -554,6 +554,8 @@ updateThreadsPanel( void )
 	    case BlockedOnException:  b_throwto++; break;
 	    case BlockedOnBlackHole:  b_bh++;      break;
 	    case NotBlocked:          running++;   break;
+      case BlockedOnSched:
+      case BlockedOnConcDS:     break;
 	    }
 	}
     }
@@ -594,7 +596,7 @@ residencyCensus( void )
     memset(prof, 0, N_Cats * sizeof(nat));
 
     res_time[slice] = mut_user_time();
-    
+
     for(g = 0; g < RtsFlags.GcFlags.generations; g++) {
 	for(s = 0; s < generations[g].n_steps; s++) {
 
@@ -615,7 +617,7 @@ residencyCensus( void )
 		while (p < bd->free) {
 		    info = get_itbl((StgClosure *)p);
 		    type = Other;
-		    
+
 		    switch (info->type) {
 
 		    case CONSTR:
@@ -634,7 +636,7 @@ residencyCensus( void )
 			size = sizeW_fromITBL(info);
 			type = Constr;
 			break;
-			
+
 		    case FUN_1_0:
 		    case FUN_0_1:
 			size = sizeofW(StgHeader) + 1;
@@ -677,23 +679,23 @@ residencyCensus( void )
 			size = pap_sizeW((StgPAP *)p);
 			type = Fun;
 			break;
-			
+
 		    case ARR_WORDS:
 			size = arr_words_sizeW(stgCast(StgArrWords*,p));
 			type = Array;
 			break;
-			
+
 		    case MUT_ARR_PTRS:
 		    case MUT_ARR_PTRS_FROZEN:
 			size = mut_arr_ptrs_sizeW((StgMutArrPtrs *)p);
 			type = Array;
 			break;
-			
+
 		    case TSO:
 			size = tso_sizeW((StgTSO *)p);
 			type = Thread;
 			break;
-			
+
 		    case WEAK:
 		    case PRIM:
 		    case MVAR:
@@ -717,7 +719,7 @@ residencyCensus( void )
     }
 
 }
-	    
+
 static void
 updateResidencyGraph( void )
 {
@@ -736,7 +738,7 @@ updateResidencyGraph( void )
 			0, 0,
 			res_drawing_area->allocation.width,
 			res_drawing_area->allocation.height);
-    
+
     if (next_slice == 0) return;
 
     time = res_time[last_slice];
@@ -744,7 +746,7 @@ updateResidencyGraph( void )
 	time_scale *= 2;
     }
 
-    max_res = 0; 
+    max_res = 0;
     for (i = 0; i < next_slice; i++) {
 	prof = res_prof[i];
 	total = prof[Thunk] + prof[Fun] + prof[Constr] +
@@ -781,12 +783,12 @@ updateResidencyGraph( void )
 	points[0] = points[1];
     }
 
-    gtk_ruler_set_range( GTK_RULER(res_vruler), 
+    gtk_ruler_set_range( GTK_RULER(res_vruler),
 			 res_scale / ((1024*1024)/sizeof(W_)),
 			 0, 0,
 			 res_scale / ((1024*1024)/sizeof(W_)) );
 
-    gtk_ruler_set_range( GTK_RULER(res_hruler), 
+    gtk_ruler_set_range( GTK_RULER(res_hruler),
 			 0, time_scale, 0, time_scale );
 
 

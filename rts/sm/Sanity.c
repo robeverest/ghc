@@ -77,8 +77,8 @@ checkLargeBitmap( StgPtr payload, StgLargeBitmap* large_bitmap, nat size )
  * used to avoid recursion between checking PAPs and checking stack
  * chunks.
  */
- 
-static void 
+
+static void
 checkClosureShallow( StgClosure* p )
 {
     StgClosure *q;
@@ -95,7 +95,7 @@ checkClosureShallow( StgClosure* p )
 }
 
 // check an individual stack object
-StgOffset 
+StgOffset
 checkStackFrame( StgPtr c )
 {
     nat size;
@@ -110,23 +110,23 @@ checkStackFrame( StgPtr c )
 	StgWord dyn;
 	StgPtr p;
 	StgRetDyn* r;
-	
+
 	r = (StgRetDyn *)c;
 	dyn = r->liveness;
-	
+
 	p = (P_)(r->payload);
 	checkSmallBitmap(p,RET_DYN_LIVENESS(r->liveness),RET_DYN_BITMAP_SIZE);
 	p += RET_DYN_BITMAP_SIZE + RET_DYN_NONPTR_REGS_SIZE;
 
 	// skip over the non-pointers
 	p += RET_DYN_NONPTRS(dyn);
-	
+
 	// follow the ptr words
 	for (size = RET_DYN_PTRS(dyn); size > 0; size--) {
 	    checkClosureShallow((StgClosure *)*p);
 	    p++;
 	}
-	
+
 	return sizeofW(StgRetDyn) + RET_DYN_BITMAP_SIZE +
 	    RET_DYN_NONPTR_REGS_SIZE +
 	    RET_DYN_NONPTRS(dyn) + RET_DYN_PTRS(dyn);
@@ -143,7 +143,7 @@ checkStackFrame( StgPtr c )
     case STOP_FRAME:
     case RET_SMALL:
 	size = BITMAP_SIZE(info->i.layout.bitmap);
-	checkSmallBitmap((StgPtr)c + 1, 
+	checkSmallBitmap((StgPtr)c + 1,
 			 BITMAP_BITS(info->i.layout.bitmap), size);
 	return 1 + size;
 
@@ -171,7 +171,7 @@ checkStackFrame( StgPtr c )
 	size = ret_fun->size;
 	switch (fun_info->f.fun_type) {
 	case ARG_GEN:
-	    checkSmallBitmap((StgPtr)ret_fun->payload, 
+	    checkSmallBitmap((StgPtr)ret_fun->payload,
 			     BITMAP_BITS(fun_info->f.b.bitmap), size);
 	    break;
 	case ARG_GEN_BIG:
@@ -193,7 +193,7 @@ checkStackFrame( StgPtr c )
 }
 
 // check sections of stack between update frames
-void 
+void
 checkStackChunk( StgPtr sp, StgPtr stack_end )
 {
     StgPtr p;
@@ -207,31 +207,31 @@ checkStackChunk( StgPtr sp, StgPtr stack_end )
 
 static void
 checkPAP (StgClosure *tagged_fun, StgClosure** payload, StgWord n_args)
-{ 
+{
     StgClosure *fun;
     StgFunInfoTable *fun_info;
-    
+
     fun = UNTAG_CLOSURE(tagged_fun);
     ASSERT(LOOKS_LIKE_CLOSURE_PTR(fun));
     fun_info = get_fun_itbl(fun);
-    
+
     switch (fun_info->f.fun_type) {
     case ARG_GEN:
-	checkSmallBitmap( (StgPtr)payload, 
+	checkSmallBitmap( (StgPtr)payload,
 			  BITMAP_BITS(fun_info->f.b.bitmap), n_args );
 	break;
     case ARG_GEN_BIG:
-	checkLargeBitmap( (StgPtr)payload, 
-			  GET_FUN_LARGE_BITMAP(fun_info), 
+	checkLargeBitmap( (StgPtr)payload,
+			  GET_FUN_LARGE_BITMAP(fun_info),
 			  n_args );
 	break;
     case ARG_BCO:
-	checkLargeBitmap( (StgPtr)payload, 
-			  BCO_BITMAP(fun), 
+	checkLargeBitmap( (StgPtr)payload,
+			  BCO_BITMAP(fun),
 			  n_args );
 	break;
     default:
-	checkSmallBitmap( (StgPtr)payload, 
+	checkSmallBitmap( (StgPtr)payload,
 			  BITMAP_BITS(stg_arg_bitmaps[fun_info->f.fun_type]),
 			  n_args );
 	break;
@@ -242,7 +242,7 @@ checkPAP (StgClosure *tagged_fun, StgClosure** payload, StgWord n_args)
 }
 
 
-StgOffset 
+StgOffset
 checkClosure( StgClosure* p )
 {
     const StgInfoTable *info;
@@ -268,7 +268,7 @@ checkClosure( StgClosure* p )
 
     case MVAR_CLEAN:
     case MVAR_DIRTY:
-      { 
+      {
 	StgMVar *mvar = (StgMVar *)p;
 	ASSERT(LOOKS_LIKE_CLOSURE_PTR(mvar->head));
 	ASSERT(LOOKS_LIKE_CLOSURE_PTR(mvar->tail));
@@ -329,9 +329,9 @@ checkClosure( StgClosure* p )
         ASSERT(LOOKS_LIKE_CLOSURE_PTR(bq->bh));
 
         ASSERT(get_itbl(bq->owner)->type == TSO);
-        ASSERT(bq->queue == (MessageBlackHole*)END_TSO_QUEUE 
+        ASSERT(bq->queue == (MessageBlackHole*)END_TSO_QUEUE
                || bq->queue->header.info == &stg_MSG_BLACKHOLE_info);
-        ASSERT(bq->link == (StgBlockingQueue*)END_TSO_QUEUE || 
+        ASSERT(bq->link == (StgBlockingQueue*)END_TSO_QUEUE ||
                get_itbl(bq->link)->type == IND ||
                get_itbl(bq->link)->type == BLOCKING_QUEUE);
 
@@ -369,7 +369,7 @@ checkClosure( StgClosure* p )
 	    return THUNK_SELECTOR_sizeW();
 
     case IND:
-	{ 
+	{
   	    /* we don't expect to see any of these after GC
 	     * but they might appear during execution
 	     */
@@ -406,7 +406,7 @@ checkClosure( StgClosure* p )
     }
 
     case AP_STACK:
-    { 
+    {
 	StgAP_STACK *ap = (StgAP_STACK *)p;
 	ASSERT(LOOKS_LIKE_CLOSURE_PTR(ap->fun));
 	checkStackChunk((StgPtr)ap->payload, (StgPtr)ap->payload + ap->size);
@@ -449,7 +449,7 @@ checkClosure( StgClosure* p )
         }
         return sizeofW(StgTRecChunk);
       }
-      
+
     default:
 	    barf("checkClosure (closure type %d)", info->type);
     }
@@ -477,7 +477,7 @@ void checkHeapChain (bdescr *bd)
                 /* This is the smallest size of closure that can live in the heap */
                 ASSERT( size >= MIN_PAYLOAD_SIZE + sizeofW(StgHeader) );
                 p += size;
-	    
+
                 /* skip over slop */
                 while (p < bd->free &&
                        (*p < 0x1000 || !LOOKS_LIKE_INFO_PTR(*p))) { p++; }
@@ -528,19 +528,21 @@ checkTSO(StgTSO *tso)
 {
     if (tso->what_next == ThreadKilled) {
       /* The garbage collector doesn't bother following any pointers
-       * from dead threads, so don't check sanity here.  
+       * from dead threads, so don't check sanity here.
        */
       return;
     }
 
-    ASSERT(tso->_link == END_TSO_QUEUE || 
+    ASSERT(tso->_link == END_TSO_QUEUE ||
            tso->_link->header.info == &stg_MVAR_TSO_QUEUE_info ||
            tso->_link->header.info == &stg_TSO_info);
 
     if (   tso->why_blocked == BlockedOnMVar
-	|| tso->why_blocked == BlockedOnBlackHole
-	|| tso->why_blocked == BlockedOnMsgThrowTo
+      	|| tso->why_blocked == BlockedOnBlackHole
+      	|| tso->why_blocked == BlockedOnMsgThrowTo
         || tso->why_blocked == NotBlocked
+        || tso->why_blocked == BlockedOnSched
+        || tso->why_blocked == BlockedOnConcDS
 	) {
         ASSERT(LOOKS_LIKE_CLOSURE_PTR(tso->block_info.closure));
     }
@@ -564,7 +566,7 @@ checkGlobalTSOList (rtsBool checkTSOs)
   nat g;
 
   for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
-      for (tso=generations[g].threads; tso != END_TSO_QUEUE; 
+      for (tso=generations[g].threads; tso != END_TSO_QUEUE;
            tso = tso->global_link) {
           ASSERT(LOOKS_LIKE_CLOSURE_PTR(tso));
           ASSERT(get_itbl(tso)->type == TSO);
@@ -660,7 +662,7 @@ checkStaticObjects ( StgClosure* static_objects )
     info = get_itbl(p);
     switch (info->type) {
     case IND_STATIC:
-      { 
+      {
         StgClosure *indirectee = UNTAG_CLOSURE(((StgIndStatic *)p)->indirectee);
 
 	ASSERT(LOOKS_LIKE_CLOSURE_PTR(indirectee));
@@ -682,7 +684,7 @@ checkStaticObjects ( StgClosure* static_objects )
       break;
 
     default:
-      barf("checkStaticObjetcs: strange closure %p (%s)", 
+      barf("checkStaticObjetcs: strange closure %p (%s)",
 	   p, info_type(p));
     }
   }
@@ -706,7 +708,7 @@ checkNurserySanity (nursery *nursery)
     ASSERT(blocks == nursery->n_blocks);
 }
 
-static void checkGeneration (generation *gen, 
+static void checkGeneration (generation *gen,
                              rtsBool after_major_gc USED_IF_THREADS)
 {
     nat n;
@@ -810,7 +812,7 @@ checkRunQueue(Capability *cap)
 {
     StgTSO *prev, *tso;
     prev = END_TSO_QUEUE;
-    for (tso = cap->run_queue_hd; tso != END_TSO_QUEUE; 
+    for (tso = cap->run_queue_hd; tso != END_TSO_QUEUE;
          prev = tso, tso = tso->_link) {
         ASSERT(prev == END_TSO_QUEUE || prev->_link == tso);
         ASSERT(tso->block_info.prev == prev);
@@ -846,7 +848,7 @@ genBlocks (generation *gen)
 {
     ASSERT(countBlocks(gen->blocks) == gen->n_blocks);
     ASSERT(countBlocks(gen->large_objects) == gen->n_large_blocks);
-    return gen->n_blocks + gen->n_old_blocks + 
+    return gen->n_blocks + gen->n_old_blocks +
 	    countAllocdBlocks(gen->large_objects);
 }
 
@@ -869,7 +871,7 @@ memInventory (rtsBool show)
           gen_blocks[g] += countBlocks(gc_threads[i]->gens[g].part_list);
           gen_blocks[g] += countBlocks(gc_threads[i]->gens[g].scavd_list);
           gen_blocks[g] += countBlocks(gc_threads[i]->gens[g].todo_bd);
-      }	  
+      }
       gen_blocks[g] += genBlocks(&generations[g]);
   }
 
@@ -902,7 +904,7 @@ memInventory (rtsBool show)
   for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
       live_blocks += gen_blocks[g];
   }
-  live_blocks += nursery_blocks + 
+  live_blocks += nursery_blocks +
                + retainer_blocks + arena_blocks + exec_blocks;
 
 #define MB(n) (((n) * BLOCK_SIZE_W) / ((1024*1024)/sizeof(W_)))
@@ -911,29 +913,29 @@ memInventory (rtsBool show)
 
   if (show || leak)
   {
-      if (leak) { 
+      if (leak) {
           debugBelch("Memory leak detected:\n");
       } else {
           debugBelch("Memory inventory:\n");
       }
       for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
-	  debugBelch("  gen %d blocks : %5lu blocks (%lu MB)\n", g, 
+	  debugBelch("  gen %d blocks : %5lu blocks (%lu MB)\n", g,
                      gen_blocks[g], MB(gen_blocks[g]));
       }
-      debugBelch("  nursery      : %5lu blocks (%lu MB)\n", 
+      debugBelch("  nursery      : %5lu blocks (%lu MB)\n",
                  nursery_blocks, MB(nursery_blocks));
-      debugBelch("  retainer     : %5lu blocks (%lu MB)\n", 
+      debugBelch("  retainer     : %5lu blocks (%lu MB)\n",
                  retainer_blocks, MB(retainer_blocks));
-      debugBelch("  arena blocks : %5lu blocks (%lu MB)\n", 
+      debugBelch("  arena blocks : %5lu blocks (%lu MB)\n",
                  arena_blocks, MB(arena_blocks));
-      debugBelch("  exec         : %5lu blocks (%lu MB)\n", 
+      debugBelch("  exec         : %5lu blocks (%lu MB)\n",
                  exec_blocks, MB(exec_blocks));
-      debugBelch("  free         : %5lu blocks (%lu MB)\n", 
+      debugBelch("  free         : %5lu blocks (%lu MB)\n",
                  free_blocks, MB(free_blocks));
       debugBelch("  total        : %5lu blocks (%lu MB)\n",
                  live_blocks + free_blocks, MB(live_blocks+free_blocks));
       if (leak) {
-          debugBelch("\n  in system    : %5lu blocks (%lu MB)\n", 
+          debugBelch("\n  in system    : %5lu blocks (%lu MB)\n",
                      mblocks_allocated * BLOCKS_PER_MBLOCK, mblocks_allocated);
       }
   }

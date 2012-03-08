@@ -291,6 +291,8 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
     case ThreadMigrating:
         goto unblock;
 
+    case BlockedOnConcDS:
+    case BlockedOnSched:
     default:
         // otherwise, do nothing
         return;
@@ -746,6 +748,10 @@ printThreadBlockage(StgTSO *tso)
   case BlockedOnSTM:
     debugBelch("is blocked on an STM operation");
     break;
+  case BlockedOnConcDS:
+    debugBelch("is blocked on a user-level concurrent data structure");
+  case BlockedOnSched:
+    debugBelch("is blocked on a user-level scheduler");
   default:
     barf("printThreadBlockage: strange tso->why_blocked: %d for TSO %d (%d)",
 	 tso->why_blocked, tso->id, tso);

@@ -931,6 +931,8 @@ scheduleDetectDeadlock (Capability *cap, Task *task)
 		throwToSingleThreaded(cap, task->incall->tso,
 				      (StgClosure *)nonTermination_closure);
 		return;
+      case BlockedOnSched:
+      case BlockedOnConcDS:
 	    default:
 		barf("deadlock: main thread blocked in a strange way");
 	    }
@@ -2617,6 +2619,10 @@ resurrectThreads (StgTSO *threads)
 	cap = tso->cap;
 
 	switch (tso->why_blocked) {
+  case BlockedOnSched:
+  case BlockedOnConcDS:
+    debugTrace(DEBUG_sched, "\tblocked in user-land");
+    break;
 	case BlockedOnMVar:
 	    /* Called by GC - sched_mutex lock is currently held. */
 	    throwToSingleThreaded(cap, tso,

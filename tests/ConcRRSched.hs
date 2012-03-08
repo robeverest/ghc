@@ -54,8 +54,8 @@ forkIO (ConcRRSched ref) task = do
     contents <- readPVar ref
     writePVar ref $ contents Seq.|> thread
 
-switchToNextWith :: ConcRRSched -> (Seq.Seq SCont -> Seq.Seq SCont) -> PTM ()
-switchToNextWith (ConcRRSched ref) f = do
+switchToNextWith :: ConcRRSched -> (Seq.Seq SCont -> Seq.Seq SCont) -> ThreadStatus -> PTM ()
+switchToNextWith (ConcRRSched ref) f status = do
   oldContents <- readPVar ref
   let contents = f oldContents
   if Seq.length contents == 0
@@ -64,7 +64,7 @@ switchToNextWith (ConcRRSched ref) f = do
        let x = Seq.index contents 0
        let tail = Seq.drop 1 contents
        writePVar ref $ tail
-       switchTo x Blocked
+       switchTo x status
 
 enque :: ConcRRSched -> SCont -> PTM ()
 enque (ConcRRSched ref) s = do
@@ -75,7 +75,7 @@ enque (ConcRRSched ref) s = do
 yield :: ConcRRSched -> IO ()
 yield sched = atomically $ do
   s <- getSCont
-  switchToNextWith sched (\tail -> tail Seq.|> s)
+  switchToNextWith sched (\tail -> tail Seq.|> s) BlockedOnSched
 
 -- blockAction must be called by the same thread (say t) which invoked
 -- getSchedActionPair. unblockAction must be called by a thread other than t,
@@ -84,6 +84,6 @@ yield sched = atomically $ do
 getSchedActionPair :: ConcRRSched -> IO (PTM (), PTM ())
 getSchedActionPair sched = do
   s <- atomically $ getSCont
-  let blockAction   = switchToNextWith sched (\tail -> tail)
+  let blockAction   = switchToNextWith sched (\tail -> tail) BlockedOnConcDS
   let unblockAction = enque sched s
   return (blockAction, unblockAction)

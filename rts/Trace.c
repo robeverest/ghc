@@ -183,14 +183,16 @@ static char *thread_stop_reasons[] = {
     [6 + BlockedOnDoProc]       = "blocked on asyncDoProc",
     [6 + BlockedOnCCall]        = "blocked on a foreign call",
     [6 + BlockedOnCCall_Interruptible] = "blocked on a foreign call (interruptible)",
-    [6 + BlockedOnMsgThrowTo]   =  "blocked on throwTo",
-    [6 + ThreadMigrating]       =  "migrating"
+    [6 + BlockedOnMsgThrowTo]   = "blocked on throwTo",
+    [6 + ThreadMigrating]       = "migrating",
+    [6 + BlockedOnConcDS]       = "blocked on a user-level concurrent data structure",
+    [6 + BlockedOnSched]        = "blocked on a user-level scheduler"
 };
 #endif
 
 #ifdef DEBUG
-static void traceSchedEvent_stderr (Capability *cap, EventTypeNum tag, 
-                                    StgTSO *tso, 
+static void traceSchedEvent_stderr (Capability *cap, EventTypeNum tag,
+                                    StgTSO *tso,
                                     StgWord info1 STG_UNUSED,
                                     StgWord info2 STG_UNUSED)
 {
@@ -199,26 +201,26 @@ static void traceSchedEvent_stderr (Capability *cap, EventTypeNum tag,
     tracePreface();
     switch (tag) {
     case EVENT_CREATE_THREAD:   // (cap, thread)
-        debugBelch("cap %d: created thread %lu\n", 
+        debugBelch("cap %d: created thread %lu\n",
                    cap->no, (lnat)tso->id);
         break;
     case EVENT_RUN_THREAD:      //  (cap, thread)
-        debugBelch("cap %d: running thread %lu (%s)\n", 
+        debugBelch("cap %d: running thread %lu (%s)\n",
                    cap->no, (lnat)tso->id, what_next_strs[tso->what_next]);
         break;
     case EVENT_THREAD_RUNNABLE: // (cap, thread)
-        debugBelch("cap %d: thread %lu appended to run queue\n", 
+        debugBelch("cap %d: thread %lu appended to run queue\n",
                    cap->no, (lnat)tso->id);
         break;
     case EVENT_MIGRATE_THREAD:  // (cap, thread, new_cap)
-        debugBelch("cap %d: thread %lu migrating to cap %d\n", 
+        debugBelch("cap %d: thread %lu migrating to cap %d\n",
                    cap->no, (lnat)tso->id, (int)info1);
         break;
     case EVENT_THREAD_WAKEUP:   // (cap, thread, info1_cap)
-        debugBelch("cap %d: waking up thread %lu on cap %d\n", 
+        debugBelch("cap %d: waking up thread %lu on cap %d\n",
                    cap->no, (lnat)tso->id, (int)info1);
         break;
-        
+
     case EVENT_STOP_THREAD:     // (cap, thread, status)
         if (info1 == 6 + BlockedOnBlackHole) {
             debugBelch("cap %d: thread %lu stopped (blocked on black hole owned by thread %lu)\n",
@@ -232,7 +234,7 @@ static void traceSchedEvent_stderr (Capability *cap, EventTypeNum tag,
         debugBelch("cap %d: shutting down\n", cap->no);
         break;
     default:
-        debugBelch("cap %d: thread %lu: event %d\n\n", 
+        debugBelch("cap %d: thread %lu: event %d\n\n",
                    cap->no, (lnat)tso->id, tag);
         break;
     }
@@ -241,7 +243,7 @@ static void traceSchedEvent_stderr (Capability *cap, EventTypeNum tag,
 }
 #endif
 
-void traceSchedEvent_ (Capability *cap, EventTypeNum tag, 
+void traceSchedEvent_ (Capability *cap, EventTypeNum tag,
                        StgTSO *tso, StgWord info1, StgWord info2)
 {
 #ifdef DEBUG
@@ -390,7 +392,7 @@ void traceOSProcessInfo_(void) {
 }
 
 #ifdef DEBUG
-static void traceSparkEvent_stderr (Capability *cap, EventTypeNum tag, 
+static void traceSparkEvent_stderr (Capability *cap, EventTypeNum tag,
                                     StgWord info1)
 {
     ACQUIRE_LOCK(&trace_utx);
@@ -399,7 +401,7 @@ static void traceSparkEvent_stderr (Capability *cap, EventTypeNum tag,
     switch (tag) {
 
     case EVENT_CREATE_SPARK_THREAD: // (cap, spark_thread)
-        debugBelch("cap %d: creating spark thread %lu\n", 
+        debugBelch("cap %d: creating spark thread %lu\n",
                    cap->no, (long)info1);
         break;
     case EVENT_SPARK_CREATE:        // (cap)
@@ -407,27 +409,27 @@ static void traceSparkEvent_stderr (Capability *cap, EventTypeNum tag,
                    cap->no);
         break;
     case EVENT_SPARK_DUD:           //  (cap)
-        debugBelch("cap %d: discarded dud spark\n", 
+        debugBelch("cap %d: discarded dud spark\n",
                    cap->no);
         break;
     case EVENT_SPARK_OVERFLOW:      // (cap)
-        debugBelch("cap %d: discarded overflowed spark\n", 
+        debugBelch("cap %d: discarded overflowed spark\n",
                    cap->no);
         break;
     case EVENT_SPARK_RUN:           // (cap)
-        debugBelch("cap %d: running a spark\n", 
+        debugBelch("cap %d: running a spark\n",
                    cap->no);
         break;
     case EVENT_SPARK_STEAL:         // (cap, victim_cap)
-        debugBelch("cap %d: stealing a spark from cap %d\n", 
+        debugBelch("cap %d: stealing a spark from cap %d\n",
                    cap->no, (int)info1);
         break;
     case EVENT_SPARK_FIZZLE:        // (cap)
-        debugBelch("cap %d: fizzled spark removed from pool\n", 
+        debugBelch("cap %d: fizzled spark removed from pool\n",
                    cap->no);
         break;
     case EVENT_SPARK_GC:            // (cap)
-        debugBelch("cap %d: GCd spark removed from pool\n", 
+        debugBelch("cap %d: GCd spark removed from pool\n",
                    cap->no);
         break;
     default:
@@ -484,7 +486,7 @@ void traceCap_(Capability *cap, char *msg, ...)
 {
     va_list ap;
     va_start(ap,msg);
-    
+
 #ifdef DEBUG
     if (RtsFlags.TraceFlags.tracing == TRACE_STDERR) {
         traceCap_stderr(cap, msg, ap);

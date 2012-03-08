@@ -603,9 +603,13 @@ stg_decodeDoublezu2Intzh
 
 stg_atomicSwitchzh
 {
-  /* args: R1 = scont, R2 = finish_current_thread */
+  /* args: R1 = scont, R2 = switch_reason
+   * switch_reason: 0 - Completing current thread
+   *                1 - Blocking on a concurrent data structure
+   *                2 - yielding on the scheduler
+   */
   W_ tso;
-  W_ finish_current_thread;
+  W_ switch_reason;
 
   W_ frame_type;
   W_ frame;
@@ -615,7 +619,7 @@ stg_atomicSwitchzh
   W_ limit;
 
   tso = R1;
-  finish_current_thread = R2;
+  switch_reason = R2;
 
   MAYBE_GC (R1_PTR, stg_atomicSwitchzh); // STM operations may allocate
 
@@ -623,7 +627,8 @@ stg_atomicSwitchzh
    * unless we are switching to the same thread. */
   if (tso != CurrentTSO) {
     ASSERT (StgTSO_what_next(tso) == ThreadRunGHC::I16); //Thread is alive
-    ASSERT (StgTSO_why_blocked(tso) == BlockedOnMVar::I16); //Thread is blocked
+    ASSERT (StgTSO_why_blocked(tso) == BlockedOnSched::I16 ||
+            StgTSO_why_blocked(tso) == BlockedOnConcDS::I16); //Thread is blocked
   }
 
 
@@ -683,11 +688,10 @@ retry_pop_stack:
     if (CurrentTSO != tso) {
       foreign "C" dirty_TSO (MyCapability() "ptr", tso "ptr") [];
       foreign "C" dirty_STACK (MyCapability() "ptr", StgTSO_stackobj(tso) "ptr") [];
-      if (finish_current_thread == 1) {
-        StgTSO_what_next(CurrentTSO) = ThreadComplete::I16;
-      }
-      else {
-        StgTSO_why_blocked(CurrentTSO) = BlockedOnMVar::I16;
+      switch (switch_reason) {
+        case 0: { StgTSO_what_next (CurrentTSO) = ThreadComplete::I16; }
+        case 1: { StgTSO_why_blocked (CurrentTSO) = BlockedOnConcDS::I16; }
+        case 2: { StgTSO_why_blocked (CurrentTSO) = BlockedOnSched::I16; }
       }
       CurrentTSO = tso;
       StgTSO_why_blocked(CurrentTSO) = NotBlocked::I16;
@@ -719,7 +723,7 @@ stg_newSContzh
   ("ptr" threadid) = foreign "C" createIOThread( MyCapability() "ptr",
 				RtsFlags_GcFlags_initialStkSize(RtsFlags),
 				closure "ptr") [];
-  StgTSO_why_blocked (threadid) = BlockedOnMVar::I16;
+  StgTSO_why_blocked (threadid) = BlockedOnSched::I16;
 
   RET_P(threadid);
 }
