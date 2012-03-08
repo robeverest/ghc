@@ -668,12 +668,15 @@ stg_atomicSwitchzh
       if (CurrentTSO != tso) {
         foreign "C" dirty_TSO (MyCapability() "ptr", tso "ptr") [];
         foreign "C" dirty_STACK (MyCapability() "ptr", StgTSO_stackobj(tso) "ptr") [];
-        switch (switch_reason) {
-          case 0: { StgTSO_what_next (CurrentTSO) = ThreadComplete::I16; }
-          case 1: { StgTSO_why_blocked (CurrentTSO) = BlockedOnConcDS::I16; }
-          case 2: { StgTSO_why_blocked (CurrentTSO) = BlockedOnSched::I16; }
+        if (switch_reason == 0) { StgTSO_what_next (CurrentTSO) = ThreadComplete::I16; }
+        else {
+          if (switch_reason == 1) { StgTSO_why_blocked (CurrentTSO) = BlockedOnConcDS::I16; }
+          else {
+            if (switch_reason == 2) { StgTSO_why_blocked (CurrentTSO) = BlockedOnSched::I16; }
+            else { foreign "C" barf ("stg_atomicSwitchzh: Unknown switch reason") []; }
+          }
         }
-          CurrentTSO = tso;
+        CurrentTSO = tso;
         StgTSO_why_blocked(CurrentTSO) = NotBlocked::I16;
         ("ptr" limit)  = foreign "C" tso_SpLim (tso "ptr") [];
         SpLim = limit;
