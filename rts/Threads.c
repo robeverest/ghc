@@ -97,6 +97,7 @@ createThread(Capability *cap, nat size, rtsBool is_user_level_thread)
     tso->what_next = ThreadRunGHC;
     tso->why_blocked  = NotBlocked;
     tso->block_info.closure = (StgClosure *)END_TSO_QUEUE;
+    tso->resume_thread = (StgClosure*)END_TSO_QUEUE;
     tso->blocked_exceptions = END_BLOCKED_EXCEPTIONS_QUEUE;
     tso->bq = (StgBlockingQueue *)END_TSO_QUEUE;
     tso->flags = 0;
@@ -750,8 +751,10 @@ printThreadBlockage(StgTSO *tso)
     break;
   case BlockedOnConcDS:
     debugBelch("is blocked on a user-level concurrent data structure");
+    break;
   case BlockedOnSched:
     debugBelch("is blocked on a user-level scheduler");
+    break;
   default:
     barf("printThreadBlockage: strange tso->why_blocked: %d for TSO %d (%d)",
 	 tso->why_blocked, tso->id, tso);

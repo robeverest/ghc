@@ -110,10 +110,10 @@ extern void (*exitFn)(int);
 
 /* ----------------------------------------------------------------------------
    Locking.
-   
+
    You have to surround all access to the RtsAPI with these calls.
    ------------------------------------------------------------------------- */
-   
+
 // acquires a token which may be used to create new objects and
 // evaluate them.
 Capability *rts_lock (void);
@@ -220,14 +220,20 @@ void rts_checkSchedStatus (char* site, Capability *);
 
 SchedulerStatus rts_getSchedStatus (Capability *cap);
 
+/* ----------------------------------------------------------------------------
+  Utility functions for user-level schedulers
+   ------------------------------------------------------------------------- */
+
+void rts_forceRTCEvaluation (Capability* cap);
+
 /* --------------------------------------------------------------------------
    Wrapper closures
 
    These are used by foreign export and foreign import "wrapper" stubs.
    ----------------------------------------------------------------------- */
 
-// When producing Windows DLLs the we need to know which symbols are in the 
-//	local package/DLL vs external ones. 
+// When producing Windows DLLs the we need to know which symbols are in the
+//	local package/DLL vs external ones.
 //
 //	Note that RtsAPI.h is also included by foreign export stubs in
 //	the base package itself.

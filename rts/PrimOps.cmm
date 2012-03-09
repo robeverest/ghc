@@ -695,14 +695,49 @@ stg_atomicSwitchzh
   }
 }
 
+/* Set the resume thread closure for the given TSO. This closure, when
+ * evaluated, will add the given thread to its user-level scheduler.
+ */
+stg_setResumeThreadClosurezh
+{
+  /* args: R1 = SCont, R2 = closure to resume this spark */
+
+  MAYBE_GC (R1_PTR & R2_PTR, stg_setResumeThreadClosurezh);
+
+  W_ threadid, resume_thread;
+  threadid = R1;
+  resume_thread = R2;
+
+  StgTSO_resume_thread(threadid) = resume_thread;
+  foreign "C" dirty_TSO (MyCapability () "ptr", threadid "ptr") [];
+  jump %ENTRY_CODE(Sp(0));
+}
+
+stg_forceRTCEvalzh
+{
+  /* args: R1 = SCont */
+  W_ threadid;
+
+  MAYBE_GC (R1_PTR, stg_forceRTCEvalzh);
+
+  threadid = R1;
+
+  //ASSERT (StgTSO_what_next (threadid) == ThreadRunGHC::I16);
+  //ASSERT (StgTSO_why_blocked (threadid) == BlockedOnSched::I16);
+
+  foreign "C" rts_forceRTCEvaluation (MyCapability () "ptr") [];
+  jump %ENTRY_CODE(Sp(0));
+}
+
+
+
 stg_newSContzh
 {
   /* args: R1 = closure to spark */
 
   MAYBE_GC(R1_PTR, stg_newSContzh);
 
-  W_ closure;
-  W_ threadid;
+  W_ closure, threadid;
   closure = R1;
 
   ("ptr" threadid) = foreign "C" createIOThread( MyCapability() "ptr",

@@ -172,7 +172,7 @@
     field_type(s_type, field);			\
     tso_field_offset(s_type,field);		\
     tso_field_macro(str(s_type,field))
-  
+
 #define opt_struct_size(s_type, option)					\
     printf("#ifdef " #option "\n");					\
     printf("#define SIZEOF_OPT_" #s_type " SIZEOF_" #s_type "\n");	\
@@ -293,6 +293,7 @@ main(int argc, char *argv[])
     closure_field(StgTSO, id);
     closure_field(StgTSO, cap);
     closure_field(StgTSO, saved_errno);
+    closure_field(StgTSO, resume_thread);
     closure_field(StgTSO, trec);
     closure_field(StgTSO, flags);
     closure_field(StgTSO, dirty);

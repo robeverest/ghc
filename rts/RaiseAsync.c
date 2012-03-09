@@ -640,6 +640,10 @@ removeFromQueues(Capability *cap, StgTSO *tso)
       // nothing to do
       goto done;
 
+    case BlockedOnConcDS:
+    case BlockedOnSched:
+      goto done;
+
     case BlockedOnMsgThrowTo:
       {
         MessageThrowTo *m = tso->block_info.throwto;

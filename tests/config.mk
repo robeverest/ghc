@@ -28,4 +28,4 @@ all: $(TARGETS)
 	$(GHC) -c $< -ddump-cmm >$@
 
 clean:
-	rm -f *.bin *.o *.hi *.cmm *~ *.stat
+	rm -f *.bin *.o *.hi *.cmm *~ *.stat *.prof

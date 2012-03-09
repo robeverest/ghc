@@ -24,21 +24,25 @@
 
 module LwConc.Substrate
 ( PTM
-, unsafeIOToPTM     -- IO a -> PTM a
-, atomically        -- PTM a -> IO a
+, unsafeIOToPTM           -- IO a -> PTM a
+, atomically              -- PTM a -> IO a
 
 , PVar
-, newPVar           -- a -> PTM (PVar a)
-, newPVarIO         -- a -> IO (PVar a)
-, readPVar          -- PVar a -> PTM a
-, writePVar         -- PVar a -> a -> PTM ()
+, newPVar                 -- a -> PTM (PVar a)
+, newPVarIO               -- a -> IO (PVar a)
+, readPVar                -- PVar a -> PTM a
+, writePVar               -- PVar a -> a -> PTM ()
 
 , SCont
 , ThreadStatus (..)
-, newSCont          -- IO () -> IO SCont
-, switch            -- (SCont -> PTM (SCont, ThreadStatus)) -> IO ()
-, getSCont          -- PTM SCont
-, switchTo          -- SCont -> ThreadStatus -> PTM ()
+, newSCont                -- IO () -> IO SCont
+, switch                  -- (SCont -> PTM (SCont, ThreadStatus)) -> IO ()
+, getSCont                -- PTM SCont
+, switchTo                -- SCont -> ThreadStatus -> PTM ()
+
+-- Experimental
+, setResumeThreadClosure  -- SCont -> IO () -> IO ()
+, forceRTCEval            -- SCont -> IO ()
 ) where
 
 
@@ -184,3 +188,13 @@ switch arg = atomically $ do
   s1 <- getSCont
   (s2, status) <- arg s1
   switchTo s2 status
+
+{-# INLINE setResumeThreadClosure #-}
+setResumeThreadClosure :: SCont -> IO () -> IO ()
+setResumeThreadClosure (SCont s) r = IO $ \s1 ->
+  case (setResumeThreadClosure# s r s1) of s2 -> (# s2, () #)
+
+{-# INLINE forceRTCEval #-}
+forceRTCEval :: SCont -> IO ()
+forceRTCEval (SCont sc) = IO $ \s1 ->
+  case (forceRTCEval# sc s1) of s2 -> (# s2, () #)

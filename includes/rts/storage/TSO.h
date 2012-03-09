@@ -145,6 +145,12 @@ typedef struct StgTSO_ {
     */
     struct StgBlockingQueue_ *bq;
 
+    /*
+     * A reference to the resume function. This will enque this thread into its
+     * scheduler.
+     */
+    StgClosure* resume_thread;
+
 #ifdef TICKY_TICKY
     /* TICKY-specific stuff would go here. */
 #endif
