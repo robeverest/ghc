@@ -642,7 +642,7 @@ removeFromQueues(Capability *cap, StgTSO *tso)
 
     case BlockedOnConcDS:
     case BlockedOnSched:
-      goto done;
+      return;
 
     case BlockedOnMsgThrowTo:
       {
@@ -999,6 +999,12 @@ done:
 
   // wake it up
   if (tso->why_blocked != NotBlocked) {
+    if (tso->why_blocked == BlockedOnConcDS) {
+      StgTSO* newTSO = createIOThread (cap, RtsFlags.GcFlags.initialStkSize,
+                                       tso->resume_thread);
+      tso->why_blocked = BlockedOnConcDS;
+      tso = newTSO;
+    }
     tso->why_blocked = NotBlocked;
     appendToRunQueue(cap,tso);
   }

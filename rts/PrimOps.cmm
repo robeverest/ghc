@@ -625,9 +625,9 @@ stg_atomicSwitchzh
             StgTSO_why_blocked(tso) == BlockedOnConcDS::I16); //Thread is blocked
   }
 
-  #if defined(DEBUG) || defined (TRACING)
-  foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO), StgTSO_id(tso)) [];
-  #endif
+  //#if defined(DEBUG) || defined (TRACING)
+  //foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO), StgTSO_id(tso)) [];
+  //#endif
 
 
   // Find the enclosing ATOMICALLY_FRAME or CATCH_RETRY_FRAME

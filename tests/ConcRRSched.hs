@@ -18,11 +18,15 @@ module ConcRRSched
 , newConcRRSched      -- IO (ConcRRSched)
 , forkIO              -- ConcRRSched -> IO () -> IO ()
 , yield               -- ConcRRSched -> IO ()
-, getSchedActionPair  -- ConcRRSched -> IO (PTM (), PTM ())
+, getSchedActionPair  -- ConcRRSched -> SCont -> IO (PTM (), PTM ())
+
+, createThread        -- ConcRRSched -> IO () -> IO SCont | Creates a thread but
+                      -- does not add it to the scheduler
 ) where
 
 import LwConc.Substrate
 import qualified Data.Sequence as Seq
+import Control.OldException
 
 newtype ConcRRSched = ConcRRSched (PVar (Seq.Seq SCont))
 
@@ -42,14 +46,23 @@ switchToNextAndFinish (ConcRRSched ref) = atomically $ do
         writePVar ref $ tail
         switchTo x Completed
 
-forkIO :: ConcRRSched -> IO () -> IO ()
-forkIO (ConcRRSched ref) task = do
+createThread :: ConcRRSched -> IO () -> IO SCont
+createThread (ConcRRSched ref) task =
   let yieldingTask = do {
-    task;
+    try task;
     switchToNextAndFinish (ConcRRSched ref);
     print "ConcRRSched.forkIO: Should not see this!"
   }
-  thread <- newSCont yieldingTask
+  in do {
+    s <- newSCont yieldingTask;
+    (_,u) <- getSchedActionPair (ConcRRSched ref) s;
+    setResumeThreadClosure s $ atomically u;
+    return s
+    }
+
+forkIO :: ConcRRSched -> IO () -> IO ()
+forkIO (ConcRRSched ref) task = do
+  thread <- createThread (ConcRRSched ref) task
   atomically $ do
     contents <- readPVar ref
     writePVar ref $ contents Seq.|> thread
@@ -77,13 +90,14 @@ yield sched = atomically $ do
   s <- getSCont
   switchToNextWith sched (\tail -> tail Seq.|> s) BlockedOnSched
 
--- blockAction must be called by the same thread (say t) which invoked
--- getSchedActionPair. unblockAction must be called by a thread other than t,
--- which adds t back to its scheduler.
+-- blockAction must be called by the thread t whose SCont corresponds to the
+-- Scont passed to the getSchedActionPair function.  unblockAction must be
+-- called by a thread other than t, which adds t back to its scheduler.
 
-getSchedActionPair :: ConcRRSched -> IO (PTM (), PTM ())
-getSchedActionPair sched = do
-  s <- atomically $ getSCont
+getSchedActionPair :: ConcRRSched -> SCont -> IO (PTM (), PTM ())
+getSchedActionPair sched s = do
   let blockAction   = switchToNextWith sched (\tail -> tail) BlockedOnConcDS
-  let unblockAction = enque sched s
+  let unblockAction = do
+      unsafeIOToPTM $ print "unblocking SCont"
+      enque sched s
   return (blockAction, unblockAction)

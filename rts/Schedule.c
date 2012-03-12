@@ -2620,9 +2620,9 @@ resurrectThreads (StgTSO *threads)
 
 	switch (tso->why_blocked) {
   case BlockedOnSched:
-  case BlockedOnConcDS:
     debugTrace(DEBUG_sched, "\tblocked in user-land");
     break;
+  case BlockedOnConcDS: //TODO Must use unique exception
 	case BlockedOnMVar:
 	    /* Called by GC - sched_mutex lock is currently held. */
 	    throwToSingleThreaded(cap, tso,

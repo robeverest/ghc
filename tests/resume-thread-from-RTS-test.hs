@@ -1,5 +1,6 @@
 import LwConc.Substrate
 
+{- XXX KC does not work as it is intended to -}
 main = do
   let resumeThreadClosure = do {
     print "***** In RTC *****"
