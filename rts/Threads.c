@@ -98,6 +98,7 @@ createThread(Capability *cap, nat size, rtsBool is_user_level_thread)
     tso->why_blocked  = NotBlocked;
     tso->block_info.closure = (StgClosure *)END_TSO_QUEUE;
     tso->resume_thread = (StgClosure*)END_TSO_QUEUE;
+    tso->switch_to_next = (StgClosure*)END_TSO_QUEUE;
     tso->blocked_exceptions = END_BLOCKED_EXCEPTIONS_QUEUE;
     tso->bq = (StgBlockingQueue *)END_TSO_QUEUE;
     tso->flags = 0;
@@ -318,6 +319,46 @@ unblock:
 
     // cap->context_switch = 1;
 }
+
+
+/* ----------------------------------------------------------------------------
+   pushCallToClosure
+   ------------------------------------------------------------------------- */
+
+void
+pushCallToClosure (Capability *cap, StgTSO *tso, StgClosure *closure) {
+  StgStack *stack;
+  StgPtr sp;
+
+  // ASSUMES: the thread is not already complete or dead
+  // Upper layers should deal with that.
+  ASSERT(tso->what_next != ThreadComplete &&
+         tso->what_next != ThreadKilled);
+
+  // only if we own this TSO (except that deleteThread() calls this
+  ASSERT(tso->cap == cap);
+
+  stack = tso->stackobj;
+
+  // mark it dirty; we're about to change its stack.
+  dirty_TSO(cap, tso);
+  dirty_STACK(cap, stack);
+
+  sp = stack->sp;
+
+  /* Check if the stack has enough space. Otherwise, grow the stack. */
+  if (sp - 3*sizeof(W_) < tso_SpLim (tso)) {
+    threadStackOverflow (cap, tso);
+    stack = tso->stackobj;
+    sp = stack->sp;
+  }
+
+  pushClosure(tso, (W_)&stg_ap_v_info);
+  pushClosure(tso, (W_)closure);
+  pushClosure(tso, (W_)&stg_enter_info);
+}
+
+
 
 /* ----------------------------------------------------------------------------
    migrateThread

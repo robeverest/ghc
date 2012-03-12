@@ -151,6 +151,12 @@ typedef struct StgTSO_ {
      */
     StgClosure* resume_thread;
 
+    /*
+     * A reference to the switch_to_next function. This will switch to the next
+     * thread picked from the scheduler.
+     */
+    StgClosure* switch_to_next;
+
 #ifdef TICKY_TICKY
     /* TICKY-specific stuff would go here. */
 #endif

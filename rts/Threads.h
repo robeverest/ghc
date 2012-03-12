@@ -20,13 +20,15 @@ void checkBlockingQueues (Capability *cap, StgTSO *tso);
 void wakeBlockingQueue   (Capability *cap, StgBlockingQueue *bq);
 void tryWakeupThread     (Capability *cap, StgTSO *tso);
 void migrateThread       (Capability *from, StgTSO *tso, Capability *to);
+void pushCallToClosure   (Capability *cap, StgTSO *tso, StgClosure* closure);
+
 
 // Wakes up a thread on a Capability (probably a different Capability
 // from the one held by the current Task).
 //
 #ifdef THREADED_RTS
 void wakeupThreadOnCapability (Capability *cap,
-                               Capability *other_cap, 
+                               Capability *other_cap,
                                StgTSO *tso);
 #endif
 

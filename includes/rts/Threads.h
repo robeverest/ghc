@@ -18,12 +18,15 @@
 //
 // Creating threads
 //
+
 StgTSO *createThread (Capability *cap, nat stack_size,
                       rtsBool is_user_level_thread);
 
 void scheduleWaitThread (/* in    */ StgTSO *tso,
                          /* out   */ HaskellObj* ret,
                          /* inout */ Capability **cap);
+
+void pushClosure (StgTSO *tso, StgWord c);
 
 StgTSO *createGenThread       (Capability *cap, nat stack_size,
 			       StgClosure *closure);

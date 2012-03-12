@@ -42,7 +42,7 @@ module LwConc.Substrate
 
 -- Experimental
 , setResumeThreadClosure  -- SCont -> IO () -> IO ()
-, forceRTCEval            -- SCont -> IO ()
+, setSwitchToNextThreadClosure -- SCont -> IO () -> IO ()
 ) where
 
 
@@ -194,7 +194,7 @@ setResumeThreadClosure :: SCont -> IO () -> IO ()
 setResumeThreadClosure (SCont s) r = IO $ \s1 ->
   case (setResumeThreadClosure# s r s1) of s2 -> (# s2, () #)
 
-{-# INLINE forceRTCEval #-}
-forceRTCEval :: SCont -> IO ()
-forceRTCEval (SCont sc) = IO $ \s1 ->
-  case (forceRTCEval# sc s1) of s2 -> (# s2, () #)
+{-# INLINE setSwitchToNextThreadClosure #-}
+setSwitchToNextThreadClosure :: SCont -> IO () -> IO ()
+setSwitchToNextThreadClosure (SCont s) r = IO $ \s1 ->
+  case (setSwitchToNextThreadClosure# s r s1) of s2 -> (# s2, () #)

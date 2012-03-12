@@ -374,7 +374,7 @@ rts_getBool (HaskellObj p)
    Creating threads
    -------------------------------------------------------------------------- */
 
-INLINE_HEADER void pushClosure   (StgTSO *tso, StgWord c) {
+void pushClosure   (StgTSO *tso, StgWord c) {
   tso->stackobj->sp--;
   tso->stackobj->sp[0] = (W_) c;
 }
@@ -599,22 +599,4 @@ rts_unlock (Capability *cap)
     // Finally, we can release the Task to the free list.
     boundTaskExiting(task);
     RELEASE_LOCK(&cap->lock);
-}
-
-
-/* ----------------------------------------------------------------------------
-  Utility functions for user-level schedulers
-   ------------------------------------------------------------------------- */
-
-void
-rts_forceRTCEvaluation (Capability* cap) {
-
-#if defined(THREADED_RTS)
-  barf ("rts_forceRTCEvaluation is unsafe under THREADED_RTS");
-#endif
-
-  GarbageCollect(rtsTrue, rtsTrue, 0, cap);
-  // StgClosure* resume_thread = tso->resume_thread;
-  // ASSERT (resume_thread != (StgClosure*)END_TSO_QUEUE);
-  // rts_evalIO (&cap, (HaskellObj)resume_thread, NULL);
 }

@@ -55,8 +55,9 @@ createThread (ConcRRSched ref) task =
   }
   in do {
     s <- newSCont yieldingTask;
-    (_,u) <- getSchedActionPair (ConcRRSched ref) s;
+    (b,u) <- getSchedActionPair (ConcRRSched ref) s;
     setResumeThreadClosure s $ atomically u;
+    setSwitchToNextThreadClosure s $ atomically b;
     return s
     }
 

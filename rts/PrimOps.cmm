@@ -600,7 +600,10 @@ stg_decodeDoublezu2Intzh
  * Lightweight concurrency primitives
  * -------------------------------------------------------------------------- */
 
-STRING(stg_switch_msg,"Switching from thread %d to thread %d\n")
+STRING(stg_switch_msg,"Switching from thread %d to thread %d with status %s\n")
+STRING(stg_switch_reason_0, "ThreadComplete")
+STRING(stg_switch_reason_1, "BlockedOnConcDS")
+STRING(stg_switch_reason_2, "BlockedOnSched")
 
 stg_atomicSwitchzh
 {
@@ -625,9 +628,22 @@ stg_atomicSwitchzh
             StgTSO_why_blocked(tso) == BlockedOnConcDS::I16); //Thread is blocked
   }
 
-  //#if defined(DEBUG) || defined (TRACING)
-  //foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO), StgTSO_id(tso)) [];
-  //#endif
+  #if defined(DEBUG) || defined (TRACING)
+  if (switch_reason == 0) {
+    foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
+                            StgTSO_id(tso), stg_switch_reason_0) [];
+  }
+  else {
+    if (switch_reason == 1) {
+      foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
+                            StgTSO_id(tso), stg_switch_reason_1) [];
+    }
+    else {
+      foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
+                              StgTSO_id(tso), stg_switch_reason_2) [];
+    }
+  }
+  #endif
 
 
   // Find the enclosing ATOMICALLY_FRAME or CATCH_RETRY_FRAME
@@ -713,23 +729,20 @@ stg_setResumeThreadClosurezh
   jump %ENTRY_CODE(Sp(0));
 }
 
-stg_forceRTCEvalzh
+stg_setSwitchToNextThreadClosurezh
 {
-  /* args: R1 = SCont */
-  W_ threadid;
+  /* args: R1 = SCont, R2 = closure to resume this spark */
 
-  MAYBE_GC (R1_PTR, stg_forceRTCEvalzh);
+  MAYBE_GC (R1_PTR & R2_PTR, stg_setSwitchToNextThreadClosurezh);
 
+  W_ threadid, switch_to_next;
   threadid = R1;
+  switch_to_next = R2;
 
-  //ASSERT (StgTSO_what_next (threadid) == ThreadRunGHC::I16);
-  //ASSERT (StgTSO_why_blocked (threadid) == BlockedOnSched::I16);
-
-  foreign "C" rts_forceRTCEvaluation (MyCapability () "ptr") [];
+  StgTSO_switch_to_next (threadid) = switch_to_next;
+  foreign "C" dirty_TSO (MyCapability () "ptr", threadid "ptr") [];
   jump %ENTRY_CODE(Sp(0));
 }
-
-
 
 stg_newSContzh
 {

@@ -220,12 +220,6 @@ void rts_checkSchedStatus (char* site, Capability *);
 
 SchedulerStatus rts_getSchedStatus (Capability *cap);
 
-/* ----------------------------------------------------------------------------
-  Utility functions for user-level schedulers
-   ------------------------------------------------------------------------- */
-
-void rts_forceRTCEvaluation (Capability* cap);
-
 /* --------------------------------------------------------------------------
    Wrapper closures
 

@@ -1809,8 +1809,8 @@ primop SetResumeThreadClosureOp "setResumeThreadClosure#" GenPrimOp
   out_of_line = True
   has_side_effects = True
 
-primop ForceRTCEvalOp "forceRTCEval#" GenPrimOp
-  SCont# -> State# RealWorld -> State# RealWorld
+primop SetSwitchToNextThreadClosureOp "setSwitchToNextThreadClosure#" GenPrimOp
+  SCont# -> a -> State# RealWorld -> State# RealWorld
   with
   out_of_line = True
   has_side_effects = True

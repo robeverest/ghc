@@ -1000,13 +1000,31 @@ done:
   // wake it up
   if (tso->why_blocked != NotBlocked) {
     if (tso->why_blocked == BlockedOnConcDS) {
-      StgTSO* newTSO = createIOThread (cap, RtsFlags.GcFlags.initialStkSize,
-                                       tso->resume_thread);
-      tso->why_blocked = BlockedOnConcDS;
-      tso = newTSO;
+      StgTSO* currentTSO = popRunQueue (cap);
+      if (currentTSO) {
+        /* If the currentTSO is in an atomic section, then create a new thread
+         * to execute the unblock functions. */
+        if (currentTSO->trec != NO_TREC) {
+          debugTrace (DEBUG_stm, "raiseAsync: currentTSO under atomic section.");
+          currentTSO->why_blocked = BlockedOnSched;
+          StgTSO* newTSO = createIOThread (cap, RtsFlags.GcFlags.initialStkSize,
+                                           currentTSO->switch_to_next);
+          pushCallToClosure (cap, newTSO, currentTSO->resume_thread);
+          currentTSO = newTSO;
+        }
+        debugTrace (DEBUG_sched, "raiseAsync: pushing unblock of thread %d"
+                    " on top of thread %d", tso->id, currentTSO->id);
+        pushCallToClosure (cap, currentTSO, tso->resume_thread);
+        ASSERT (tso_SpLim (currentTSO) < currentTSO->stackobj->sp);
+        tso->why_blocked = BlockedOnSched;
+        pushOnRunQueue (cap, currentTSO);
+        return tso;
+      }
+      else
+        barf ("raiseAsync: Cannot find the runnable thread on this capability\n");
     }
     tso->why_blocked = NotBlocked;
-    appendToRunQueue(cap,tso);
+    pushOnRunQueue (cap,tso);
   }
 
   return tso;
