@@ -620,14 +620,6 @@ stg_atomicSwitchzh
   tso = R1;
   switch_reason = R2;
 
-  /* Make sure that the thread we are switching to is alive and not running,
-   * unless we are switching to the same thread. */
-  if (tso != CurrentTSO) {
-    ASSERT (StgTSO_what_next(tso) == ThreadRunGHC::I16); //Thread is alive
-    ASSERT (StgTSO_why_blocked(tso) == BlockedOnSched::I16 ||
-            StgTSO_why_blocked(tso) == BlockedOnConcDS::I16); //Thread is blocked
-  }
-
   #if defined(DEBUG) || defined (TRACING)
   if (switch_reason == 0) {
     foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
@@ -677,6 +669,18 @@ stg_atomicSwitchzh
     /* We've got no more invariants to check, try to commit */
     (valid) = foreign "C" stmCommitTransaction(MyCapability() "ptr", trec "ptr") [];
     if (valid != 0) {
+
+      /* Make sure that the thread we are switching to is alive and not running,
+       * unless we are switching to the same thread. These checks have to come
+       * after commit transaction because things might have changed since the
+       * invocation of atomicSwitch. In that case, transaction will abort
+       * safely, while the following assertions may not hold. */
+      if (tso != CurrentTSO) {
+        ASSERT (StgTSO_what_next(tso) == ThreadRunGHC::I16); //Thread is alive
+        ASSERT (StgTSO_why_blocked(tso) == BlockedOnSched::I16 ||
+                StgTSO_why_blocked(tso) == BlockedOnConcDS::I16); //Thread is blocked
+      }
+
       /* Transaction was valid: commit succeeded */
       StgTSO_trec(CurrentTSO) = NO_TREC;
       StgStack_sp(StgTSO_stackobj(CurrentTSO)) = Sp + SIZEOF_StgAtomicallyFrame;

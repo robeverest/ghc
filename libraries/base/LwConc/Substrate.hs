@@ -42,7 +42,7 @@ module LwConc.Substrate
 
 -- Experimental
 , setResumeThreadClosure  -- SCont -> IO () -> IO ()
-, setSwitchToNextThreadClosure -- SCont -> IO () -> IO ()
+, setSwitchToNextThreadClosure -- SCont -> (Int -> IO ()) -> IO ()
 ) where
 
 
@@ -163,6 +163,11 @@ getIntStatus status =
                                BlockedOnSched -> 2
   in intStatus
 
+getStatusFromInt x | x == 0 = Completed
+                   | x == 1 = BlockedOnConcDS
+                   | x == 2 = BlockedOnSched
+                   | otherwise = Completed
+
 
 {-# INLINE newSCont #-}
 newSCont :: IO () -> IO SCont
@@ -195,6 +200,7 @@ setResumeThreadClosure (SCont s) r = IO $ \s1 ->
   case (setResumeThreadClosure# s r s1) of s2 -> (# s2, () #)
 
 {-# INLINE setSwitchToNextThreadClosure #-}
-setSwitchToNextThreadClosure :: SCont -> IO () -> IO ()
-setSwitchToNextThreadClosure (SCont s) r = IO $ \s1 ->
-  case (setSwitchToNextThreadClosure# s r s1) of s2 -> (# s2, () #)
+setSwitchToNextThreadClosure :: SCont -> (ThreadStatus -> IO ()) -> IO ()
+setSwitchToNextThreadClosure (SCont s) b = IO $ \s1 ->
+  case (setSwitchToNextThreadClosure# s bp s1) of s2 -> (# s2, () #)
+       where bp = \intStatus -> b $ getStatusFromInt $ I# intStatus

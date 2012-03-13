@@ -15,6 +15,7 @@
 
 module ConcRRSched
 (ConcRRSched
+, ThreadStatus
 , newConcRRSched      -- IO (ConcRRSched)
 , forkIO              -- ConcRRSched -> IO () -> IO ()
 , yield               -- ConcRRSched -> IO ()
@@ -26,7 +27,7 @@ module ConcRRSched
 
 import LwConc.Substrate
 import qualified Data.Sequence as Seq
-import Control.OldException
+import qualified Control.OldException as Exn
 
 newtype ConcRRSched = ConcRRSched (PVar (Seq.Seq SCont))
 
@@ -49,15 +50,16 @@ switchToNextAndFinish (ConcRRSched ref) = atomically $ do
 createThread :: ConcRRSched -> IO () -> IO SCont
 createThread (ConcRRSched ref) task =
   let yieldingTask = do {
-    try task;
+    Exn.try task;
     switchToNextAndFinish (ConcRRSched ref);
     print "ConcRRSched.forkIO: Should not see this!"
   }
   in do {
     s <- newSCont yieldingTask;
-    (b,u) <- getSchedActionPair (ConcRRSched ref) s;
+    (b,u) <- getSchedActionPairPrim (ConcRRSched ref) s;
     setResumeThreadClosure s $ atomically u;
-    setSwitchToNextThreadClosure s $ atomically b;
+    setSwitchToNextThreadClosure s $ \s ->
+      Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
     return s
     }
 
@@ -95,10 +97,15 @@ yield sched = atomically $ do
 -- Scont passed to the getSchedActionPair function.  unblockAction must be
 -- called by a thread other than t, which adds t back to its scheduler.
 
-getSchedActionPair :: ConcRRSched -> SCont -> IO (PTM (), PTM ())
-getSchedActionPair sched s = do
-  let blockAction   = switchToNextWith sched (\tail -> tail) BlockedOnConcDS
+getSchedActionPairPrim :: ConcRRSched -> SCont -> IO (ThreadStatus -> PTM (), PTM ())
+getSchedActionPairPrim sched s = do
+  let blockAction status = switchToNextWith sched (\tail -> tail) status
   let unblockAction = do
       unsafeIOToPTM $ print "unblocking SCont"
       enque sched s
   return (blockAction, unblockAction)
+
+getSchedActionPair :: ConcRRSched -> SCont -> IO (PTM (), PTM ())
+getSchedActionPair sched s = do
+  (b, u) <- getSchedActionPairPrim sched s
+  return (b BlockedOnConcDS, u)

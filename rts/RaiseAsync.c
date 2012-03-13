@@ -1005,10 +1005,14 @@ done:
         /* If the currentTSO is in an atomic section, then create a new thread
          * to execute the unblock functions. */
         if (currentTSO->trec != NO_TREC) {
-          debugTrace (DEBUG_stm, "raiseAsync: currentTSO under atomic section.");
+          debugTrace (DEBUG_sched, "raiseAsync: currentTSO under atomic section.");
           currentTSO->why_blocked = BlockedOnSched;
+
+          //Create a switch_to_next function that would complete the source thread
+          StgClosure* switch_and_complete =
+            rts_apply (cap, currentTSO->switch_to_next, rts_mkInt (cap, 0));
           StgTSO* newTSO = createIOThread (cap, RtsFlags.GcFlags.initialStkSize,
-                                           currentTSO->switch_to_next);
+                                           switch_and_complete);
           pushCallToClosure (cap, newTSO, currentTSO->resume_thread);
           currentTSO = newTSO;
         }
