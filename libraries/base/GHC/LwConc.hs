@@ -26,13 +26,19 @@
 
 
 -- #hide
-module GHC.LwConc (
-runUnblockerBatch
+module GHC.LwConc
+( SCont (..)
+, runUnblockerBatch
 ) where
 
 import GHC.Base
 import Data.Maybe
 import Data.Typeable
+
+-----------------------------------------------------------------------------
+-- SCont datatyoe
+
+data SCont = SCont SCont#
 
 -- run a batch of unblock actions from the garbage collector.  We're given an
 -- array of unblock actions and the length of the array, and we just call each

@@ -85,6 +85,8 @@ PRELUDE_INFO(base_GHCziWord_W32zh_con_info);
 PRELUDE_INFO(base_GHCziWord_W64zh_con_info);
 PRELUDE_INFO(base_GHCziStable_StablePtr_static_info);
 PRELUDE_INFO(base_GHCziStable_StablePtr_con_info);
+PRELUDE_INFO(base_GHCziLwConc_SCont_static_info);
+PRELUDE_INFO(base_GHCziLwConc_SCont_con_info);
 
 #define True_closure              DLL_IMPORT_DATA_REF(ghczmprim_GHCziTypes_True_closure)
 #define False_closure             DLL_IMPORT_DATA_REF(ghczmprim_GHCziTypes_False_closure)
@@ -142,5 +144,7 @@ PRELUDE_INFO(base_GHCziStable_StablePtr_con_info);
 #define FunPtr_con_info           DLL_IMPORT_DATA_REF(base_GHCziPtr_FunPtr_con_info)
 #define StablePtr_static_info     DLL_IMPORT_DATA_REF(base_GHCziStable_StablePtr_static_info)
 #define StablePtr_con_info        DLL_IMPORT_DATA_REF(base_GHCziStable_StablePtr_con_info)
+#define SCont_static_info         DLL_IMPORT_DATA_REF(base_GHCziLwConc_SCont_static_info)
+#define SCont_con_info            DLL_IMPORT_DATA_REF(base_GHCziLwConc_SCont_con_info)
 
 #endif /* PRELUDE_H */

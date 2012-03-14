@@ -50,6 +50,7 @@ import Prelude
 import GHC.Base
 import GHC.Prim
 import GHC.IO
+import GHC.LwConc
 import Data.Typeable
 
 newtype PTM a = PTM (State# RealWorld -> (# State# RealWorld, a #))
@@ -152,8 +153,6 @@ writePVar (PVar tvar#) val = PTM $ \s1# ->
 
 ---------------------------------------------------------------------------------
 
-data SCont = SCont SCont#
-
 data SwitchStatus = BlockedOnConcDS | BlockedOnSched | Completed
 
 getIntStatus s = case s of
@@ -196,7 +195,7 @@ switch arg = atomically $ do
 setResumeThreadClosure :: SCont -> (SCont -> IO ()) -> IO ()
 setResumeThreadClosure (SCont sc) r = IO $ \s ->
   case (setResumeThreadClosure# sc rp s) of s -> (# s, () #)
-       where !rp = \sc -> r $ SCont sc
+       where !rp = \sc -> r $ sc
 
 {-# INLINE setSwitchToNextThreadClosure #-}
 setSwitchToNextThreadClosure :: SCont -> (SwitchStatus -> IO ()) -> IO ()

@@ -84,6 +84,7 @@ typedef StgInt			HsBool;
 typedef void*			HsPtr;          /* this should better match StgAddr */
 typedef void			(*HsFunPtr)(void); /* this should better match StgAddr */
 typedef void*			HsStablePtr;
+typedef void*			HsSCont;
 
 /* this should correspond to the type of StgChar in StgTypes.h */
 #define HS_CHAR_MIN		0

@@ -2680,11 +2680,11 @@ resurrectThreads (StgTSO *threads)
 
     //Find the number of threads with the same capability in the unblock_list
     n=0;
-//    for (tso = unblock_list; tso != END_TSO_QUEUE; tso = next) {
-//      next = tso->_link;
-//      if (tso->cap == cap)
-//        n++;
-//    }
+    for (tso = unblock_list; tso != END_TSO_QUEUE; tso = next) {
+      next = tso->_link;
+      if (tso->cap == cap)
+        n++;
+    }
 
     n+=2; // +2 for invoking block and unblock actions of currenTSO.
     size = n + mutArrPtrsCardTableSize (n);
@@ -2700,17 +2700,18 @@ resurrectThreads (StgTSO *threads)
     n=0;
     arr->payload[n++] = rts_apply (cap, currentTSO->switch_to_next,
                                     rts_mkInt (cap, 0));
-//    for (tso = unblock_list; tso != END_TSO_QUEUE; tso = next) {
-//      next = tso->_link;
-//      ASSERT (tso->resume_thread != (StgClosure*)END_TSO_QUEUE);
-//      if (tso->cap == cap) {
-//        arr->payload[n] = rts_apply (cap, tso->resume_thread,
-//                                      rts_mkPtr (cap, tso));
-//        n++;
-//      }
-//    }
+    for (tso = unblock_list; tso != END_TSO_QUEUE; tso = next) {
+      next = tso->_link;
+      ASSERT (tso->resume_thread != (StgClosure*)END_TSO_QUEUE);
+      if (tso->cap == cap) {
+        arr->payload[n] = rts_apply (cap, tso->resume_thread,
+                                      rts_mkSCont (cap, tso));
+        tso->why_blocked = BlockedOnSched;
+        n++;
+      }
+    }
     arr->payload[n++] = rts_apply (cap, currentTSO->resume_thread,
-                                    rts_mkPtr (cap, currentTSO));
+                                    rts_mkSCont (cap, currentTSO));
     ASSERT (n == arr->ptrs);
 
     // set all the cards to 1

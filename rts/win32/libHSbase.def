@@ -15,6 +15,7 @@ EXPORTS
 	base_GHCziWord_W64zh_con_info
 
 	base_GHCziStable_StablePtr_con_info
+	base_GHCziLwConc_SCont_con_info
 
 	base_GHCziPack_unpackCString_closure
 
