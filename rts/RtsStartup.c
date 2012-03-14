@@ -186,11 +186,13 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     getStablePtr((StgPtr)flushStdHandles_closure);
 
     getStablePtr((StgPtr)runFinalizerBatch_closure);
+    getStablePtr((StgPtr)runUnblockerBatch_closure);
 
     getStablePtr((StgPtr)stackOverflow_closure);
     getStablePtr((StgPtr)heapOverflow_closure);
     getStablePtr((StgPtr)unpackCString_closure);
     getStablePtr((StgPtr)blockedIndefinitelyOnMVar_closure);
+    getStablePtr((StgPtr)blockedIndefinitelyOnConcDS_closure);
     getStablePtr((StgPtr)nonTermination_closure);
     getStablePtr((StgPtr)blockedIndefinitelyOnSTM_closure);
     getStablePtr((StgPtr)nestedAtomically_closure);
@@ -205,7 +207,7 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     initGlobalStore();
 
     /* initialise file locking, if necessary */
-#if !defined(mingw32_HOST_OS)    
+#if !defined(mingw32_HOST_OS)
     initFileLocking();
 #endif
 
@@ -228,7 +230,7 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
         initDefaultHandlers();
     }
 #endif
- 
+
 #if defined(mingw32_HOST_OS) && !defined(THREADED_RTS)
     startupAsyncIO();
 #endif
@@ -284,7 +286,7 @@ hs_add_root(void (*init_root)(void) STG_UNUSED)
  *       False ==> threads doing foreign calls may return in the
  *                 future, but will immediately block on a mutex.
  *                 (capability->lock).
- * 
+ *
  * If this RTS is a DLL that we're about to unload, then you want
  * safe=True, otherwise the thread might return to code that has been
  * unloaded.  If this is a standalone program that is about to exit,
@@ -308,7 +310,7 @@ hs_exit_(rtsBool wait_foreign)
 
     /* start timing the shutdown */
     stat_startExit();
-    
+
     OnExitHook();
 
     flushStdHandles();
@@ -327,7 +329,7 @@ hs_exit_(rtsBool wait_foreign)
 
     /* run C finalizers for all active weak pointers */
     runAllCFinalizers(weak_ptr_list);
-    
+
 #if defined(RTS_USER_SIGNALS)
     if (RtsFlags.MiscFlags.install_signal_handlers) {
         freeSignalHandlers();
@@ -339,7 +341,7 @@ hs_exit_(rtsBool wait_foreign)
     exitTimer(wait_foreign);
 
     // set the terminal settings back to what they were
-#if !defined(mingw32_HOST_OS)    
+#if !defined(mingw32_HOST_OS)
     resetTerminalSettings();
 #endif
 
@@ -348,14 +350,14 @@ hs_exit_(rtsBool wait_foreign)
 
     /* stop timing the shutdown, we're about to print stats */
     stat_endExit();
-    
+
     /* shutdown the hpc support (if needed) */
     exitHpc();
 
     // clean up things from the storage manager's point of view.
     // also outputs the stats (+RTS -s) info.
     exitStorage();
-    
+
     /* free the tasks */
     freeScheduler();
 
@@ -366,7 +368,7 @@ hs_exit_(rtsBool wait_foreign)
     exitLinker();
 
     /* free file locking tables, if necessary */
-#if !defined(mingw32_HOST_OS)    
+#if !defined(mingw32_HOST_OS)
     freeFileLocking();
 #endif
 
@@ -384,7 +386,7 @@ hs_exit_(rtsBool wait_foreign)
     }
 #endif
 
-#if defined(PROFILING) 
+#if defined(PROFILING)
     reportCCSProfiling();
 #endif
 
@@ -472,15 +474,15 @@ shutdownHaskellAndSignal(int sig)
 }
 #endif
 
-/* 
+/*
  * called from STG-land to exit the program
  */
 
 void (*exitFn)(int) = 0;
 
-void  
+void
 stg_exit(int n)
-{ 
+{
   if (exitFn)
     (*exitFn)(n);
   exit(n);

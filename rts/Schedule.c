@@ -2599,12 +2599,17 @@ findRetryFrameHelper (Capability *cap, StgTSO *tso)
 Locks: assumes we hold *all* the capabilities.
 -------------------------------------------------------------------------- */
 
-  void
+void
 resurrectThreads (StgTSO *threads)
 {
-  StgTSO *tso, *next;
+  StgTSO *tso, *next, *prev, *unblock_list;
+  StgMutArrPtrs *arr;
   Capability *cap;
   generation *gen;
+  StgWord size;
+  nat n, i;
+
+  unblock_list = END_TSO_QUEUE;
 
   for (tso = threads; tso != END_TSO_QUEUE; tso = next) {
     next = tso->global_link;
@@ -2622,17 +2627,28 @@ resurrectThreads (StgTSO *threads)
       case BlockedOnSched:
         debugTrace(DEBUG_sched, "\tblocked in user-land");
         break;
-      case BlockedOnConcDS: //TODO Must use unique exception
+      case BlockedOnConcDS:
+        tso = throwToSingleThreaded (cap, tso,
+                                     (StgClosure*)blockedIndefinitelyOnConcDS_closure);
+        if (unblock_list == END_TSO_QUEUE)
+          tso->_link = END_TSO_QUEUE;
+        else
+          tso->_link = unblock_list;
+        unblock_list = tso;
+        break;
       case BlockedOnMVar:
+        barf ("resurrectThreads: BlockedOnMVar not implemented!");
         /* Called by GC - sched_mutex lock is currently held. */
         throwToSingleThreaded(cap, tso,
                               (StgClosure *)blockedIndefinitelyOnMVar_closure);
         break;
       case BlockedOnBlackHole:
+        barf ("resurrectThreads: BlockedOnMVar not implemented!");
         throwToSingleThreaded(cap, tso,
                               (StgClosure *)nonTermination_closure);
         break;
       case BlockedOnSTM:
+        barf ("resurrectThreads: BlockedOnMVar not implemented!");
         throwToSingleThreaded(cap, tso,
                               (StgClosure *)blockedIndefinitelyOnSTM_closure);
         break;
@@ -2651,6 +2667,97 @@ resurrectThreads (StgTSO *threads)
       default:
         barf("resurrectThreads: thread blocked in a strange way: %d",
              tso->why_blocked);
+    }
+  }
+
+  while (unblock_list != END_TSO_QUEUE) {
+    //Get the current thread on this tso's capability
+    cap = unblock_list->cap;
+    StgTSO* currentTSO = popRunQueue (cap);
+
+    ASSERT (currentTSO->switch_to_next != (StgClosure*)END_TSO_QUEUE);
+    ASSERT (currentTSO->resume_thread != (StgClosure*)END_TSO_QUEUE);
+
+    //Find the number of threads with the same capability in the unblock_list
+    n=0;
+//    for (tso = unblock_list; tso != END_TSO_QUEUE; tso = next) {
+//      next = tso->_link;
+//      if (tso->cap == cap)
+//        n++;
+//    }
+
+    n+=2; // +2 for invoking block and unblock actions of currenTSO.
+    size = n + mutArrPtrsCardTableSize (n);
+    arr = (StgMutArrPtrs *)allocate(cap, sizeofW(StgMutArrPtrs) + size);
+    TICK_ALLOC_PRIM(sizeofW(StgMutArrPtrs), n, 0);
+    SET_HDR(arr, &stg_MUT_ARR_PTRS_FROZEN_info, CCS_SYSTEM);
+    arr->ptrs = n;
+    arr->size = size;
+
+    //Fill the payload.
+    //IMPORTANT NOTE: the IO actions on the array will be processed in reverse.
+    //Hence, switch_to_thread should be the last action.
+    n=0;
+    arr->payload[n++] = rts_apply (cap, currentTSO->switch_to_next,
+                                    rts_mkInt (cap, 0));
+//    for (tso = unblock_list; tso != END_TSO_QUEUE; tso = next) {
+//      next = tso->_link;
+//      ASSERT (tso->resume_thread != (StgClosure*)END_TSO_QUEUE);
+//      if (tso->cap == cap) {
+//        arr->payload[n] = rts_apply (cap, tso->resume_thread,
+//                                      rts_mkPtr (cap, tso));
+//        n++;
+//      }
+//    }
+    arr->payload[n++] = rts_apply (cap, currentTSO->resume_thread,
+                                    rts_mkPtr (cap, currentTSO));
+    ASSERT (n == arr->ptrs);
+
+    // set all the cards to 1
+    for (i = n; i < size; i++) {
+      arr->payload[i] = (StgClosure *)(W_)(-1);
+    }
+
+
+
+    //Create a helperTSO that will un
+    StgTSO* helperTSO =
+      createIOThread (cap, RtsFlags.GcFlags.initialStkSize,
+                      rts_apply (cap,
+                                 rts_apply (cap, (StgClosure*)runUnblockerBatch_closure,
+                                            rts_mkInt (cap, n)),
+                                 (StgClosure*)arr));
+
+    debugTrace (DEBUG_sched, "resurrectThreads: Created helper thread (%d)",
+                helperTSO->id);
+    //helperTSO inherits the block (switch_to_next) and unblock
+    //(resume_thread) functions from the currentTSO
+    helperTSO->resume_thread = currentTSO->resume_thread;
+    helperTSO->switch_to_next = currentTSO->switch_to_next;
+
+    currentTSO->why_blocked = BlockedOnConcDS;
+    pushOnRunQueue (cap, helperTSO);
+
+    //Remove from unblock_list all the threads that belong to this capability.
+    while (unblock_list != END_TSO_QUEUE &&
+            unblock_list->cap == cap) {
+      next = unblock_list->_link;
+      unblock_list->_link = END_TSO_QUEUE;
+      unblock_list = next;
+    }
+
+    if (unblock_list != END_TSO_QUEUE) {//We have more things to remove
+      prev = unblock_list;
+      next = unblock_list->_link;
+      while (next != END_TSO_QUEUE) {
+        if (next->cap == cap) {
+          prev->_link = next->_link;
+          next->_link = END_TSO_QUEUE;
+        }
+        else
+          prev = prev->_link;
+        next = prev->_link;
+      }
     }
   }
 }

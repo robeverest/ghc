@@ -1450,7 +1450,7 @@ do_the_startthread(rtsEvent *event)
     GranEventType gr_evttype = (run_queue_hds[proc]==END_TSO_QUEUE) ?
                                  GR_START : GR_STARTQ;
 
-    tso = createThread(BLOCK_SIZE_W, spark->gran_info, rtsFalse);// implicit insertThread!
+    tso = createThread(BLOCK_SIZE_W, spark->gran_info);// implicit insertThread!
     pushClosure(tso, node);
 
     // ToDo: fwd info on local/global spark to thread -- HWL

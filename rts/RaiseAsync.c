@@ -57,7 +57,7 @@ static void throwToSendMsg (Capability *cap USED_IF_THREADS,
    has been raised.
    -------------------------------------------------------------------------- */
 
-  static void
+static StgTSO*
 throwToSingleThreaded__ (Capability *cap, StgTSO *tso, StgClosure *exception,
                          rtsBool stop_at_atomically, StgUpdateFrame *stop_here)
 {
@@ -69,26 +69,26 @@ throwToSingleThreaded__ (Capability *cap, StgTSO *tso, StgClosure *exception,
   // Remove it from any blocking queues
   removeFromQueues(cap,tso);
 
-  raiseAsync(cap, tso, exception, stop_at_atomically, stop_here);
+  return raiseAsync(cap, tso, exception, stop_at_atomically, stop_here);
 }
 
-  void
+StgTSO*
 throwToSingleThreaded (Capability *cap, StgTSO *tso, StgClosure *exception)
 {
-  throwToSingleThreaded__(cap, tso, exception, rtsFalse, NULL);
+  return throwToSingleThreaded__(cap, tso, exception, rtsFalse, NULL);
 }
 
-  void
+StgTSO*
 throwToSingleThreaded_ (Capability *cap, StgTSO *tso, StgClosure *exception,
                         rtsBool stop_at_atomically)
 {
-  throwToSingleThreaded__ (cap, tso, exception, stop_at_atomically, NULL);
+  return throwToSingleThreaded__ (cap, tso, exception, stop_at_atomically, NULL);
 }
 
-  void // cannot return a different TSO
+StgTSO* // cannot return a different TSO
 suspendComputation (Capability *cap, StgTSO *tso, StgUpdateFrame *stop_here)
 {
-  throwToSingleThreaded__ (cap, tso, NULL, rtsFalse, stop_here);
+  return throwToSingleThreaded__ (cap, tso, NULL, rtsFalse, stop_here);
 }
 
 /* -----------------------------------------------------------------------------
@@ -998,40 +998,8 @@ done:
   IF_DEBUG(sanity, checkTSO(tso));
 
   // wake it up
-  if (tso->why_blocked != NotBlocked) {
-    if (tso->why_blocked == BlockedOnConcDS) {
-      StgTSO* currentTSO = popRunQueue (cap);
-      if (currentTSO) {
-        /* If the currentTSO is in an atomic section, then create a new thread
-         * to execute the unblock functions. */
-        if (currentTSO->trec != NO_TREC) {
-          debugTrace (DEBUG_sched, "raiseAsync: currentTSO under atomic section.");
-          currentTSO->why_blocked = BlockedOnSched;
-
-          //Create a switch_to_next function that would complete the source thread
-          StgClosure* switch_and_complete =
-            rts_apply (cap, currentTSO->switch_to_next, rts_mkInt (cap, 0));
-          StgTSO* newTSO = createIOThread (cap, RtsFlags.GcFlags.initialStkSize,
-                                           switch_and_complete);
-          pushCallToClosure (cap, newTSO, currentTSO->resume_thread);
-          currentTSO = newTSO;
-        }
-        debugTrace (DEBUG_sched, "raiseAsync: pushing unblock of thread %d"
-                    " on top of thread %d", tso->id, currentTSO->id);
-        pushCallToClosure (cap, currentTSO, tso->resume_thread);
-        ASSERT (tso_SpLim (currentTSO) < currentTSO->stackobj->sp);
-        tso->why_blocked = BlockedOnSched;
-        pushOnRunQueue (cap, currentTSO);
-        return tso;
-      }
-      else
-        barf ("raiseAsync: Cannot find the runnable thread on this capability\n");
-    }
+  if (tso->why_blocked != NotBlocked)
     tso->why_blocked = NotBlocked;
-    pushOnRunQueue (cap,tso);
-  }
 
   return tso;
 }
-
-

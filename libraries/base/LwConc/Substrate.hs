@@ -5,7 +5,7 @@
            , UnboxedTuples
            , ScopedTypeVariables
   #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports -w #-}
+{-# OPTIONS_GHC -fno-warn-unused-imports -w -XBangPatterns #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -34,15 +34,15 @@ module LwConc.Substrate
 , writePVar               -- PVar a -> a -> PTM ()
 
 , SCont
-, ThreadStatus (..)
+, SwitchStatus (..)
 , newSCont                -- IO () -> IO SCont
-, switch                  -- (SCont -> PTM (SCont, ThreadStatus)) -> IO ()
+, switch                  -- (SCont -> PTM (SCont, SwitchStatus)) -> IO ()
 , getSCont                -- PTM SCont
-, switchTo                -- SCont -> ThreadStatus -> PTM ()
+, switchTo                -- SCont -> SwitchStatus -> PTM ()
 
 -- Experimental
 , setResumeThreadClosure  -- SCont -> IO () -> IO ()
-, setSwitchToNextThreadClosure -- SCont -> (Int -> IO ()) -> IO ()
+, setSwitchToNextThreadClosure -- SCont -> (SwitchStatus -> IO ()) -> IO ()
 ) where
 
 
@@ -154,14 +154,12 @@ writePVar (PVar tvar#) val = PTM $ \s1# ->
 
 data SCont = SCont SCont#
 
-data ThreadStatus = BlockedOnConcDS | BlockedOnSched | Completed
+data SwitchStatus = BlockedOnConcDS | BlockedOnSched | Completed
 
-getIntStatus status =
-  let (I# intStatus) = case status of
-                               Completed -> 0
-                               BlockedOnConcDS -> 1
-                               BlockedOnSched -> 2
-  in intStatus
+getIntStatus s = case s of
+                      Completed -> 0#
+                      BlockedOnConcDS -> 1#
+                      BlockedOnSched -> 2#
 
 getStatusFromInt x | x == 0 = Completed
                    | x == 1 = BlockedOnConcDS
@@ -175,7 +173,7 @@ newSCont x = IO $ \s ->
    case (newSCont# x s) of (# s1, scont #) -> (# s1, SCont scont #)
 
 {-# INLINE switchTo #-}
-switchTo :: SCont -> ThreadStatus -> PTM ()
+switchTo :: SCont -> SwitchStatus -> PTM ()
 switchTo (SCont sc) status = do
   let intStatus = getIntStatus status
   PTM $ \s ->
@@ -188,19 +186,20 @@ getSCont = PTM $ \s10 ->
    (# s20, scont #) -> (# s20, SCont scont #)
 
 {-# INLINE switch  #-}
-switch :: (SCont -> PTM (SCont, ThreadStatus)) -> IO ()
+switch :: (SCont -> PTM (SCont, SwitchStatus)) -> IO ()
 switch arg = atomically $ do
   s1 <- getSCont
   (s2, status) <- arg s1
   switchTo s2 status
 
 {-# INLINE setResumeThreadClosure #-}
-setResumeThreadClosure :: SCont -> IO () -> IO ()
-setResumeThreadClosure (SCont s) r = IO $ \s1 ->
-  case (setResumeThreadClosure# s r s1) of s2 -> (# s2, () #)
+setResumeThreadClosure :: SCont -> (SCont -> IO ()) -> IO ()
+setResumeThreadClosure (SCont sc) r = IO $ \s ->
+  case (setResumeThreadClosure# sc rp s) of s -> (# s, () #)
+       where !rp = \sc -> r $ SCont sc
 
 {-# INLINE setSwitchToNextThreadClosure #-}
-setSwitchToNextThreadClosure :: SCont -> (ThreadStatus -> IO ()) -> IO ()
-setSwitchToNextThreadClosure (SCont s) b = IO $ \s1 ->
-  case (setSwitchToNextThreadClosure# s bp s1) of s2 -> (# s2, () #)
-       where bp = \intStatus -> b $ getStatusFromInt $ I# intStatus
+setSwitchToNextThreadClosure :: SCont -> (SwitchStatus -> IO ()) -> IO ()
+setSwitchToNextThreadClosure (SCont sc) b = IO $ \s ->
+  case (setSwitchToNextThreadClosure# sc bp s) of s -> (# s, () #)
+       where !bp = \intStatus -> b $ getStatusFromInt intStatus

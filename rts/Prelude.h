@@ -28,6 +28,7 @@ PRELUDE_CLOSURE(ghczmprim_GHCziTypes_True_closure);
 PRELUDE_CLOSURE(ghczmprim_GHCziTypes_False_closure);
 PRELUDE_CLOSURE(base_GHCziPack_unpackCString_closure);
 PRELUDE_CLOSURE(base_GHCziWeak_runFinalizzerBatch_closure);
+PRELUDE_CLOSURE(base_GHCziLwConc_runUnblockerBatch_closure);
 
 #ifdef IN_STG_CODE
 extern W_ ZCMain_main_closure[];
@@ -39,6 +40,7 @@ PRELUDE_CLOSURE(base_GHCziIOziException_stackOverflow_closure);
 PRELUDE_CLOSURE(base_GHCziIOziException_heapOverflow_closure);
 PRELUDE_CLOSURE(base_GHCziIOziException_blockedIndefinitelyOnThrowTo_closure);
 PRELUDE_CLOSURE(base_GHCziIOziException_blockedIndefinitelyOnMVar_closure);
+PRELUDE_CLOSURE(base_GHCziIOziException_blockedIndefinitelyOnConcDS_closure);
 PRELUDE_CLOSURE(base_GHCziIOziException_blockedIndefinitelyOnSTM_closure);
 PRELUDE_CLOSURE(base_ControlziExceptionziBase_nonTermination_closure);
 PRELUDE_CLOSURE(base_ControlziExceptionziBase_nestedAtomically_closure);
@@ -88,6 +90,7 @@ PRELUDE_INFO(base_GHCziStable_StablePtr_con_info);
 #define False_closure             DLL_IMPORT_DATA_REF(ghczmprim_GHCziTypes_False_closure)
 #define unpackCString_closure     DLL_IMPORT_DATA_REF(base_GHCziPack_unpackCString_closure)
 #define runFinalizerBatch_closure DLL_IMPORT_DATA_REF(base_GHCziWeak_runFinalizzerBatch_closure)
+#define runUnblockerBatch_closure DLL_IMPORT_DATA_REF(base_GHCziLwConc_runUnblockerBatch_closure)
 #define mainIO_closure            (&ZCMain_main_closure)
 
 #define runSparks_closure         DLL_IMPORT_DATA_REF(base_GHCziConcziSync_runSparks_closure)
@@ -99,6 +102,7 @@ PRELUDE_INFO(base_GHCziStable_StablePtr_con_info);
 #define stackOverflow_closure     DLL_IMPORT_DATA_REF(base_GHCziIOziException_stackOverflow_closure)
 #define heapOverflow_closure      DLL_IMPORT_DATA_REF(base_GHCziIOziException_heapOverflow_closure)
 #define blockedIndefinitelyOnMVar_closure DLL_IMPORT_DATA_REF(base_GHCziIOziException_blockedIndefinitelyOnMVar_closure)
+#define blockedIndefinitelyOnConcDS_closure DLL_IMPORT_DATA_REF(base_GHCziIOziException_blockedIndefinitelyOnConcDS_closure)
 #define blockedIndefinitelyOnSTM_closure DLL_IMPORT_DATA_REF(base_GHCziIOziException_blockedIndefinitelyOnSTM_closure)
 #define nonTermination_closure    DLL_IMPORT_DATA_REF(base_ControlziExceptionziBase_nonTermination_closure)
 #define nestedAtomically_closure  DLL_IMPORT_DATA_REF(base_ControlziExceptionziBase_nestedAtomically_closure)

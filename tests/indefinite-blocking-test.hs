@@ -29,7 +29,6 @@ main = do
   -- Define loop
   let loop tick 0 = return ()
       loop tick n = do {
-        forkIO sched $ task n;
         -- create Zombie
         z <- forkIO sched zombie;
         nextTick <- (if tick == maxTick

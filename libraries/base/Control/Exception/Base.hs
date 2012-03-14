@@ -41,6 +41,7 @@ module Control.Exception.Base (
 #endif
 
         BlockedIndefinitelyOnMVar(..),
+        BlockedIndefinitelyOnConcDS(..),
         BlockedIndefinitelyOnSTM(..),
         Deadlock(..),
         NoMethodError(..),
@@ -191,6 +192,7 @@ data PatternMatchFail
 data NoMethodError
 data Deadlock
 data BlockedIndefinitelyOnMVar
+data BlockedIndefinitelyOnConcDS
 data BlockedIndefinitelyOnSTM
 data ErrorCall
 data RecConError
@@ -204,6 +206,7 @@ instance Show PatternMatchFail
 instance Show NoMethodError
 instance Show Deadlock
 instance Show BlockedIndefinitelyOnMVar
+instance Show BlockedIndefinitelyOnConcDS
 instance Show BlockedIndefinitelyOnSTM
 instance Show ErrorCall
 instance Show RecConError
@@ -253,6 +256,7 @@ INSTANCE_TYPEABLE0(ErrorCall,errorCallTc,"ErrorCall")
 INSTANCE_TYPEABLE0(AssertionFailed,assertionFailedTc,"AssertionFailed")
 INSTANCE_TYPEABLE0(AsyncException,asyncExceptionTc,"AsyncException")
 INSTANCE_TYPEABLE0(BlockedIndefinitelyOnMVar,blockedIndefinitelyOnMVarTc,"BlockedIndefinitelyOnMVar")
+INSTANCE_TYPEABLE0(BlockedIndefinitelyOnConcDS,blockedIndefinitelyOnConcDSTc,"BlockedIndefinitelyOnConcDS")
 INSTANCE_TYPEABLE0(BlockedIndefinitelyOnSTM,blockedIndefinitelyOnSTM,"BlockedIndefinitelyOnSTM")
 INSTANCE_TYPEABLE0(Deadlock,deadlockTc,"Deadlock")
 
@@ -291,6 +295,7 @@ instance Exception ErrorCall where
     fromException _ = Nothing
 
 data BlockedIndefinitelyOnMVar = BlockedIndefinitelyOnMVar
+data BlockedIndefinitelyOnConcDS = BlockedIndefinitelyOnConcDS
 data BlockedIndefinitelyOnSTM = BlockedIndefinitelyOnSTM
 data Deadlock = Deadlock
 data AssertionFailed = AssertionFailed String
@@ -303,6 +308,9 @@ data AsyncException
 
 instance Show BlockedIndefinitelyOnMVar where
     showsPrec _ BlockedIndefinitelyOnMVar = showString "thread blocked indefinitely"
+
+instance Show BlockedIndefinitelyOnConcDS where
+    showsPrec _ BlockedIndefinitelyOnConcDS = showString "thread blocked indefinitely"
 
 instance Show BlockedIndefinitely where
     showsPrec _ BlockedIndefinitely = showString "thread blocked indefinitely"

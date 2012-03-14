@@ -15,17 +15,18 @@
 
 module ConcRRSched
 (ConcRRSched
-, ThreadStatus
+, SwitchStatus
 , newConcRRSched      -- IO (ConcRRSched)
 , forkIO              -- ConcRRSched -> IO () -> IO ()
 , yield               -- ConcRRSched -> IO ()
-, getSchedActionPair  -- ConcRRSched -> SCont -> IO (PTM (), PTM ())
+, getSchedActionPair  -- ConcRRSched -> IO (PTM (), PTM ())
 
 , createThread        -- ConcRRSched -> IO () -> IO SCont | Creates a thread but
                       -- does not add it to the scheduler
 ) where
 
 import LwConc.Substrate
+import qualified System.Exit as E
 import qualified Data.Sequence as Seq
 import qualified Control.OldException as Exn
 
@@ -34,6 +35,11 @@ newtype ConcRRSched = ConcRRSched (PVar (Seq.Seq SCont))
 newConcRRSched :: IO (ConcRRSched)
 newConcRRSched = do
   ref <- newPVarIO Seq.empty
+  s <- atomically $ getSCont
+  (b,u) <- getSchedActionPairPrim (ConcRRSched ref);
+  setResumeThreadClosure s $ \s2 -> atomically $ u s2;
+  setSwitchToNextThreadClosure s $ \s ->
+    Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
   return $ ConcRRSched (ref)
 
 switchToNextAndFinish :: ConcRRSched -> IO ()
@@ -56,8 +62,8 @@ createThread (ConcRRSched ref) task =
   }
   in do {
     s <- newSCont yieldingTask;
-    (b,u) <- getSchedActionPairPrim (ConcRRSched ref) s;
-    setResumeThreadClosure s $ atomically u;
+    (b,u) <- getSchedActionPairPrim (ConcRRSched ref);
+    setResumeThreadClosure s $ \s2 -> atomically $ u s2;
     setSwitchToNextThreadClosure s $ \s ->
       Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
     return s
@@ -70,7 +76,7 @@ forkIO (ConcRRSched ref) task = do
     contents <- readPVar ref
     writePVar ref $ contents Seq.|> thread
 
-switchToNextWith :: ConcRRSched -> (Seq.Seq SCont -> Seq.Seq SCont) -> ThreadStatus -> PTM ()
+switchToNextWith :: ConcRRSched -> (Seq.Seq SCont -> Seq.Seq SCont) -> SwitchStatus -> PTM ()
 switchToNextWith (ConcRRSched ref) f status = do
   oldContents <- readPVar ref
   let contents = f oldContents
@@ -82,11 +88,12 @@ switchToNextWith (ConcRRSched ref) f status = do
        writePVar ref $ tail
        switchTo x status
 
-enque :: ConcRRSched -> SCont -> PTM ()
-enque (ConcRRSched ref) s = do
+push :: ConcRRSched -> SCont -> PTM ()
+push (ConcRRSched ref) s = do
   contents <- readPVar ref
-  let newSeq = contents Seq.|> s
+  let newSeq = s Seq.<| contents
   writePVar ref $ newSeq
+
 
 yield :: ConcRRSched -> IO ()
 yield sched = atomically $ do
@@ -97,15 +104,15 @@ yield sched = atomically $ do
 -- Scont passed to the getSchedActionPair function.  unblockAction must be
 -- called by a thread other than t, which adds t back to its scheduler.
 
-getSchedActionPairPrim :: ConcRRSched -> SCont -> IO (ThreadStatus -> PTM (), PTM ())
-getSchedActionPairPrim sched s = do
+getSchedActionPairPrim :: ConcRRSched -> IO (SwitchStatus -> PTM (), SCont -> PTM ())
+getSchedActionPairPrim sched = do
   let blockAction status = switchToNextWith sched (\tail -> tail) status
-  let unblockAction = do
+  let unblockAction s = do
       unsafeIOToPTM $ print "unblocking SCont"
-      enque sched s
+      push sched s
   return (blockAction, unblockAction)
 
 getSchedActionPair :: ConcRRSched -> SCont -> IO (PTM (), PTM ())
 getSchedActionPair sched s = do
-  (b, u) <- getSchedActionPairPrim sched s
-  return (b BlockedOnConcDS, u)
+  (b, u) <- getSchedActionPairPrim sched
+  return (b BlockedOnConcDS, u s)

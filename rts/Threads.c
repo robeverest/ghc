@@ -57,7 +57,7 @@ static StgThreadID next_thread_id = 1;
    currently pri (priority) is only used in a GRAN setup -- HWL
    ------------------------------------------------------------------------ */
 StgTSO *
-createThread(Capability *cap, nat size, rtsBool is_user_level_thread)
+createThread(Capability *cap, nat size)
 {
     StgTSO *tso;
     StgStack *stack;
@@ -127,12 +127,8 @@ createThread(Capability *cap, nat size, rtsBool is_user_level_thread)
      */
     ACQUIRE_LOCK(&sched_mutex);
     tso->id = next_thread_id++;  // while we have the mutex
-    if (!is_user_level_thread) {
-      tso->global_link = g0->threads;
-      g0->threads = tso;
-    }
-    else
-      tso->global_link = END_TSO_QUEUE;
+    tso->global_link = g0->threads;
+    g0->threads = tso;
     RELEASE_LOCK(&sched_mutex);
 
     // ToDo: report the stack size in the event?
