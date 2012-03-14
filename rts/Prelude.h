@@ -28,7 +28,7 @@ PRELUDE_CLOSURE(ghczmprim_GHCziTypes_True_closure);
 PRELUDE_CLOSURE(ghczmprim_GHCziTypes_False_closure);
 PRELUDE_CLOSURE(base_GHCziPack_unpackCString_closure);
 PRELUDE_CLOSURE(base_GHCziWeak_runFinalizzerBatch_closure);
-PRELUDE_CLOSURE(base_GHCziLwConc_runUnblockerBatch_closure);
+PRELUDE_CLOSURE(base_GHCziLwConc_runSchedulerActionsBatch_closure);
 
 #ifdef IN_STG_CODE
 extern W_ ZCMain_main_closure[];
@@ -92,7 +92,7 @@ PRELUDE_INFO(base_GHCziLwConc_SCont_con_info);
 #define False_closure             DLL_IMPORT_DATA_REF(ghczmprim_GHCziTypes_False_closure)
 #define unpackCString_closure     DLL_IMPORT_DATA_REF(base_GHCziPack_unpackCString_closure)
 #define runFinalizerBatch_closure DLL_IMPORT_DATA_REF(base_GHCziWeak_runFinalizzerBatch_closure)
-#define runUnblockerBatch_closure DLL_IMPORT_DATA_REF(base_GHCziLwConc_runUnblockerBatch_closure)
+#define runSchedulerActionsBatch_closure DLL_IMPORT_DATA_REF(base_GHCziLwConc_runSchedulerActionsBatch_closure)
 #define mainIO_closure            (&ZCMain_main_closure)
 
 #define runSparks_closure         DLL_IMPORT_DATA_REF(base_GHCziConcziSync_runSparks_closure)

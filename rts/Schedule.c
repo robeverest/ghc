@@ -2725,7 +2725,7 @@ resurrectThreads (StgTSO *threads)
     StgTSO* helperTSO =
       createIOThread (cap, RtsFlags.GcFlags.initialStkSize,
                       rts_apply (cap,
-                                 rts_apply (cap, (StgClosure*)runUnblockerBatch_closure,
+                                 rts_apply (cap, (StgClosure*)runSchedulerActionsBatch_closure,
                                             rts_mkInt (cap, n)),
                                  (StgClosure*)arr));
 

@@ -28,7 +28,7 @@
 -- #hide
 module GHC.LwConc
 ( SCont (..)
-, runUnblockerBatch
+, runSchedulerActionsBatch
 ) where
 
 import GHC.Base
@@ -47,8 +47,8 @@ data SCont = SCont SCont#
 -- the IO primitives are inlined by hand here to get the optimal
 -- code (sigh) --SDM.
 
-runUnblockerBatch :: Int -> Array# (IO ()) -> IO ()
-runUnblockerBatch (I# n) arr =
+runSchedulerActionsBatch :: Int -> Array# (IO ()) -> IO ()
+runSchedulerActionsBatch (I# n) arr =
    let  go m  = IO $ \s ->
                   case m of
                   0# -> (# s, () #)
