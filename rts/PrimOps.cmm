@@ -696,6 +696,7 @@ stg_atomicSwitchzh
       //been committed and mucking with CurrentTSO info violates atomicity.
       StgTSO_trec(CurrentTSO) = NO_TREC;
 
+#if defined(THREADED_RTS)
       foreign "C" pushOnRunQueue (MyCapability () "ptr", tso "ptr");
 
       //Enter the scheduler. This is necessary for several reasons:
@@ -703,6 +704,14 @@ stg_atomicSwitchzh
       //    need to pass capability to correct task
       //  - task might have returned from a safe foreign call
       jump stg_switch_noregs;
+#else
+      StgStack_sp(StgTSO_stackobj(CurrentTSO)) = Sp;
+      CurrentTSO = tso;
+      ("ptr" limit)  = foreign "C" tso_SpLim (tso "ptr") [];
+      SpLim = limit;
+      Sp = StgStack_sp(StgTSO_stackobj(CurrentTSO));
+      jump %ENTRY_CODE(Sp(0));
+#endif
     } else {
       /* Transaction was not valid: try again */
       ("ptr" trec) = foreign "C" stmStartTransaction(MyCapability() "ptr", NO_TREC "ptr") [];
