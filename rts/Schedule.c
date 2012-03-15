@@ -2127,8 +2127,9 @@ scheduleThreadOn(Capability *cap, StgWord cpu USED_IF_THREADS, StgTSO *tso)
 #endif
 }
 
-  void
-scheduleWaitThread (StgTSO* tso, /*[out]*/HaskellObj* ret, Capability **pcap)
+void
+scheduleWaitThread (StgTSO* tso, /*[out]*/HaskellObj* ret,
+                    Capability **pcap, rtsBool skipAppend)
 {
   Task *task;
   DEBUG_ONLY( StgThreadID id );
@@ -2148,7 +2149,8 @@ scheduleWaitThread (StgTSO* tso, /*[out]*/HaskellObj* ret, Capability **pcap)
   task->incall->ret = ret;
   task->incall->stat = NoStatus;
 
-  appendToRunQueue(cap,tso);
+  if (!skipAppend)
+    appendToRunQueue(cap,tso);
 
   DEBUG_ONLY( id = tso->id );
   debugTrace(DEBUG_sched, "new bound thread (%lu)", (unsigned long)id);

@@ -771,6 +771,19 @@ stg_getSContzh
   RET_P(CurrentTSO);
 }
 
+stg_isThreadBoundzh
+{
+  /* args: R1 = SCont */
+
+  MAYBE_GC (R1_PTR, stg_isThreadBoundzh);
+
+  W_ r, scont;
+  scont = R1;
+  (r) = foreign "C" isThreadBound(scont) [];
+  RET_N(r);
+}
+
+
 /* -----------------------------------------------------------------------------
  * Concurrency primitives
  * -------------------------------------------------------------------------- */

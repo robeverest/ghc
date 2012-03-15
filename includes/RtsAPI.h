@@ -174,6 +174,7 @@ HsFunPtr     rts_getFunPtr    ( HaskellObj );
 HsFloat      rts_getFloat     ( HaskellObj );
 HsDouble     rts_getDouble    ( HaskellObj );
 HsStablePtr  rts_getStablePtr ( HaskellObj );
+HsSCont      rts_getSCont     ( HaskellObj );
 HsBool       rts_getBool      ( HaskellObj );
 
 /* ----------------------------------------------------------------------------
@@ -216,6 +217,9 @@ void rts_evalLazyIO_ (/* inout */ Capability **,
                       /* in    */ HaskellObj p,
                       /* in    */ unsigned int stack_size,
                       /* out   */ HaskellObj *ret);
+
+void rts_bindSContToCurrentTask (/* inout */ Capability **cap,
+                                 /* in    */ HsStablePtr s);
 
 void rts_checkSchedStatus (char* site, Capability *);
 

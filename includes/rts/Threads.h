@@ -23,7 +23,8 @@ StgTSO *createThread (Capability *cap, nat stack_size);
 
 void scheduleWaitThread (/* in    */ StgTSO *tso,
                          /* out   */ HaskellObj* ret,
-                         /* inout */ Capability **cap);
+                         /* inout */ Capability **cap,
+                         /* in    */ rtsBool skipAppend);
 
 void pushClosure (StgTSO *tso, StgWord c);
 

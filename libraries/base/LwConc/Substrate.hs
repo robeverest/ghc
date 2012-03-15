@@ -40,6 +40,12 @@ module LwConc.Substrate
 , getSCont                -- PTM SCont
 , switchTo                -- SCont -> SwitchStatus -> PTM ()
 
+#ifdef __GLASGOW_HASKELL__
+, newBoundSCont           -- IO () -> IO SCont
+, isCurrentThreadBound    -- IO Bool
+, rtsSupportsBoundThreads -- Bool
+#endif
+
 -- Experimental
 , setResumeThreadClosure  -- SCont -> IO () -> IO ()
 , setSwitchToNextThreadClosure -- SCont -> (SwitchStatus -> IO ()) -> IO ()
@@ -47,11 +53,25 @@ module LwConc.Substrate
 
 
 import Prelude
+import Control.Exception.Base as Exception
+
+#ifdef __GLASGOW_HASKELL__
+import GHC.Exception
 import GHC.Base
 import GHC.Prim
 import GHC.IO
 import GHC.LwConc
+import Control.Monad    ( when )
+#endif
+
+import GHC.Conc (yield, childHandler)
 import Data.Typeable
+import Foreign.StablePtr
+import Foreign.C.Types
+
+----------------------------------------------------------------------------
+-- PTM
+----------------------------------------------------------------------------
 
 newtype PTM a = PTM (State# RealWorld -> (# State# RealWorld, a #))
 
@@ -113,6 +133,8 @@ atomically (PTM c) = IO $ \s10 ->
   atomically# c s10
 
 ---------------------------------------------------------------------------------
+-- PVar
+---------------------------------------------------------------------------------
 
 data PVar a = PVar (TVar# RealWorld a)
 
@@ -151,6 +173,8 @@ writePVar (PVar tvar#) val = PTM $ \s1# ->
     case writeTVar# tvar# val s1# of
     	 s2# -> (# s2#, () #)
 
+---------------------------------------------------------------------------------
+-- Primitive Scheduler actions
 ---------------------------------------------------------------------------------
 
 data SwitchStatus = BlockedOnConcDS | BlockedOnSched | Completed
@@ -202,3 +226,66 @@ setSwitchToNextThreadClosure :: SCont -> (SwitchStatus -> IO ()) -> IO ()
 setSwitchToNextThreadClosure (SCont sc) b = IO $ \s ->
   case (setSwitchToNextThreadClosure# sc bp s) of s -> (# s, () #)
        where !bp = \intStatus -> b $ getStatusFromInt intStatus
+
+----------------------------------------------------------------------------
+-- Bound threads
+----------------------------------------------------------------------------
+
+-- | 'True' if bound threads are supported.
+-- If @rtsSupportsBoundThreads@ is 'False', 'isCurrentThreadBound'
+-- will always return 'False' and both 'forkOS' and 'runInBoundThread' will
+-- fail.
+foreign import ccall rtsSupportsBoundThreads :: Bool
+
+-- | Returns 'True' if the calling thread is /bound/, that is, if it is
+-- safe to use foreign libraries that rely on thread-local state from the
+-- calling thread.
+isCurrentThreadBound :: IO Bool
+isCurrentThreadBound = IO $ \ s# ->
+    case isCurrentThreadBound# s# of
+        (# s2#, flg #) -> (# s2#, not (flg ==# 0#) #)
+
+isThreadBound :: SCont -> IO Bool
+isThreadBound (SCont sc) = IO $ \ s# ->
+    case isThreadBound# sc s# of
+        (# s2#, flg #) -> (# s2#, not (flg ==# 0#) #)
+
+failNonThreaded :: IO a
+failNonThreaded = fail $ "RTS doesn't support multiple OS threads "
+                       ++"(use ghc -threaded when linking)"
+
+foreign import ccall forkOS_createThreadForSCont
+    :: StablePtr (SCont) -> IO CInt
+
+newBoundSCont :: IO () -> IO SCont
+newBoundSCont action0
+  | rtsSupportsBoundThreads = do
+        b <- Exception.getMaskingState
+        let
+            -- async exceptions are masked in the child if they are masked
+            -- in the parent, as for forkIO (see #1048). forkOS_createThread
+            -- creates a thread with exceptions masked by default.
+            action1 = case b of
+                        Unmasked -> unsafeUnmask action0
+                        MaskedInterruptible -> action0
+                        MaskedUninterruptible -> uninterruptibleMask_ action0
+            action_plus = Exception.catch action1 childHandler
+        s <- newSCont action_plus
+        entry <- newStablePtr s
+        err <- forkOS_createThreadForSCont entry
+        when (err /= 0) $ fail "Cannot create OS thread."
+        -- Wait for initialization
+        let wait = do {
+          r <- isThreadBound s;
+          if r
+             then
+               return ()
+             else do {
+               yield;
+               wait
+               }
+        }
+        wait
+        freeStablePtr entry
+        return s
+  | otherwise = failNonThreaded

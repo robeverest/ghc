@@ -1815,6 +1815,13 @@ primop SetSwitchToNextThreadClosureOp "setSwitchToNextThreadClosure#" GenPrimOp
   out_of_line = True
   has_side_effects = True
 
+primop  IsThreadBoundOp "isThreadBound#" GenPrimOp
+   SCont# -> State# RealWorld -> (# State# RealWorld, Int# #)
+   with
+   out_of_line = True
+   has_side_effects = True
+
+
 ------------------------------------------------------------------------
 section "Weak pointers"
 ------------------------------------------------------------------------

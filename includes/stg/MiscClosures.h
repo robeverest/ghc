@@ -427,6 +427,7 @@ RTS_FUN_DECL(stg_threadStatuszh);
 RTS_FUN_DECL(stg_newSContzh);
 RTS_FUN_DECL(stg_getSContzh);
 RTS_FUN_DECL(stg_atomicSwitchzh);
+RTS_FUN_DECL(stg_isThreadBoundzh);
 
 RTS_FUN_DECL(stg_mkWeakzh);
 RTS_FUN_DECL(stg_mkWeakForeignzh);

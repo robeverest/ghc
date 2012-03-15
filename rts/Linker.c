@@ -823,6 +823,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_atomicSwitchzh)                 \
       SymI_HasProto(forkProcess)                        \
       SymI_HasProto(forkOS_createThread)                \
+      SymI_HasProto(forkOS_createThreadForSCont)        \
       SymI_HasProto(freeHaskellFunctionPtr)             \
       SymI_HasProto(getOrSetGHCConcSignalSignalHandlerStore)            \
       SymI_HasProto(getOrSetGHCConcWindowsPendingDelaysStore)           \
