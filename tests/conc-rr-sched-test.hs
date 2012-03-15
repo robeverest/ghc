@@ -28,4 +28,4 @@ main = do
   args <- getArgs
   sched <- newConcRRSched
   loop sched 0 $ parse args
-  yield sched
+  -- yield sched

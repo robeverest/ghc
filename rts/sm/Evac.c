@@ -368,10 +368,6 @@ loop:
   tag = GET_CLOSURE_TAG(q);
   q = UNTAG_CLOSURE(q);
 
-  //TODO KC debug -- if not for this line, segfaults during final gc before
-  //completion, under a debug run.
-  if (q == NULL) return;
-
   ASSERTM(LOOKS_LIKE_CLOSURE_PTR(q), "invalid closure, info=%p", q->header.info);
 
   if (!HEAP_ALLOCED_GC(q)) {

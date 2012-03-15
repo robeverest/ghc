@@ -1926,6 +1926,8 @@ deleteAllThreads ( Capability *cap )
   for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
     for (t = generations[g].threads; t != END_TSO_QUEUE; t = next) {
       next = t->global_link;
+      debugTrace (DEBUG_gc, "deletingThread: TSO %d stack %p",
+                  t->id, t->stackobj);
       deleteThread(cap,t);
     }
   }
