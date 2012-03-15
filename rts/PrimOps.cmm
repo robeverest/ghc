@@ -646,9 +646,12 @@ stg_atomicSwitchzh
   trec = StgTSO_trec(CurrentTSO);
   outer  = StgTRecHeader_enclosing_trec(trec);
 
+  //This is what Sp has to be if the transaction commits. If it aborts, we get
+  //the Sp and code pointer from the "frame" variable captured above.
+  Sp = Sp + SIZEOF_StgAtomicallyFrame;
 
   //Status of currentTSO is update *before* the transaction is committed. If the
-  //transaction aborts, we reset the state if the transaction.
+  //transaction aborts, we reset the state in the transaction.
   if (switch_reason == 0) { StgTSO_what_next (CurrentTSO) = ThreadComplete::I16; }
   else {
     if (switch_reason == 1) { StgTSO_why_blocked (CurrentTSO) = BlockedOnConcDS::I16; }
@@ -690,7 +693,6 @@ stg_atomicSwitchzh
       //XXX KC -- operating on CurrentTSO is unsafe since the transaction has
       //been committed and mucking with CurrentTSO info violates atomicity.
       StgTSO_trec(CurrentTSO) = NO_TREC;
-      StgStack_sp(StgTSO_stackobj(CurrentTSO)) = Sp + SIZEOF_StgAtomicallyFrame;
 
       //Safe
       StgTSO_why_blocked(tso) = NotBlocked::I16;
