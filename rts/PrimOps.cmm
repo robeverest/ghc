@@ -646,6 +646,18 @@ stg_atomicSwitchzh
   trec = StgTSO_trec(CurrentTSO);
   outer  = StgTRecHeader_enclosing_trec(trec);
 
+
+  //Status of currentTSO is update *before* the transaction is committed. If the
+  //transaction aborts, we reset the state if the transaction.
+  if (switch_reason == 0) { StgTSO_what_next (CurrentTSO) = ThreadComplete::I16; }
+  else {
+    if (switch_reason == 1) { StgTSO_why_blocked (CurrentTSO) = BlockedOnConcDS::I16; }
+    else {
+      if (switch_reason == 2) { StgTSO_why_blocked (CurrentTSO) = BlockedOnSched::I16; }
+      else { foreign "C" barf ("stg_atomicSwitchzh: Unknown switch reason") []; }
+    }
+  }
+
   if (frame_type == CATCH_RETRY_FRAME) {
     foreign "C" barf("Not implemented! stg_atomicSwitchzh->CATCH_RETRY_FRAME"); // Not tested
   }
@@ -669,44 +681,35 @@ stg_atomicSwitchzh
     /* We've got no more invariants to check, try to commit */
     (valid) = foreign "C" stmCommitTransaction(MyCapability() "ptr", trec "ptr") [];
     if (valid != 0) {
-
-      /* Make sure that the thread we are switching to is alive and not running,
-       * unless we are switching to the same thread. These checks have to come
-       * after commit transaction because things might have changed since the
-       * invocation of atomicSwitch. In that case, transaction will abort
-       * safely, while the following assertions may not hold. */
-      if (tso != CurrentTSO) {
-        ASSERT (StgTSO_what_next(tso) == ThreadRunGHC::I16); //Thread is alive
-        ASSERT (StgTSO_why_blocked(tso) == BlockedOnSched::I16 ||
-                StgTSO_why_blocked(tso) == BlockedOnConcDS::I16); //Thread is blocked
-      }
-
       /* Transaction was valid: commit succeeded */
+
+      ASSERT (StgTSO_what_next(tso) == ThreadRunGHC::I16); //Thread is alive
+      ASSERT (StgTSO_why_blocked(tso) == BlockedOnSched::I16 ||
+              StgTSO_why_blocked(tso) == BlockedOnConcDS::I16); //Thread is blocked
+
+      //XXX KC -- operating on CurrentTSO is unsafe since the transaction has
+      //been committed and mucking with CurrentTSO info violates atomicity.
       StgTSO_trec(CurrentTSO) = NO_TREC;
       StgStack_sp(StgTSO_stackobj(CurrentTSO)) = Sp + SIZEOF_StgAtomicallyFrame;
 
-      if (CurrentTSO != tso) {
-        foreign "C" dirty_TSO (MyCapability() "ptr", tso "ptr") [];
-        foreign "C" dirty_STACK (MyCapability() "ptr", StgTSO_stackobj(tso) "ptr") [];
-        if (switch_reason == 0) { StgTSO_what_next (CurrentTSO) = ThreadComplete::I16; }
-        else {
-          if (switch_reason == 1) { StgTSO_why_blocked (CurrentTSO) = BlockedOnConcDS::I16; }
-          else {
-            if (switch_reason == 2) { StgTSO_why_blocked (CurrentTSO) = BlockedOnSched::I16; }
-            else { foreign "C" barf ("stg_atomicSwitchzh: Unknown switch reason") []; }
-          }
-        }
-        CurrentTSO = tso;
-        StgTSO_why_blocked(CurrentTSO) = NotBlocked::I16;
-        ("ptr" limit)  = foreign "C" tso_SpLim (tso "ptr") [];
-        SpLim = limit;
-      }
-      Sp = StgStack_sp(StgTSO_stackobj(CurrentTSO));
-      jump %ENTRY_CODE(Sp(0));
+      //Safe
+      StgTSO_why_blocked(tso) = NotBlocked::I16;
+      foreign "C" pushOnRunQueue (MyCapability () "ptr", tso "ptr");
+
+      //Enter the scheduler. This is necessary for several reasons:
+      //  - tso might be bound, or current task might be bound in which case we
+      //    need to pass capability to correct task
+      //  - task might have returned from a safe foreign call
+      jump stg_switch_noregs;
     } else {
       /* Transaction was not valid: try again */
       ("ptr" trec) = foreign "C" stmStartTransaction(MyCapability() "ptr", NO_TREC "ptr") [];
       StgTSO_trec(CurrentTSO) = trec;
+
+      //Reset thread state to what it was before entering atomically
+      StgTSO_what_next(CurrentTSO) = ThreadRunGHC::I16;
+      StgTSO_why_blocked(CurrentTSO) = NotBlocked::I16;
+
       StgAtomicallyFrame_next_invariant_to_check(frame) = END_INVARIANT_CHECK_QUEUE;
       R1 = StgAtomicallyFrame_code(frame);
       Sp = frame;

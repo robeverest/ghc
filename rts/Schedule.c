@@ -150,6 +150,7 @@ static rtsBool scheduleHandleHeapOverflow( Capability *cap, StgTSO *t );
 static rtsBool scheduleHandleYield( Capability *cap, StgTSO *t,
                                     nat prev_what_next );
 static void scheduleHandleThreadBlocked( StgTSO *t );
+static void scheduleHandleThreadSwitch( StgTSO *t );
 static rtsBool scheduleHandleThreadFinished( Capability *cap, Task *task,
                                              StgTSO *t );
 static rtsBool scheduleNeedHeapProfile(rtsBool ready_to_gc);
@@ -544,6 +545,10 @@ run_thread:
       case ThreadFinished:
         if (scheduleHandleThreadFinished(cap, task, t)) return cap;
         ASSERT_FULL_CAPABILITY_INVARIANTS(cap,task);
+        break;
+
+      case ThreadSwitch:
+        scheduleHandleThreadSwitch (t);
         break;
 
       default:
@@ -1219,6 +1224,26 @@ static void
   traceThreadStatus(DEBUG_sched, t);
 #endif
 }
+
+/* -----------------------------------------------------------------------------
+ * Handle a thread that returned to the scheduler with ThreadSwitch
+ * -------------------------------------------------------------------------- */
+
+static void
+  scheduleHandleThreadSwitch( StgTSO *t
+#if !defined(DEBUG)
+                               STG_UNUSED
+#endif
+                             )
+{
+
+  //Nothing to do here. Everything has been handled in Haskell land.
+#ifdef DEBUG
+  traceThreadStatus(DEBUG_sched, t);
+#endif
+}
+
+
 
 /* -----------------------------------------------------------------------------
  * Handle a thread that returned to the scheduler with ThreadFinished

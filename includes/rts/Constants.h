@@ -245,6 +245,7 @@
 #define ThreadYielding 3
 #define ThreadBlocked  4
 #define ThreadFinished 5
+#define ThreadSwitch   6
 
 /*
  * Flags for the tso->flags field.
