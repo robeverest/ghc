@@ -5,7 +5,7 @@ import System.Exit
 
 task n v = if n==1 then do
                         putMVar v ()
-                 else print "RUNNING"
+                 else return () -- print "RUNNING"
 
 
 loop _ 0 = return ()

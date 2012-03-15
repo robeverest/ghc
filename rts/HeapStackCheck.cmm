@@ -126,7 +126,8 @@ import LeaveCriticalSection;
   jump stg_returnToSched;
 
 #define SWITCH              \
-  PRE_RETURN(ThreadSwitch, ThreadRunGHC)  \
+  StgRegTable_rRet(BaseReg) = ThreadSwitch; \
+  R1 = BaseReg;             \
   jump stg_returnToSched;
 
 #define BLOCK_BUT_FIRST(c)			\

@@ -620,7 +620,7 @@ stg_atomicSwitchzh
   tso = R1;
   switch_reason = R2;
 
-  #if defined(DEBUG) || defined (TRACING)
+  #if 0 //defined(DEBUG) || defined (TRACING)
   if (switch_reason == 0) {
     foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
                             StgTSO_id(tso), stg_switch_reason_0) [];
@@ -690,12 +690,12 @@ stg_atomicSwitchzh
       ASSERT (StgTSO_why_blocked(tso) == BlockedOnSched::I16 ||
               StgTSO_why_blocked(tso) == BlockedOnConcDS::I16); //Thread is blocked
 
+      StgTSO_why_blocked(tso) = NotBlocked::I16;
+
       //XXX KC -- operating on CurrentTSO is unsafe since the transaction has
       //been committed and mucking with CurrentTSO info violates atomicity.
       StgTSO_trec(CurrentTSO) = NO_TREC;
 
-      //Safe
-      StgTSO_why_blocked(tso) = NotBlocked::I16;
       foreign "C" pushOnRunQueue (MyCapability () "ptr", tso "ptr");
 
       //Enter the scheduler. This is necessary for several reasons:

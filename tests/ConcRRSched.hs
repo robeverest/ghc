@@ -38,8 +38,8 @@ newConcRRSched = do
   s <- atomically $ getSCont
   (b,u) <- getSchedActionPairPrim (ConcRRSched ref);
   setResumeThreadClosure s $ \s2 -> atomically $ u s2;
-  setSwitchToNextThreadClosure s $ \s ->
-    Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
+  setSwitchToNextThreadClosure s $ \s -> atomically $ b s;
+   -- Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
   return $ ConcRRSched (ref)
 
 switchToNextAndFinish :: ConcRRSched -> IO ()
@@ -56,7 +56,7 @@ switchToNextAndFinish (ConcRRSched ref) = atomically $ do
 createThread :: ConcRRSched -> IO () -> IO SCont
 createThread (ConcRRSched ref) task =
   let yieldingTask = do {
-    Exn.try task;
+    {-Exn.try-} task;
     switchToNextAndFinish (ConcRRSched ref);
     print "ConcRRSched.forkIO: Should not see this!"
   }
@@ -64,8 +64,8 @@ createThread (ConcRRSched ref) task =
     s <- newSCont yieldingTask;
     (b,u) <- getSchedActionPairPrim (ConcRRSched ref);
     setResumeThreadClosure s $ \s2 -> atomically $ u s2;
-    setSwitchToNextThreadClosure s $ \s ->
-      Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
+    setSwitchToNextThreadClosure s $ \s -> atomically $ b s;
+      -- Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
     return s
     }
 
