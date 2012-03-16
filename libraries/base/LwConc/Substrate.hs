@@ -38,6 +38,7 @@ module LwConc.Substrate
 , newSCont                -- IO () -> IO SCont
 , switch                  -- (SCont -> PTM (SCont, SwitchStatus)) -> IO ()
 , getSCont                -- PTM SCont
+, getSContIO              -- IO SCont
 , switchTo                -- SCont -> SwitchStatus -> PTM ()
 
 #ifdef __GLASGOW_HASKELL__
@@ -205,6 +206,12 @@ switchTo (SCont sc) status = do
 {-# INLINE getSCont #-}
 getSCont :: PTM SCont
 getSCont = PTM $ \s10 ->
+  case getSCont# s10 of
+   (# s20, scont #) -> (# s20, SCont scont #)
+
+{-# INLINE getSContIO #-}
+getSContIO :: IO SCont
+getSContIO = IO $ \s10 ->
   case getSCont# s10 of
    (# s20, scont #) -> (# s20, SCont scont #)
 
