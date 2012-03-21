@@ -142,6 +142,7 @@ static void scheduleCheckBlockedThreads (Capability *cap);
 static void scheduleProcessInbox(Capability *cap);
 static void scheduleDetectDeadlock (Capability *cap, Task *task);
 static void schedulePushWork(Capability *cap, Task *task);
+static void scheduleResumeBlockedOnForeignCall (Capability *cap);
 #if defined(THREADED_RTS)
 static void scheduleActivateSpark(Capability *cap);
 #endif
@@ -614,6 +615,8 @@ scheduleFindWork (Capability *cap)
 
   scheduleCheckBlockedThreads(cap);
 
+  scheduleResumeBlockedOnForeignCall(cap);
+
 #if defined(THREADED_RTS)
   if (emptyRunQueue(cap)) { scheduleActivateSpark(cap); }
 #endif
@@ -846,7 +849,7 @@ scheduleStartSignalHandlers(Capability *cap STG_UNUSED)
  * Check for blocked threads that can be woken up.
  * ------------------------------------------------------------------------- */
 
-  static void
+static void
 scheduleCheckBlockedThreads(Capability *cap USED_IF_NOT_THREADS)
 {
 #if !defined(THREADED_RTS)
@@ -858,6 +861,35 @@ scheduleCheckBlockedThreads(Capability *cap USED_IF_NOT_THREADS)
   if ( !emptyQueue(blocked_queue_hd) || !emptyQueue(sleeping_queue) )
   {
     awaitEvent (emptyRunQueue(cap));
+  }
+#endif
+}
+
+/* ----------------------------------------------------------------------------
+ * Resume schedulers that belongs to threads which are blocked on safe foreign
+ * calls.
+ * -------------------------------------------------------------------------- */
+
+static void
+scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
+{
+#if defined(THREADED_RTS)
+  //Check whether this task has won the race against task performing a foreign
+  //call. If so take it.
+  StgTSO* racing_tso = END_TSO_QUEUE;
+  if (cap->racing_tso != END_TSO_QUEUE) {
+    ACQUIRE_LOCK (&cap->lock);
+    racing_tso = cap->racing_tso;
+    cap->racing_tso = END_TSO_QUEUE;
+    RELEASE_LOCK (&cap->lock);
+  }
+  if (racing_tso != END_TSO_QUEUE) {
+    StgTSO* helperTSO = createIOThread (cap, RtsFlags.GcFlags.initialStkSize,
+                                        rts_apply (cap, (StgClosure*)runSchedulerActionsBatch_closure,
+                                                   rts_mkInt (cap, 0)));
+    helperTSO->resume_thread = racing_tso->resume_thread;
+    helperTSO->switch_to_next = racing_tso->switch_to_next;
+    pushOnRunQueue (cap, helperTSO);
   }
 #endif
 }
@@ -975,7 +1007,7 @@ scheduleSendPendingMessages(void)
  * Process message in the current Capability's inbox
  * ------------------------------------------------------------------------- */
 
-  static void
+static void
 scheduleProcessInbox (Capability *cap USED_IF_THREADS)
 {
 #if defined(THREADED_RTS)
@@ -2060,6 +2092,10 @@ suspendThread (StgRegTable *reg, rtsBool interruptible)
 resumeThread (void *task_)
 {
   StgTSO *tso;
+#if defined(THREADED_RTS)
+  StgTSO *helperTSO;
+  rtsBool race_won;
+#endif
   InCall *incall;
   Capability *cap;
   Task *task = task_;
@@ -2075,7 +2111,36 @@ resumeThread (void *task_)
 
   incall = task->incall;
   cap = incall->suspended_cap;
+  tso = incall->suspended_tso;
   task->cap = cap;
+
+#if defined(THREADED_RTS)
+  //Check if we have won the race
+  ACQUIRE_LOCK (&cap->lock);
+  if (tso == cap->racing_tso) {
+    //We've won the race. Continue with the original computation.
+    cap->racing_tso = (StgTSO*)END_TSO_QUEUE;
+    race_won = rtsTrue;
+  }
+  else {
+    //We've lost the race.
+    race_won = rtsFalse;
+  }
+  RELEASE_LOCK (&cap->lock);
+
+  debugTrace (DEBUG_sched, "Safe-foreign call race: tso %p on task %d result %d",
+              tso, task->id, race_won);
+
+  if (!race_won) { //If the race was lost, execute the unblock action
+    tso->why_blocked = BlockedOnConcDS;
+    helperTSO = createIOThread (cap, RtsFlags.GcFlags.initialStkSize,
+                          rts_apply (cap, tso->resume_thread,
+                                     rts_mkSCont (cap, tso)));
+    helperTSO->resumeThread = tso->resume_thread;
+    helperTSO->switch_to_next = tso->switch_to_next;
+    tso = helperTSO;
+  }
+#endif
 
   // Wait for permission to re-enter the RTS with the result.
   waitForReturnCapability(&cap,task);
@@ -2086,7 +2151,6 @@ resumeThread (void *task_)
   // Remove the thread from the suspended list
   recoverSuspendedTask(cap,task);
 
-  tso = incall->suspended_tso;
   incall->suspended_tso = NULL;
   incall->suspended_cap = NULL;
   tso->_link = END_TSO_QUEUE; // no write barrier reqd
@@ -2747,8 +2811,6 @@ resurrectThreads (StgTSO *threads)
     for (i = n; i < size; i++) {
       arr->payload[i] = (StgClosure *)(W_)(-1);
     }
-
-
 
     //Create a helperTSO that will un
     StgTSO* helperTSO =

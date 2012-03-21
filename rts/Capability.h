@@ -91,7 +91,8 @@ struct Capability_ {
     Task *spare_workers;
     nat n_spare_workers; // count of above
 
-    // This lock protects running_task, returning_tasks_{hd,tl}, wakeup_queue.
+    // This lock protects running_task, returning_tasks_{hd,tl}, wakeup_queue,
+    // race_result.
     Mutex lock;
 
     // Tasks waiting to return from a foreign call, or waiting to make
@@ -101,6 +102,25 @@ struct Capability_ {
     // check whether it is NULL without taking the lock, however.
     Task *returning_tasks_hd; // Singly-linked, with head/tail
     Task *returning_tasks_tl;
+
+    //Before making a safe-foreign call a task stores the current thread in
+    //race_result, and passes the capability to another task.
+    //
+    //FAST PATH
+    //---------
+    //If the same task wins the race, race_result will be incall->suspended_tso.
+    //race_result is set to END_TSO_QUEUE before resuming. Otherwise, the task
+    //has lost the race, and the task will execute
+    //incall->suspended_tso->resume_thread to resume the TSO.
+    //
+    //SLOW PATH
+    //---------
+    //When a task is woken up on a capability, it first checks the race_result.
+    //If race_result is not END_TSO_QUEUE, then task which made the safe-foreign
+    //call has lost the race. The current task sets race_result to
+    //END_TSO_QUEUE, and executes incall->suspended_tso->switch_to_next, to
+    //resume the scheduler.
+    StgTSO* racing_tso;
 
     // Messages, or END_TSO_QUEUE.
     Message *inbox;
@@ -178,18 +198,18 @@ Capability * moreCapabilities (nat from, nat to);
 #if defined(THREADED_RTS)
 void releaseCapability           (Capability* cap);
 void releaseAndWakeupCapability  (Capability* cap);
-void releaseCapability_ (Capability* cap, rtsBool always_wakeup); 
+void releaseCapability_ (Capability* cap, rtsBool always_wakeup);
 // assumes cap->lock is held
 #else
 // releaseCapability() is empty in non-threaded RTS
 INLINE_HEADER void releaseCapability  (Capability* cap STG_UNUSED) {};
 INLINE_HEADER void releaseAndWakeupCapability  (Capability* cap STG_UNUSED) {};
-INLINE_HEADER void releaseCapability_ (Capability* cap STG_UNUSED, 
+INLINE_HEADER void releaseCapability_ (Capability* cap STG_UNUSED,
                                        rtsBool always_wakeup STG_UNUSED) {};
 #endif
 
 // declared in includes/rts/Threads.h:
-// extern Capability MainCapability; 
+// extern Capability MainCapability;
 
 // declared in includes/rts/Threads.h:
 // extern nat n_capabilities;
@@ -357,15 +377,15 @@ recordClosureMutated (Capability *cap, StgClosure *p)
 
 #if defined(THREADED_RTS)
 INLINE_HEADER rtsBool
-emptySparkPoolCap (Capability *cap) 
+emptySparkPoolCap (Capability *cap)
 { return looksEmpty(cap->sparks); }
 
 INLINE_HEADER nat
-sparkPoolSizeCap (Capability *cap) 
+sparkPoolSizeCap (Capability *cap)
 { return sparkPoolSize(cap->sparks); }
 
 INLINE_HEADER void
-discardSparksCap (Capability *cap) 
+discardSparksCap (Capability *cap)
 { discardSparks(cap->sparks); }
 #endif
 
