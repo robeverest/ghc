@@ -2136,7 +2136,7 @@ resumeThread (void *task_)
     helperTSO = createIOThread (cap, RtsFlags.GcFlags.initialStkSize,
                           rts_apply (cap, tso->resume_thread,
                                      rts_mkSCont (cap, tso)));
-    helperTSO->resumeThread = tso->resume_thread;
+    helperTSO->resume_thread = tso->resume_thread;
     helperTSO->switch_to_next = tso->switch_to_next;
     tso = helperTSO;
   }

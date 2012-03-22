@@ -15,7 +15,6 @@ EXPORTS
 	base_GHCziWord_W64zh_con_info
 
 	base_GHCziStable_StablePtr_con_info
-	base_GHCziLwConc_SCont_con_info
 
 	base_GHCziPack_unpackCString_closure
 
@@ -34,7 +33,6 @@ EXPORTS
 	base_GHCziTopHandler_flushStdHandles_closure
 
 	base_GHCziWeak_runFinalizzerBatch_closure
-	base_GHCziLwConc_runSchedulerActionsBatch_closure
 	base_GHCziPack_unpackCString_closure
 	base_GHCziIOziException_blockedIndefinitelyOnMVar_closure
 	base_GHCziIOziException_blockedIndefinitelyOnConcDS_closure

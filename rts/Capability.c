@@ -270,6 +270,8 @@ initCapability( Capability *cap, nat i )
   cap->transaction_tokens = 0;
   cap->context_switch = 0;
   cap->pinned_object_block = NULL;
+  cap->sandbox_thread = createThread (cap, RtsFlags.GcFlags.initialStkSize);
+  cap->action_list = (StgAction*)END_TSO_QUEUE;
 
 #ifdef PROFILING
   cap->r.rCCCS = CCS_SYSTEM;

@@ -184,10 +184,7 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     getStablePtr((StgPtr)runIO_closure);
     getStablePtr((StgPtr)runNonIO_closure);
     getStablePtr((StgPtr)flushStdHandles_closure);
-
     getStablePtr((StgPtr)runFinalizerBatch_closure);
-    getStablePtr((StgPtr)runSchedulerActionsBatch_closure);
-
     getStablePtr((StgPtr)stackOverflow_closure);
     getStablePtr((StgPtr)heapOverflow_closure);
     getStablePtr((StgPtr)unpackCString_closure);

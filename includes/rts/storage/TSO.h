@@ -63,6 +63,26 @@ typedef union {
 #endif
 } StgTSOBlockInfo;
 
+typedef enum {
+  ACTION_CLOSURE,
+  ACTION_STACK
+} ActionKind;
+
+
+/* Actions are typically pending IO actions(ACTION_CLOSURE) that are ALWAYS
+ * evaluated by capability's sandbox thread. Actions are created when threads
+ * block on black holes, finalizers, etc. An action can itself become blocked,
+ * in which case, its continuation is captured and stored in a new action
+ * (ACTION_STACK).
+ */
+typedef struct StgAction_ {
+  ActionKind kind;
+  union {
+    StgClosure* closure;
+    StgStack* stack;
+  };
+  struct StgAction_* link;
+} StgAction;
 
 /*
  * TSOs live on the heap, and therefore look just like heap objects.
@@ -156,6 +176,19 @@ typedef struct StgTSO_ {
      * thread picked from the scheduler.
      */
     StgClosure* switch_to_next;
+
+    /*
+     * A reference to this threads finalizer. If the thread becomes unreachable
+     * with why_blocked == BlockedOnConcDS, finalizer will be invoked on the
+     * sandbox thread.
+     */
+    StgClosure* finalizer;
+
+    /*
+     * A reference to SCont status maintained in Haskell. This is required to
+     * implement the LwConc.getSCont primitive.
+     */
+    StgTVar* scont_status;
 
 #ifdef TICKY_TICKY
     /* TICKY-specific stuff would go here. */

@@ -84,7 +84,6 @@ Library {
             GHC.IORef,
             GHC.Int,
             GHC.List,
-            GHC.LwConc,
             GHC.MVar,
             GHC.Num,
             GHC.PArr,

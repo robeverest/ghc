@@ -99,6 +99,7 @@ createThread(Capability *cap, nat size)
     tso->block_info.closure = (StgClosure *)END_TSO_QUEUE;
     tso->resume_thread = (StgClosure*)END_TSO_QUEUE;
     tso->switch_to_next = (StgClosure*)END_TSO_QUEUE;
+    tso->scont_status = (StgTVar*)END_TSO_QUEUE;
     tso->blocked_exceptions = END_BLOCKED_EXCEPTIONS_QUEUE;
     tso->bq = (StgBlockingQueue *)END_TSO_QUEUE;
     tso->flags = 0;

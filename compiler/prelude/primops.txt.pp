@@ -1787,7 +1787,7 @@ section "Lightweight concurrency primitives"
 primtype SCont#
 
 primop  NewSContOp "newSCont#" GenPrimOp
-   a -> State# RealWorld -> (# State# RealWorld, SCont# #)
+   a -> TVar# s a -> State# RealWorld -> (# State# RealWorld, SCont# #)
    with
    has_side_effects = True
    out_of_line      = True
@@ -1799,17 +1799,23 @@ primop	AtomicSwitchOp "atomicSwitch#" GenPrimOp
    has_side_effects = True
 
 primop  GetSContOp "getSCont#" GenPrimOp
-   State# RealWorld -> (# State# RealWorld, SCont# #)
+   State# RealWorld -> (# State# RealWorld, SCont#, TVar# s a #)
    with
    out_of_line = True
 
-primop SetResumeThreadClosureOp "setResumeThreadClosure#" GenPrimOp
+primop SetResumeThreadOp "setResumeThread#" GenPrimOp
   SCont# -> a -> State# RealWorld -> State# RealWorld
   with
   out_of_line = True
   has_side_effects = True
 
-primop SetSwitchToNextThreadClosureOp "setSwitchToNextThreadClosure#" GenPrimOp
+primop SetSwitchToNextThreadOp "setSwitchToNextThread#" GenPrimOp
+  SCont# -> a -> State# RealWorld -> State# RealWorld
+  with
+  out_of_line = True
+  has_side_effects = True
+
+primop SetFinalizerOp "setFinalizer#" GenPrimOp
   SCont# -> a -> State# RealWorld -> State# RealWorld
   with
   out_of_line = True

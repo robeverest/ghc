@@ -295,6 +295,7 @@ main(int argc, char *argv[])
     closure_field(StgTSO, saved_errno);
     closure_field(StgTSO, resume_thread);
     closure_field(StgTSO, switch_to_next);
+    closure_field(StgTSO, scont_status);
     closure_field(StgTSO, trec);
     closure_field(StgTSO, flags);
     closure_field(StgTSO, dirty);

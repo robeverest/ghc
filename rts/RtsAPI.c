@@ -158,16 +158,7 @@ rts_mkStablePtr (Capability *cap, HsStablePtr s)
   return p;
 }
 
-  HaskellObj
-rts_mkSCont (Capability *cap, HsSCont s)
-{
-  StgClosure *p = (StgClosure *)allocate(cap,sizeofW(StgHeader)+1);
-  SET_HDR(p, SCont_con_info, CCS_SYSTEM);
-  p->payload[0]  = (StgClosure *)s;
-  return p;
-}
-
-  HaskellObj
+HaskellObj
 rts_mkPtr (Capability *cap, HsPtr a)
 {
   StgClosure *p = (StgClosure *)allocate(cap,sizeofW(StgHeader)+1);
@@ -176,7 +167,7 @@ rts_mkPtr (Capability *cap, HsPtr a)
   return p;
 }
 
-  HaskellObj
+HaskellObj
 rts_mkFunPtr (Capability *cap, HsFunPtr a)
 {
   StgClosure *p = (StgClosure *)allocate(cap,sizeofW(StgHeader)+1);
@@ -185,7 +176,7 @@ rts_mkFunPtr (Capability *cap, HsFunPtr a)
   return p;
 }
 
-  HaskellObj
+HaskellObj
 rts_mkBool (Capability *cap STG_UNUSED, HsBool b)
 {
   if (b) {

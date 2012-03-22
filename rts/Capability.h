@@ -122,6 +122,16 @@ struct Capability_ {
     //resume the scheduler.
     StgTSO* racing_tso;
 
+    //Sandbox thread -- Every capability has a sandbox thread attached to it,
+    //which is used to execute the resume_thread actions, finalizers, etc.
+    //Sandbox_thread picks up work from action_list, and evaluates each action
+    //until they are finished or get blocked. When the sandbox thread is
+    //running, the current thread on the capability is stashed here, so that the
+    //GC can find it. Also, for a sandbox thread, resume_thread ==
+    //switch_to_next == scont_state == END_TSO_QUEUE.
+    StgTSO* sandbox_thread;
+    StgAction* action_list;
+
     // Messages, or END_TSO_QUEUE.
     Message *inbox;
 

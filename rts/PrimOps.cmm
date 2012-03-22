@@ -671,20 +671,7 @@ stg_atomicSwitchzh
     jump stg_ap_v_fast;
 
   } else {
-    /* We've got no more invariants to check, try to commit. Status of
-     * currentTSO is update *before* the transaction is committed. If the
-     * transaction aborts, we reset the state in the transaction.
-     */
-    if (CurrentTSO != tso) {
-      if (switch_reason == 0) { StgTSO_what_next (CurrentTSO) = ThreadComplete::I16; }
-      else {
-        if (switch_reason == 1) { StgTSO_why_blocked (CurrentTSO) = BlockedOnConcDS::I16; }
-        else {
-          if (switch_reason == 2) { StgTSO_why_blocked (CurrentTSO) = BlockedOnSched::I16; }
-          else { foreign "C" barf ("stg_atomicSwitchzh: Unknown switch reason") []; }
-        }
-      }
-    }
+    /* We've got no more invariants to check, try to commit. */
 
     (valid) = foreign "C" stmCommitTransaction(MyCapability() "ptr", trec "ptr") [];
 
@@ -693,8 +680,27 @@ stg_atomicSwitchzh
 
       if (CurrentTSO != tso) {
         ASSERT (StgTSO_what_next(tso) == ThreadRunGHC::I16); //Thread is alive
-        ASSERT (StgTSO_why_blocked(tso) == BlockedOnSched::I16 ||
-                StgTSO_why_blocked(tso) == BlockedOnConcDS::I16); //Thread is blocked
+        ASSERT (StgTSO_why_blocked(tso) != NotBlocked::I16); //Thread is blocked
+
+        //Set the current thread status
+        if (switch_reason == 1) {
+          StgTSO_why_blocked(CurrentTSO) = BlockedOnSched::I16;
+        }
+        else {
+          if (switch_reason == 2) {
+            StgTSO_why_blocked(CurrentTSO) = BlockedOnConcDS::I16;
+          }
+          else {
+            if (switch_reason == 4) {
+              StgTSO_what_next(CurrentTSO) = ThreadComplete::I16;
+            }
+            else {
+              foreign "C" barf ("atomicSwitch: Unknown switch reason %d",
+                                switch_reason) never returns;
+            }
+          }
+        }
+
       }
 
       StgTSO_why_blocked(tso) = NotBlocked::I16;
@@ -723,11 +729,6 @@ stg_atomicSwitchzh
       /* Transaction was not valid: try again */
       ("ptr" trec) = foreign "C" stmStartTransaction(MyCapability() "ptr", NO_TREC "ptr") [];
       StgTSO_trec(CurrentTSO) = trec;
-
-      //Reset thread state to what it was before entering atomically
-      StgTSO_what_next(CurrentTSO) = ThreadRunGHC::I16;
-      StgTSO_why_blocked(CurrentTSO) = NotBlocked::I16;
-
       StgAtomicallyFrame_next_invariant_to_check(frame) = END_INVARIANT_CHECK_QUEUE;
       R1 = StgAtomicallyFrame_code(frame);
       Sp = frame;
@@ -739,11 +740,11 @@ stg_atomicSwitchzh
 /* Set the resume thread closure for the given TSO. This closure, when
  * evaluated, will add the given thread to its user-level scheduler.
  */
-stg_setResumeThreadClosurezh
+stg_setResumeThreadzh
 {
   /* args: R1 = SCont, R2 = closure to resume this spark */
 
-  MAYBE_GC (R1_PTR & R2_PTR, stg_setResumeThreadClosurezh);
+  MAYBE_GC (R1_PTR & R2_PTR, stg_setResumeThreadzh);
 
   W_ threadid, resume_thread;
   threadid = R1;
@@ -754,11 +755,11 @@ stg_setResumeThreadClosurezh
   jump %ENTRY_CODE(Sp(0));
 }
 
-stg_setSwitchToNextThreadClosurezh
+stg_setSwitchToNextThreadzh
 {
   /* args: R1 = SCont, R2 = closure to resume this spark */
 
-  MAYBE_GC (R1_PTR & R2_PTR, stg_setSwitchToNextThreadClosurezh);
+  MAYBE_GC (R1_PTR & R2_PTR, stg_setSwitchToNextThreadzh);
 
   W_ threadid, switch_to_next;
   threadid = R1;
@@ -771,17 +772,19 @@ stg_setSwitchToNextThreadClosurezh
 
 stg_newSContzh
 {
-  /* args: R1 = closure to spark */
+  /* args: R1 = closure to spark, R2 = scont status TVar */
 
-  MAYBE_GC(R1_PTR, stg_newSContzh);
+  MAYBE_GC(R1_PTR & R2_PTR, stg_newSContzh);
 
-  W_ closure, threadid;
+  W_ closure, scont_status, threadid;
   closure = R1;
+  scont_status = R2;
 
   ("ptr" threadid) = foreign "C" createIOThread( MyCapability() "ptr",
 				RtsFlags_GcFlags_initialStkSize(RtsFlags),
 				closure "ptr") [];
   StgTSO_why_blocked (threadid) = BlockedOnSched::I16;
+  StgTSO_scont_status (threadid) = scont_status;
 
   RET_P(threadid);
 }
@@ -789,7 +792,7 @@ stg_newSContzh
 stg_getSContzh
 {
   /* no args */
-  RET_P(CurrentTSO);
+  RET_PP(CurrentTSO,StgTSO_scont_status(CurrentTSO));
 }
 
 stg_isThreadBoundzh
