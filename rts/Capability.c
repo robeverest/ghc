@@ -270,8 +270,8 @@ initCapability( Capability *cap, nat i )
   cap->transaction_tokens = 0;
   cap->context_switch = 0;
   cap->pinned_object_block = NULL;
-  cap->sandbox_thread = createThread (cap, RtsFlags.GcFlags.initialStkSize);
-  cap->action_list = (StgAction*)END_TSO_QUEUE;
+  cap->upcall_thread = createThread (cap, RtsFlags.GcFlags.initialStkSize);
+  cap->upcall_list = (StgAction*)END_TSO_QUEUE;
 
 #ifdef PROFILING
   cap->r.rCCCS = CCS_SYSTEM;
@@ -1004,6 +1004,9 @@ markCapability (evac_fn evac, void *user, Capability *cap,
     traverseSparkQueue (evac, user, cap);
   }
 #endif
+
+  evac (user, (StgClosure **)(void*)&cap->upcall_thread);
+  traverseUpcallQueue (evac, user, cap);
 
   // Free STM structures for this Capability
   stmPreGCHook(cap);

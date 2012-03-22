@@ -24,6 +24,7 @@
 #include "sm/GC.h" // for evac_fn
 #include "Task.h"
 #include "Sparks.h"
+#include "Upcalls.h"
 
 #include "BeginPrivate.h"
 
@@ -122,15 +123,15 @@ struct Capability_ {
     //resume the scheduler.
     StgTSO* racing_tso;
 
-    //Sandbox thread -- Every capability has a sandbox thread attached to it,
-    //which is used to execute the resume_thread actions, finalizers, etc.
-    //Sandbox_thread picks up work from action_list, and evaluates each action
-    //until they are finished or get blocked. When the sandbox thread is
+    //Upcall thread -- Every capability has a upcall thread attached to it,
+    //which is used to execute the upcalls (resume_thread actions, finalizers,
+    //etc). upcall_thread picks up work from upcall_queue, and evaluates each
+    //upcall until they are finished or get blocked. When the upcall thread is
     //running, the current thread on the capability is stashed here, so that the
-    //GC can find it. Also, for a sandbox thread, resume_thread ==
+    //GC can find it. Also, for a upcall thread, resume_thread ==
     //switch_to_next == scont_state == END_TSO_QUEUE.
-    StgTSO* sandbox_thread;
-    StgAction* action_list;
+    StgTSO* upcall_thread;
+    UpcallQueue* upcall_queue;
 
     // Messages, or END_TSO_QUEUE.
     Message *inbox;
