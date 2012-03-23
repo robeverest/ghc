@@ -28,6 +28,7 @@
 #include "Weak.h"
 #include "sm/GC.h" // waitForGcThreads, releaseGCThreads, N
 #include "Sparks.h"
+#include "Upcalls.h"
 #include "Capability.h"
 #include "Task.h"
 #include "AwaitEvent.h"
@@ -307,6 +308,7 @@ schedule (Capability *initialCapability, Task *task)
 
     scheduleDetectDeadlock(cap,task);
 
+
 #if defined(THREADED_RTS)
     cap = task->cap;    // reload cap, it might have changed
 #endif
@@ -401,6 +403,21 @@ schedule (Capability *initialCapability, Task *task)
       cap->context_switch = 1;
     }
 
+
+    /* If there are pending upcalls, then,
+     *  (1) If the current thread is not the upcall thread,
+     *     (1a) Make the upcall thread the currrent thread on the capability.
+     *     (1b) Save the current thread in cap->upcall_thread.
+     *  (2) prepare the current (upcall) thread with the first upcall.
+     *
+     * When there are no pending upcalls, and the current thread is the upcall
+     * thread, restore the original thread.
+     */
+    if (pendingUpcalls (cap))
+      prepareUpcallThread (cap);
+    else
+      restoreCurrentThreadIfNecesary (cap);
+
 run_thread:
 
     // CurrentTSO is the thread to run.  t might be different if we
@@ -492,6 +509,28 @@ run_thread:
     // Similarly for Windows error code
     t->saved_winerror = GetLastError();
 #endif
+
+    //Handle upcall thread return
+    if (isUpcallThread (t)) {
+      if (ret != ThreadFinished)
+        barf ("Schedule: Upcall thread blocking not implemented");
+
+      //ret == ThreadFinished in the following.
+      t->what_next = ThreadRunGHC;
+      t->why_blocked = NotBlocked;
+      ret = ThreadSwitch;
+
+      StgStack* stack = t->stackobj;
+      stack->dirty = 1;
+      //Pop everything
+      stack->sp = stack->stack + stack->stack_size;
+      //Push stop frame
+      stack->sp -= sizeofW(StgStopFrame);
+      SET_HDR((StgClosure*)stack->sp,
+              (StgInfoTable *)&stg_stop_thread_info,CCS_SYSTEM);
+
+      //Stack is pristine now.
+    }
 
     if (ret == ThreadBlocked) {
       if (t->why_blocked == BlockedOnBlackHole) {

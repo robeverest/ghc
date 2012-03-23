@@ -271,7 +271,7 @@ initCapability( Capability *cap, nat i )
   cap->context_switch = 0;
   cap->pinned_object_block = NULL;
   cap->upcall_thread = createThread (cap, RtsFlags.GcFlags.initialStkSize);
-  cap->upcall_list = (StgAction*)END_TSO_QUEUE;
+  cap->upcall_queue = allocUpcallQueue();
 
 #ifdef PROFILING
   cap->r.rCCCS = CCS_SYSTEM;

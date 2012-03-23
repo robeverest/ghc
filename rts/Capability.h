@@ -87,6 +87,16 @@ struct Capability_ {
     // reset after we have executed the context switch.
     int interrupt;
 
+    //Upcall thread -- Every capability has a upcall thread attached to it,
+    //which is used to execute the upcalls (resume_thread actions, finalizers,
+    //etc). upcall_thread picks up work from upcall_queue, and evaluates each
+    //upcall until they are finished or get blocked. When the upcall thread is
+    //running, the current thread on the capability is stashed here, so that the
+    //GC can find it. Also, for a upcall thread, resume_thread ==
+    //switch_to_next == scont_state == END_TSO_QUEUE.
+    StgTSO* upcall_thread;
+    UpcallQueue* upcall_queue;
+
 #if defined(THREADED_RTS)
     // Worker Tasks waiting in the wings.  Singly-linked.
     Task *spare_workers;
@@ -122,16 +132,6 @@ struct Capability_ {
     //END_TSO_QUEUE, and executes incall->suspended_tso->switch_to_next, to
     //resume the scheduler.
     StgTSO* racing_tso;
-
-    //Upcall thread -- Every capability has a upcall thread attached to it,
-    //which is used to execute the upcalls (resume_thread actions, finalizers,
-    //etc). upcall_thread picks up work from upcall_queue, and evaluates each
-    //upcall until they are finished or get blocked. When the upcall thread is
-    //running, the current thread on the capability is stashed here, so that the
-    //GC can find it. Also, for a upcall thread, resume_thread ==
-    //switch_to_next == scont_state == END_TSO_QUEUE.
-    StgTSO* upcall_thread;
-    UpcallQueue* upcall_queue;
 
     // Messages, or END_TSO_QUEUE.
     Message *inbox;
