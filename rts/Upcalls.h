@@ -26,14 +26,14 @@ void addNewUpcall (Capability* cap, StgClosure* p);
 // Get an upcall from the capability's upcall queue. This could be a IO ()
 // action or a stack. Hence, immediately after picking up the upcall, check the
 // upcall kind using isSuspendedUpcall ().
-INLINE_HEADER StgClosure* popUpcallQueue (Capability* cap);
+INLINE_HEADER StgClosure* popUpcallQueue (UpcallQueue* q);
 
 // returns true if the given upcall is a suspended upcall, i.e) it is a
 // reference to a StgStack.
 rtsBool isSuspendedUpcall (StgClosure* p);
 
 INLINE_HEADER long upcallQueueSize (UpcallQueue *q);
-INLINE_HEADER rtsBool pendingUpcalls (Capability* cap);
+INLINE_HEADER rtsBool pendingUpcalls (UpcallQueue *q);
 
 //If there are pending upcalls prepare the upcall thread with the first upcall.
 //Save the given current thread in cap->upcall_thread.
@@ -57,14 +57,14 @@ INLINE_HEADER long upcallQueueSize (UpcallQueue* q)
   return dequeElements(q);
 }
 
-INLINE_HEADER long popUpcallQueue (Capability* cap)
+INLINE_HEADER StgClosure* popUpcallQueue (UpcallQueue* q)
 {
-  return popWSDeque (cap->upcall_queue);
+  return popWSDeque (q);
 }
 
-INLINE_HEADER rtsBool pendingUpcalls (Capability* cap)
+INLINE_HEADER rtsBool pendingUpcalls (UpcallQueue* q)
 {
-  return upcallQueueSize (cap->upcall_queue) > 0;
+  return upcallQueueSize (q) > 0;
 }
 
 

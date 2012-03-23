@@ -50,8 +50,8 @@ module LwConc.Substrate
 , rtsSupportsBoundThreads -- Bool
 #endif
 
-, setResumeThread         -- SCont -> IO () -> IO ()
-, setSwitchToNextThread   -- SCont -> IO () -> IO ()
+, setResumeThread         -- SCont -> PTM () -> IO ()
+, setSwitchToNextThread   -- SCont -> PTM () -> IO ()
 , setFinalizer            -- SCont -> IO () -> IO ()
 ) where
 
@@ -216,13 +216,20 @@ newSCont x = do
   IO $ \s ->
    case (newSCont# x tvarStatus# s) of (# s1, scont #) -> (# s1, SCont scont status #)
 
+{-# INLINE switchToWithStatus #-}
+switchToWithStatus :: SCont -> Int# -> PTM ()
+switchToWithStatus (SCont targetSContPrim targetStatusPVar) intStatus = do
+  writePVar targetStatusPVar Running
+  PTM $ \s ->
+    case (atomicSwitch# targetSContPrim intStatus s) of s1 -> (# s1, () #)
+
 {-# INLINE switchTo #-}
 switchTo :: SCont -> PTM ()
-switchTo (SCont sc ts) = do
-  status <- readPVar ts
-  let intStatus = getIntFromStatus status
-  PTM $ \s ->
-    case (atomicSwitch# sc intStatus s) of s1 -> (# s1, () #)
+switchTo targetSCont = do
+  SCont _ currentStatusPVar <- getSCont
+  currentStatus <- readPVar currentStatusPVar
+  let intStatus = getIntFromStatus currentStatus
+  switchToWithStatus targetSCont intStatus
 
 {-# INLINE getSCont #-}
 getSCont :: PTM SCont
@@ -241,14 +248,17 @@ switch :: (SCont -> PTM SCont) -> IO ()
 switch arg = atomically $ do
   currentSCont <- getSCont
   targetSCont <- arg currentSCont
-  let SCont _ targetThreadStatus = targetSCont
-  writePVar targetThreadStatus Running
-  switchTo targetSCont
+  -- Get int# of current thread's status
+  let SCont _ currentStatusPVar = currentSCont
+  currentStatus <- readPVar currentStatusPVar
+  let intStatus = getIntFromStatus currentStatus
+  switchToWithStatus targetSCont intStatus
 
 {-# INLINE setResumeThread #-}
 setResumeThread :: SCont -> PTM () -> IO ()
 setResumeThread (SCont sc _) r = IO $ \s ->
-  case (setResumeThread# sc r s) of s -> (# s, () #)
+  case (setResumeThread# sc rp s) of s -> (# s, () #)
+       where rp = atomically $ r
 
 {-# INLINE setSwitchToNextThread #-}
 setSwitchToNextThread :: SCont -> PTM () -> IO ()

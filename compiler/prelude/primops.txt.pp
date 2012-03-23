@@ -1787,7 +1787,7 @@ section "Lightweight concurrency primitives"
 primtype SCont#
 
 primop  NewSContOp "newSCont#" GenPrimOp
-   a -> TVar# s a -> State# RealWorld -> (# State# RealWorld, SCont# #)
+   a -> TVar# s b -> State# RealWorld -> (# State# RealWorld, SCont# #)
    with
    has_side_effects = True
    out_of_line      = True

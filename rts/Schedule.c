@@ -144,6 +144,7 @@ static void scheduleProcessInbox(Capability *cap);
 static void scheduleDetectDeadlock (Capability *cap, Task *task);
 static void schedulePushWork(Capability *cap, Task *task);
 static void scheduleResumeBlockedOnForeignCall (Capability *cap);
+static void scheduleUpcallThreadIfNecessary (Capability *cap);
 #if defined(THREADED_RTS)
 static void scheduleActivateSpark(Capability *cap);
 #endif
@@ -349,6 +350,14 @@ schedule (Capability *initialCapability, Task *task)
     //
     t = popRunQueue(cap);
 
+    /* If there are pending upcalls, prepare switching to upcall thread. If no
+     * pending upcalls, restore original thread if necessary.
+     */
+    if (pendingUpcalls (cap->upcall_queue))
+      t = prepareUpcallThread (cap, t);
+    else
+      t = restoreCurrentThreadIfNecessary (cap, t);
+
     // Sanity check the thread we're about to run.  This can be
     // expensive if there is lots of thread switching going on...
     IF_DEBUG(sanity,checkTSO(t));
@@ -403,20 +412,6 @@ schedule (Capability *initialCapability, Task *task)
       cap->context_switch = 1;
     }
 
-
-    /* If there are pending upcalls, then,
-     *  (1) If the current thread is not the upcall thread,
-     *     (1a) Make the upcall thread the currrent thread on the capability.
-     *     (1b) Save the current thread in cap->upcall_thread.
-     *  (2) prepare the current (upcall) thread with the first upcall.
-     *
-     * When there are no pending upcalls, and the current thread is the upcall
-     * thread, restore the original thread.
-     */
-    if (pendingUpcalls (cap))
-      prepareUpcallThread (cap);
-    else
-      restoreCurrentThreadIfNecesary (cap);
 
 run_thread:
 
@@ -519,17 +514,6 @@ run_thread:
       t->what_next = ThreadRunGHC;
       t->why_blocked = NotBlocked;
       ret = ThreadSwitch;
-
-      StgStack* stack = t->stackobj;
-      stack->dirty = 1;
-      //Pop everything
-      stack->sp = stack->stack + stack->stack_size;
-      //Push stop frame
-      stack->sp -= sizeofW(StgStopFrame);
-      SET_HDR((StgClosure*)stack->sp,
-              (StgInfoTable *)&stg_stop_thread_info,CCS_SYSTEM);
-
-      //Stack is pristine now.
     }
 
     if (ret == ThreadBlocked) {
@@ -655,6 +639,8 @@ scheduleFindWork (Capability *cap)
   scheduleCheckBlockedThreads(cap);
 
   scheduleResumeBlockedOnForeignCall(cap);
+
+  scheduleUpcallThreadIfNecessary (cap);
 
 #if defined(THREADED_RTS)
   if (emptyRunQueue(cap)) { scheduleActivateSpark(cap); }
@@ -923,14 +909,27 @@ scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
     RELEASE_LOCK (&cap->lock);
   }
   if (racing_tso != END_TSO_QUEUE) {
-    StgTSO* helperTSO = createIOThread (cap, RtsFlags.GcFlags.initialStkSize,
-                                        rts_apply (cap, (StgClosure*)runSchedulerActionsBatch_closure,
-                                                   rts_mkInt (cap, 0)));
-    helperTSO->resume_thread = racing_tso->resume_thread;
-    helperTSO->switch_to_next = racing_tso->switch_to_next;
-    pushOnRunQueue (cap, helperTSO);
+    StgClosure* scheduler =
+      rts_apply (cap, (StgClosure*)racing_tso->switch_to_next,
+                 rts_mkInt (cap, 0));
+    addNewUpcall (cap, scheduler);
   }
 #endif
+}
+
+/* ----------------------------------------------------------------------------
+ * If there is no work on the run queue, but pending upcalls, prepare pending
+ * upcall in the upcall_thread and make it the current thread.
+ * -------------------------------------------------------------------------- */
+
+static void
+scheduleUpcallThreadIfNecessary (Capability *cap)
+{
+  if (pendingUpcalls (cap->upcall_queue) &&
+      emptyRunQueue (cap)) {
+    StgTSO* upcall_thread = prepareUpcallThread (cap, cap->upcall_thread);
+    pushOnRunQueue (cap, upcall_thread);
+  }
 }
 
 /* ----------------------------------------------------------------------------
@@ -2170,15 +2169,6 @@ resumeThread (void *task_)
   debugTrace (DEBUG_sched, "Safe-foreign call race: tso %p on task %d result %d",
               tso, task->id, race_won);
 
-  if (!race_won) { //If the race was lost, execute the unblock action
-    tso->why_blocked = BlockedOnConcDS;
-    helperTSO = createIOThread (cap, RtsFlags.GcFlags.initialStkSize,
-                          rts_apply (cap, tso->resume_thread,
-                                     rts_mkSCont (cap, tso)));
-    helperTSO->resume_thread = tso->resume_thread;
-    helperTSO->switch_to_next = tso->switch_to_next;
-    tso = helperTSO;
-  }
 #endif
 
   // Wait for permission to re-enter the RTS with the result.
@@ -2189,6 +2179,15 @@ resumeThread (void *task_)
 
   // Remove the thread from the suspended list
   recoverSuspendedTask(cap,task);
+
+#if defined(THREADED_RTS)
+  if (!race_won) { //If the race was lost, execute the unblock action
+    tso->why_blocked = BlockedOnConcDS;
+    addNewUpcall (cap, tso->resume_thread);
+    tso = prepareUpcallThread (cap, tso);
+  }
+#endif
+
 
   incall->suspended_tso = NULL;
   incall->suspended_cap = NULL;
@@ -2734,14 +2733,9 @@ Locks: assumes we hold *all* the capabilities.
 void
 resurrectThreads (StgTSO *threads)
 {
-  StgTSO *tso, *next, *prev, *unblock_list;
-  StgMutArrPtrs *arr;
+  StgTSO *tso, *next;
   Capability *cap;
   generation *gen;
-  StgWord size;
-  nat n, i;
-
-  unblock_list = END_TSO_QUEUE;
 
   for (tso = threads; tso != END_TSO_QUEUE; tso = next) {
     next = tso->global_link;
@@ -2762,11 +2756,7 @@ resurrectThreads (StgTSO *threads)
       case BlockedOnConcDS:
         tso = throwToSingleThreaded (cap, tso,
                                      (StgClosure*)blockedIndefinitelyOnConcDS_closure);
-        if (unblock_list == END_TSO_QUEUE)
-          tso->_link = END_TSO_QUEUE;
-        else
-          tso->_link = unblock_list;
-        unblock_list = tso;
+        addNewUpcall (cap, tso->resume_thread);
         break;
       case BlockedOnMVar:
         barf ("resurrectThreads: BlockedOnMVar not implemented!");
@@ -2799,96 +2789,6 @@ resurrectThreads (StgTSO *threads)
       default:
         barf("resurrectThreads: thread blocked in a strange way: %d",
              tso->why_blocked);
-    }
-  }
-
-  while (unblock_list != END_TSO_QUEUE) {
-    //Get the current thread on this tso's capability
-    cap = unblock_list->cap;
-    StgTSO* currentTSO = popRunQueue (cap);
-
-    ASSERT (currentTSO->switch_to_next != (StgClosure*)END_TSO_QUEUE);
-    ASSERT (currentTSO->resume_thread != (StgClosure*)END_TSO_QUEUE);
-
-    //Find the number of threads with the same capability in the unblock_list
-    n=0;
-    for (tso = unblock_list; tso != END_TSO_QUEUE; tso = next) {
-      next = tso->_link;
-      if (tso->cap == cap)
-        n++;
-    }
-
-    n+=2; // +2 for invoking block and unblock actions of currenTSO.
-    size = n + mutArrPtrsCardTableSize (n);
-    arr = (StgMutArrPtrs *)allocate(cap, sizeofW(StgMutArrPtrs) + size);
-    TICK_ALLOC_PRIM(sizeofW(StgMutArrPtrs), n, 0);
-    SET_HDR(arr, &stg_MUT_ARR_PTRS_FROZEN_info, CCS_SYSTEM);
-    arr->ptrs = n;
-    arr->size = size;
-
-    //Fill the payload.
-    //IMPORTANT NOTE: the IO actions on the array will be processed in reverse.
-    //Hence, switch_to_thread should be the last action.
-    n=0;
-    arr->payload[n++] = rts_apply (cap, currentTSO->switch_to_next,
-                                    rts_mkInt (cap, 0));
-    for (tso = unblock_list; tso != END_TSO_QUEUE; tso = next) {
-      next = tso->_link;
-      ASSERT (tso->resume_thread != (StgClosure*)END_TSO_QUEUE);
-      if (tso->cap == cap) {
-        arr->payload[n] = rts_apply (cap, tso->resume_thread,
-                                      rts_mkSCont (cap, tso));
-        tso->why_blocked = BlockedOnSched;
-        n++;
-      }
-    }
-    arr->payload[n++] = rts_apply (cap, currentTSO->resume_thread,
-                                    rts_mkSCont (cap, currentTSO));
-    ASSERT (n == arr->ptrs);
-
-    // set all the cards to 1
-    for (i = n; i < size; i++) {
-      arr->payload[i] = (StgClosure *)(W_)(-1);
-    }
-
-    //Create a helperTSO that will un
-    StgTSO* helperTSO =
-      createIOThread (cap, RtsFlags.GcFlags.initialStkSize,
-                      rts_apply (cap,
-                                 rts_apply (cap, (StgClosure*)runSchedulerActionsBatch_closure,
-                                            rts_mkInt (cap, n)),
-                                 (StgClosure*)arr));
-
-    debugTrace (DEBUG_sched, "resurrectThreads: Created helper thread (%d)",
-                helperTSO->id);
-    //helperTSO inherits the block (switch_to_next) and unblock
-    //(resume_thread) functions from the currentTSO
-    helperTSO->resume_thread = currentTSO->resume_thread;
-    helperTSO->switch_to_next = currentTSO->switch_to_next;
-
-    currentTSO->why_blocked = BlockedOnConcDS;
-    pushOnRunQueue (cap, helperTSO);
-
-    //Remove from unblock_list all the threads that belong to this capability.
-    while (unblock_list != END_TSO_QUEUE &&
-            unblock_list->cap == cap) {
-      next = unblock_list->_link;
-      unblock_list->_link = END_TSO_QUEUE;
-      unblock_list = next;
-    }
-
-    if (unblock_list != END_TSO_QUEUE) {//We have more things to remove
-      prev = unblock_list;
-      next = unblock_list->_link;
-      while (next != END_TSO_QUEUE) {
-        if (next->cap == cap) {
-          prev->_link = next->_link;
-          next->_link = END_TSO_QUEUE;
-        }
-        else
-          prev = prev->_link;
-        next = prev->_link;
-      }
     }
   }
 }

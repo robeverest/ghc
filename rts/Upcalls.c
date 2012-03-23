@@ -48,7 +48,7 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
   upcall_thread = cap->upcall_thread;
 
   //If cap->upcall_thread is the upcall thread, then swap it with the current
-  //thread (if present).
+  //thread.
   if (isUpcallThread(upcall_thread)) {
       cap->upcall_thread = current_thread;
   }
@@ -56,14 +56,23 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
   StgClosure* upcall = popUpcallQueue (cap->upcall_queue);
   if (isSuspendedUpcall (upcall))
     upcall_thread->stackobj = (StgStack*)upcall;
-  else
+  else {
+    StgStack* stack = upcall_thread->stackobj;
+    stack->dirty = 1;
+    //Pop everything
+    stack->sp = stack->stack + stack->stack_size;
+    //Push stop frame
+    stack->sp -= sizeofW(StgStopFrame);
+    SET_HDR((StgClosure*)stack->sp,
+            (StgInfoTable *)&stg_stop_thread_info,CCS_SYSTEM);
     pushCallToClosure (cap, upcall_thread, upcall);
+  }
 
   return upcall_thread;
 }
 
 StgTSO*
-retoreCurrentThreadIfNecessary (Capability* cap, StgTSO* current_thread) {
+restoreCurrentThreadIfNecessary (Capability* cap, StgTSO* current_thread) {
 
   StgTSO* return_thread = current_thread;
 
@@ -80,14 +89,14 @@ retoreCurrentThreadIfNecessary (Capability* cap, StgTSO* current_thread) {
 /* GC for the upcall queue, called inside Capability.c for all capabilities in
  * turn. */
 void
-traverseUpcallQueue (evac_fn eval, void* user, Capability *cap)
+traverseUpcallQueue (evac_fn evac, void* user, Capability *cap)
 {
   //XXX KC -- Copy paste from traverseSparkPool. Merge these if possible.
   StgClosure **upcallp;
   UpcallQueue *queue;
   StgWord top,bottom, modMask;
 
-  queue = cap->upcalls;
+  queue = cap->upcall_queue;
 
   ASSERT_WSDEQUE_INVARIANTS(queue);
 
@@ -105,7 +114,7 @@ traverseUpcallQueue (evac_fn eval, void* user, Capability *cap)
     top++;
   }
 
-  debugTrace(DEBUG_upcalls,
+  debugTrace(DEBUG_gc,
              "traversed upcall queue, len=%ld; (hd=%ld; tl=%ld)",
              upcallQueueSize(queue), queue->bottom, queue->top);
 }
