@@ -97,13 +97,17 @@ createThread(Capability *cap, nat size)
     tso->what_next = ThreadRunGHC;
     tso->why_blocked  = NotBlocked;
     tso->block_info.closure = (StgClosure *)END_TSO_QUEUE;
-    tso->resume_thread = (StgClosure*)END_TSO_QUEUE;
+
+    tso->resume_thread  = (StgClosure*)END_TSO_QUEUE;
     tso->switch_to_next = (StgClosure*)END_TSO_QUEUE;
-    tso->scont_status = (StgTVar*)END_TSO_QUEUE;
+    tso->finalizer      = (StgClosure*)END_TSO_QUEUE;
+    tso->scont_status   = (StgTVar*)END_TSO_QUEUE;
+
     tso->blocked_exceptions = END_BLOCKED_EXCEPTIONS_QUEUE;
     tso->bq = (StgBlockingQueue *)END_TSO_QUEUE;
     tso->flags = 0;
     tso->dirty = 1;
+    tso->is_upcall_thread = rtsFalse;
     tso->_link = END_TSO_QUEUE;
 
     tso->saved_errno = 0;

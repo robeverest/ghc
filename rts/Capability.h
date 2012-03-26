@@ -196,6 +196,10 @@ regTableToCapability (StgRegTable *reg)
 //
 void initCapabilities (void);
 
+// Initialize upcall threads for the available capabilities
+
+void initUpcallThreads (void);
+
 // Add and initialise more Capabilities
 //
 Capability * moreCapabilities (nat from, nat to);

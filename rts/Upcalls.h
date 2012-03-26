@@ -70,7 +70,7 @@ INLINE_HEADER rtsBool pendingUpcalls (UpcallQueue* q)
 
 INLINE_HEADER rtsBool isUpcallThread (StgTSO* tso)
 {
-  return tso->scont_status == (StgTVar*)END_TSO_QUEUE;
+  return tso->is_upcall_thread;
 }
 
 #include "EndPrivate.h"

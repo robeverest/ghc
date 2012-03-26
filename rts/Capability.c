@@ -238,6 +238,7 @@ initCapability( Capability *cap, nat i )
   cap->suspended_ccalls  = NULL;
   cap->returning_tasks_hd = NULL;
   cap->returning_tasks_tl = NULL;
+  cap->racing_tso         = (StgTSO*)END_TSO_QUEUE;
   cap->inbox              = (Message*)END_TSO_QUEUE;
   cap->sparks             = allocSparkPool();
   cap->spark_stats.created    = 0;
@@ -270,7 +271,7 @@ initCapability( Capability *cap, nat i )
   cap->transaction_tokens = 0;
   cap->context_switch = 0;
   cap->pinned_object_block = NULL;
-  cap->upcall_thread = createThread (cap, RtsFlags.GcFlags.initialStkSize);
+  cap->upcall_thread = (StgTSO*)END_TSO_QUEUE;
   cap->upcall_queue = allocUpcallQueue();
 
 #ifdef PROFILING
@@ -368,6 +369,21 @@ moreCapabilities (nat from USED_IF_THREADS, nat to USED_IF_THREADS)
 #else
   return NULL;
 #endif
+}
+
+
+/* ----------------------------------------------------------------------------
+ * Initialize the upcall threads for each of the capability.
+ * ------------------------------------------------------------------------- */
+
+void initUpcallThreads (void) {
+  nat i;
+  Capability* cap;
+  for (i=0; i < n_capabilities; i++) {
+    cap = &capabilities[i];
+    cap->upcall_thread = createThread (cap, RtsFlags.GcFlags.initialStkSize);
+    cap->upcall_thread->is_upcall_thread = rtsTrue;
+  }
 }
 
 /* ----------------------------------------------------------------------------

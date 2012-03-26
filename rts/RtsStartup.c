@@ -19,6 +19,7 @@
 #include "RtsFlags.h"
 #include "RtsUtils.h"
 #include "Prelude.h"
+#include "Capability.h"
 #include "Schedule.h"   /* initScheduler */
 #include "Stats.h"      /* initStats */
 #include "STM.h"        /* initSTM */
@@ -252,6 +253,9 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
 #if defined(THREADED_RTS)
     ioManagerStart();
 #endif
+
+    //This has to come after initScheduler and initStorage.
+    initUpcallThreads();
 
     /* Record initialization times */
     stat_endInit();

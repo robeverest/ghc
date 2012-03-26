@@ -62,10 +62,8 @@ throwToSingleThreaded__ (Capability *cap, StgTSO *tso, StgClosure *exception,
                          rtsBool stop_at_atomically, StgUpdateFrame *stop_here)
 {
   // Thread already dead?
-  if (tso->what_next == ThreadComplete || tso->what_next == ThreadKilled) {
-    ASSERT (0 && "throwToSingleThreaded__: unexpected tso->what_next");
+  if (tso->what_next == ThreadComplete || tso->what_next == ThreadKilled)
     return (StgTSO*)END_TSO_QUEUE;
-  }
 
   // Remove it from any blocking queues
   removeFromQueues(cap,tso);

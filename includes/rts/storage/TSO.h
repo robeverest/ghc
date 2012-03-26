@@ -170,6 +170,11 @@ typedef struct StgTSO_ {
      */
     StgTVar* scont_status;
 
+    /*
+     * whether this TSO is a upcall_thread.
+     */
+    rtsBool is_upcall_thread;
+
 #ifdef TICKY_TICKY
     /* TICKY-specific stuff would go here. */
 #endif

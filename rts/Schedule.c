@@ -902,10 +902,14 @@ scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
   //Check whether this task has won the race against task performing a foreign
   //call. If so take it.
   StgTSO* racing_tso = END_TSO_QUEUE;
+  //Racy read
   if (cap->racing_tso != END_TSO_QUEUE) {
     ACQUIRE_LOCK (&cap->lock);
-    racing_tso = cap->racing_tso;
-    cap->racing_tso = END_TSO_QUEUE;
+    //Check again since the state might have changed.
+    if (cap->racing_tso != END_TSO_QUEUE) {
+      racing_tso = cap->racing_tso;
+      cap->racing_tso = END_TSO_QUEUE;
+    }
     RELEASE_LOCK (&cap->lock);
   }
   if (racing_tso != END_TSO_QUEUE) {
@@ -2113,6 +2117,13 @@ suspendThread (StgRegTable *reg, rtsBool interruptible)
 
   ACQUIRE_LOCK(&cap->lock);
 
+#if defined(THREADED_RTS)
+  ASSERT (cap->racing_tso == (StgTSO*)END_TSO_QUEUE);
+
+  //Only use racing_tso for SConts
+  if (tso->scont_status != (StgTVar*)END_TSO_QUEUE)
+    cap->racing_tso = tso;
+#endif
   suspendTask(cap,task);
   cap->in_haskell = rtsFalse;
   releaseCapability_(cap,rtsFalse);
@@ -2126,13 +2137,12 @@ suspendThread (StgRegTable *reg, rtsBool interruptible)
   return task;
 }
 
-  StgRegTable *
+StgRegTable *
 resumeThread (void *task_)
 {
   StgTSO *tso;
 #if defined(THREADED_RTS)
-  StgTSO *helperTSO;
-  rtsBool race_won;
+  rtsBool race_won = rtsTrue;
 #endif
   InCall *incall;
   Capability *cap;
@@ -2153,21 +2163,24 @@ resumeThread (void *task_)
   task->cap = cap;
 
 #if defined(THREADED_RTS)
-  //Check if we have won the race
-  ACQUIRE_LOCK (&cap->lock);
-  if (tso == cap->racing_tso) {
-    //We've won the race. Continue with the original computation.
-    cap->racing_tso = (StgTSO*)END_TSO_QUEUE;
-    race_won = rtsTrue;
-  }
-  else {
-    //We've lost the race.
-    race_won = rtsFalse;
-  }
-  RELEASE_LOCK (&cap->lock);
 
-  debugTrace (DEBUG_sched, "Safe-foreign call race: tso %p on task %d result %d",
-              tso, task->id, race_won);
+  if (tso->scont_status != (StgTVar*)END_TSO_QUEUE) {
+    //Check if we have won the race
+    ACQUIRE_LOCK (&cap->lock);
+    if (tso == cap->racing_tso) {
+      //We've won the race. Continue with the original computation.
+      cap->racing_tso = (StgTSO*)END_TSO_QUEUE;
+      race_won = rtsTrue;
+    }
+    else {
+      //We've lost the race.
+      race_won = rtsFalse;
+    }
+    RELEASE_LOCK (&cap->lock);
+
+    debugTrace (DEBUG_sched, "Safe-foreign call race: tso %d on task %p result %d",
+                tso->id, task->id, race_won);
+  }
 
 #endif
 
