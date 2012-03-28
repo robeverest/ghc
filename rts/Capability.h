@@ -114,25 +114,6 @@ struct Capability_ {
     Task *returning_tasks_hd; // Singly-linked, with head/tail
     Task *returning_tasks_tl;
 
-    //Before making a safe-foreign call a task stores the current thread in
-    //race_result, and passes the capability to another task.
-    //
-    //FAST PATH
-    //---------
-    //If the same task wins the race, race_result will be incall->suspended_tso.
-    //race_result is set to END_TSO_QUEUE before resuming. Otherwise, the task
-    //has lost the race, and the task will execute
-    //incall->suspended_tso->resume_thread to resume the TSO.
-    //
-    //SLOW PATH
-    //---------
-    //When a task is woken up on a capability, it first checks the race_result.
-    //If race_result is not END_TSO_QUEUE, then task which made the safe-foreign
-    //call has lost the race. The current task sets race_result to
-    //END_TSO_QUEUE, and executes incall->suspended_tso->switch_to_next, to
-    //resume the scheduler.
-    StgTSO* racing_tso;
-
     // Messages, or END_TSO_QUEUE.
     Message *inbox;
 

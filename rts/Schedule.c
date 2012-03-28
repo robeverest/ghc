@@ -350,13 +350,20 @@ schedule (Capability *initialCapability, Task *task)
     //
     t = popRunQueue(cap);
 
+more_upcalls:
+
     /* If there are pending upcalls, prepare switching to upcall thread. If no
      * pending upcalls, restore original thread if necessary.
      */
     if (pendingUpcalls (cap->upcall_queue))
       t = prepareUpcallThread (cap, t);
-    else
+    else {
       t = restoreCurrentThreadIfNecessary (cap, t);
+      //If we had switched to the upcall thread when we had no current thread,
+      //then we must loop back to the beginning of the Schedule loop.
+      if (t == (StgTSO*)END_TSO_QUEUE)
+        continue;
+    }
 
     // Sanity check the thread we're about to run.  This can be
     // expensive if there is lots of thread switching going on...
@@ -573,6 +580,7 @@ run_thread:
 
       case ThreadSwitch:
         scheduleHandleThreadSwitch (t);
+        goto more_upcalls;
         break;
 
       default:
@@ -898,7 +906,7 @@ scheduleCheckBlockedThreads(Capability *cap USED_IF_NOT_THREADS)
 static void
 scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
 {
-#if defined(THREADED_RTS)
+#if 0 && defined(THREADED_RTS)
   //Check whether this task has won the race against task performing a foreign
   //call. If so take it.
   StgTSO* racing_tso = END_TSO_QUEUE;
@@ -931,7 +939,7 @@ scheduleUpcallThreadIfNecessary (Capability *cap)
 {
   if (pendingUpcalls (cap->upcall_queue) &&
       emptyRunQueue (cap)) {
-    StgTSO* upcall_thread = prepareUpcallThread (cap, cap->upcall_thread);
+    StgTSO* upcall_thread = prepareUpcallThread (cap, (StgTSO*)END_TSO_QUEUE);
     pushOnRunQueue (cap, upcall_thread);
   }
 }
@@ -2117,13 +2125,6 @@ suspendThread (StgRegTable *reg, rtsBool interruptible)
 
   ACQUIRE_LOCK(&cap->lock);
 
-#if defined(THREADED_RTS)
-  ASSERT (cap->racing_tso == (StgTSO*)END_TSO_QUEUE);
-
-  //Only use racing_tso for SConts
-  if (tso->scont_status != (StgTVar*)END_TSO_QUEUE)
-    cap->racing_tso = tso;
-#endif
   suspendTask(cap,task);
   cap->in_haskell = rtsFalse;
   releaseCapability_(cap,rtsFalse);
@@ -2141,9 +2142,6 @@ StgRegTable *
 resumeThread (void *task_)
 {
   StgTSO *tso;
-#if defined(THREADED_RTS)
-  rtsBool race_won = rtsTrue;
-#endif
   InCall *incall;
   Capability *cap;
   Task *task = task_;
@@ -2159,30 +2157,7 @@ resumeThread (void *task_)
 
   incall = task->incall;
   cap = incall->suspended_cap;
-  tso = incall->suspended_tso;
   task->cap = cap;
-
-#if defined(THREADED_RTS)
-
-  if (tso->scont_status != (StgTVar*)END_TSO_QUEUE) {
-    //Check if we have won the race
-    ACQUIRE_LOCK (&cap->lock);
-    if (tso == cap->racing_tso) {
-      //We've won the race. Continue with the original computation.
-      cap->racing_tso = (StgTSO*)END_TSO_QUEUE;
-      race_won = rtsTrue;
-    }
-    else {
-      //We've lost the race.
-      race_won = rtsFalse;
-    }
-    RELEASE_LOCK (&cap->lock);
-
-    debugTrace (DEBUG_sched, "Safe-foreign call race: tso %d on task %p result %d",
-                tso->id, task->id, race_won);
-  }
-
-#endif
 
   // Wait for permission to re-enter the RTS with the result.
   waitForReturnCapability(&cap,task);
@@ -2193,15 +2168,7 @@ resumeThread (void *task_)
   // Remove the thread from the suspended list
   recoverSuspendedTask(cap,task);
 
-#if defined(THREADED_RTS)
-  if (!race_won) { //If the race was lost, execute the unblock action
-    tso->why_blocked = BlockedOnConcDS;
-    addNewUpcall (cap, tso->resume_thread);
-    tso = prepareUpcallThread (cap, tso);
-  }
-#endif
-
-
+  tso = incall->suspended_tso;
   incall->suspended_tso = NULL;
   incall->suspended_cap = NULL;
   tso->_link = END_TSO_QUEUE; // no write barrier reqd

@@ -770,6 +770,38 @@ stg_setSwitchToNextThreadzh
   jump %ENTRY_CODE(Sp(0));
 }
 
+
+stg_setFinalizzerzh
+{
+  /* args: R1 = SCont, R2 = finalizer */
+
+  MAYBE_GC (R1_PTR & R2_PTR, stg_setFinalizzerzh);
+
+  W_ threadid, finalizer;
+  threadid = R1;
+  finalizer = R2;
+
+  StgTSO_finalizer (threadid) = finalizer;
+  foreign "C" dirty_TSO (MyCapability () "ptr", threadid "ptr") [];
+  jump %ENTRY_CODE(Sp(0));
+}
+
+stg_setSContStatuszh
+{
+  /* args: R1 = scont status tvar */
+
+  MAYBE_GC(R1_PTR, stg_setSContStatuszh);
+
+  W_ scont_status;
+
+  scont_status = R1;
+  StgTSO_scont_status (CurrentTSO) = scont_status;
+  foreign "C" dirty_TSO (MyCapability () "ptr", CurrentTSO "ptr") [];
+  jump %ENTRY_CODE(Sp(0));
+}
+
+
+
 stg_newSContzh
 {
   /* args: R1 = closure to spark, R2 = scont status TVar */

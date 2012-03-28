@@ -238,7 +238,6 @@ initCapability( Capability *cap, nat i )
   cap->suspended_ccalls  = NULL;
   cap->returning_tasks_hd = NULL;
   cap->returning_tasks_tl = NULL;
-  cap->racing_tso         = (StgTSO*)END_TSO_QUEUE;
   cap->inbox              = (Message*)END_TSO_QUEUE;
   cap->sparks             = allocSparkPool();
   cap->spark_stats.created    = 0;
@@ -382,6 +381,8 @@ void initUpcallThreads (void) {
   for (i=0; i < n_capabilities; i++) {
     cap = &capabilities[i];
     cap->upcall_thread = createThread (cap, RtsFlags.GcFlags.initialStkSize);
+    debugTrace (DEBUG_sched, "allocated upcall thread (%d) for capability %d",
+                cap->upcall_thread->id, i);
     cap->upcall_thread->is_upcall_thread = rtsTrue;
   }
 }

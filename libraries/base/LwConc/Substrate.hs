@@ -38,6 +38,7 @@ module LwConc.Substrate
 , setThreadStatus         -- SCont -> ThreadStatus -> PTM ()
 , getThreadStatus         -- SCont -> PTM ThreadStatus
 
+, initSubstrate           -- IO ()
 , newSCont                -- IO () -> IO SCont
 , switch                  -- (SCont -> PTM SCont) -> IO ()
 , getSCont                -- PTM SCont
@@ -207,6 +208,14 @@ getThreadStatus (SCont _ ts) = readPVar ts
 {-# INLINE setThreadStatus #-}
 setThreadStatus :: SCont -> ThreadStatus -> PTM ()
 setThreadStatus (SCont _ ts) status = writePVar ts status
+
+{-# INLINE initSubstrate #-}
+initSubstrate :: IO ()
+initSubstrate = do
+  status <- newPVarIO Running
+  let PVar tvarStatus# = status
+  IO $ \s ->
+    case (setSContStatus# tvarStatus# s) of s -> (# s, () #)
 
 {-# INLINE newSCont #-}
 newSCont :: IO () -> IO SCont

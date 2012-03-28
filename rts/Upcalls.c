@@ -40,22 +40,31 @@ isSuspendedUpcall (StgClosure* p)
 }
 
 
+// current_thread can be END_TSO_QUEUE if there is no current thread.
+
 StgTSO*
 prepareUpcallThread (Capability* cap, StgTSO* current_thread)
 {
-  StgTSO *upcall_thread;
-
-  upcall_thread = cap->upcall_thread;
+  StgTSO *upcall_thread = current_thread;
 
   //If cap->upcall_thread is the upcall thread, then swap it with the current
   //thread.
-  if (isUpcallThread(upcall_thread)) {
-      cap->upcall_thread = current_thread;
+  if (current_thread == (StgTSO*)END_TSO_QUEUE ||
+      !isUpcallThread(current_thread)) {
+    ASSERT (isUpcallThread(cap->upcall_thread));
+    debugTrace (DEBUG_sched, "Switching to upcall_thread %d. Saving current "
+                "thread %p", cap->upcall_thread->id, current_thread);
+    upcall_thread = cap->upcall_thread;
+    cap->upcall_thread = current_thread;
   }
 
+  ASSERT (isUpcallThread (upcall_thread));
+
   StgClosure* upcall = popUpcallQueue (cap->upcall_queue);
-  if (isSuspendedUpcall (upcall))
+  if (isSuspendedUpcall (upcall)) {
+    barf ("prepareUpcallThread: impossible!");
     upcall_thread->stackobj = (StgStack*)upcall;
+  }
   else {
     StgStack* stack = upcall_thread->stackobj;
     stack->dirty = 1;
@@ -70,6 +79,10 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
 
   return upcall_thread;
 }
+
+// restoreCurrentThreadIfNecessary can return END_TSO_QUEUE if there was no
+// current thread when we first switched to the upcall_thread. Care must be
+// taken by the caller to handle the case when returned thread is END_TSO_QUEUE.
 
 StgTSO*
 restoreCurrentThreadIfNecessary (Capability* cap, StgTSO* current_thread) {
