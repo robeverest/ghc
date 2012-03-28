@@ -195,11 +195,12 @@ getStatusFromInt x | x == 0 = Running
                    | x == 3 = BlockedOnBlackHole
                    | x == 4 = Completed
 
-getIntFromStatus Running = 0#
-getIntFromStatus Yielded = 1#
-getIntFromStatus BlockedOnConcDS = 2#
-getIntFromStatus BlockedOnBlackHole = 3#
-getIntFromStatus Completed = 4#
+getIntFromStatus x = case x of
+                          Running -> 0#
+                          Yielded -> 1#
+                          BlockedOnConcDS -> 2#
+                          BlockedOnBlackHole -> 3#
+                          Completed -> 4#
 
 {-# INLINE getThreadStatus #-}
 getThreadStatus :: SCont -> PTM ThreadStatus

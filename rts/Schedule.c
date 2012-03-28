@@ -514,8 +514,8 @@ run_thread:
 
     //Handle upcall thread return
     if (isUpcallThread (t)) {
-      if (ret != ThreadFinished)
-        barf ("Schedule: Upcall thread blocking not implemented");
+      if (ret == ThreadKilled)
+        barf ("Schedule: Upcall thread returned in an unexpected fashion");
 
       //ret == ThreadFinished in the following.
       t->what_next = ThreadRunGHC;
@@ -904,7 +904,7 @@ scheduleCheckBlockedThreads(Capability *cap USED_IF_NOT_THREADS)
  * -------------------------------------------------------------------------- */
 
 static void
-scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
+scheduleResumeBlockedOnForeignCall(Capability *cap STG_UNUSED)
 {
 #if 0 && defined(THREADED_RTS)
   //Check whether this task has won the race against task performing a foreign
@@ -924,7 +924,7 @@ scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
     StgClosure* scheduler =
       rts_apply (cap, (StgClosure*)racing_tso->switch_to_next,
                  rts_mkInt (cap, 0));
-    addNewUpcall (cap, scheduler);
+    addUpcall (cap, scheduler);
   }
 #endif
 }
@@ -2731,12 +2731,14 @@ resurrectThreads (StgTSO *threads)
 
     switch (tso->why_blocked) {
       case BlockedOnSched:
-        debugTrace(DEBUG_sched, "\tblocked in user-land");
+        if (tso->finalizer != (StgClosure*)END_TSO_QUEUE)
+          addUpcall (cap, tso->finalizer);
         break;
       case BlockedOnConcDS:
         tso = throwToSingleThreaded (cap, tso,
                                      (StgClosure*)blockedIndefinitelyOnConcDS_closure);
-        addNewUpcall (cap, tso->resume_thread);
+        if (tso->what_next == ThreadRunGHC)
+          addUpcall (cap, tso->resume_thread);
         break;
       case BlockedOnMVar:
         barf ("resurrectThreads: BlockedOnMVar not implemented!");
@@ -2770,5 +2772,6 @@ resurrectThreads (StgTSO *threads)
         barf("resurrectThreads: thread blocked in a strange way: %d",
              tso->why_blocked);
     }
+
   }
 }

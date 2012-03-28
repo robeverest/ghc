@@ -601,16 +601,16 @@ stg_decodeDoublezu2Intzh
  * -------------------------------------------------------------------------- */
 
 STRING(stg_switch_msg,"Switching from thread %d to thread %d with status %s\n")
-STRING(stg_switch_reason_0, "ThreadComplete")
-STRING(stg_switch_reason_1, "BlockedOnConcDS")
-STRING(stg_switch_reason_2, "BlockedOnSched")
+STRING(stg_switch_reason_1, "BlockedOnSched")
+STRING(stg_switch_reason_2, "BlockedOnConcDS")
+STRING(stg_switch_reason_4, "ThreadComplete")
 
 stg_atomicSwitchzh
 {
   /* args: R1 = scont, R2 = switch_reason
-   * switch_reason: 0 - Completing current thread
-   *                1 - Blocking on a concurrent data structure
-   *                2 - yielding on the scheduler
+   * switch_reason: 1 - Blocking on a concurrent data structure
+   *                2 - Yielding on the scheduler
+   *                4 - Completing a thread
    */
   W_ tso, switch_reason;
   W_ frame_type, frame, trec, outer, valid, limit, q, next_invariant;
@@ -621,18 +621,23 @@ stg_atomicSwitchzh
   switch_reason = R2;
 
   #if defined(DEBUG) || defined (TRACING)
-  if (switch_reason == 0) {
+  if (switch_reason == 1) {
     foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
-                            StgTSO_id(tso), stg_switch_reason_0) [];
+                            StgTSO_id(tso), stg_switch_reason_1) [];
   }
   else {
-    if (switch_reason == 1) {
+    if (switch_reason == 2) {
       foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
-                            StgTSO_id(tso), stg_switch_reason_1) [];
+                            StgTSO_id(tso), stg_switch_reason_2) [];
     }
     else {
-      foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
-                              StgTSO_id(tso), stg_switch_reason_2) [];
+      if (switch_reason == 4) {
+        foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
+                                StgTSO_id(tso), stg_switch_reason_4) [];
+      }
+      else {
+        foreign "C" barf ("Unknown switch reason %d", switch_reason) [];
+      }
     }
   }
   #endif

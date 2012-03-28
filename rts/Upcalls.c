@@ -25,10 +25,10 @@ allocUpcallQueue (void)
 
 // Add a new upcall
 void
-addNewUpcall (Capability* cap, StgClosure* p)
+addUpcall (Capability* cap, StgClosure* p)
 {
   if (!pushWSDeque (cap->upcall_queue, p))
-    barf ("addNewUpcall overflow!!");
+    barf ("addUpcall overflow!!");
 }
 
 // returns true if the given upcall is a suspended upcall, i.e) it is a

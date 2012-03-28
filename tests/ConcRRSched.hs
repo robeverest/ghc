@@ -29,7 +29,7 @@ module ConcRRSched
 import LwConc.Substrate
 import qualified System.Exit as E
 import qualified Data.Sequence as Seq
-import qualified Control.OldException as Exn
+-- import qualified Control.OldException as Exn
 
 newtype ConcRRSched = ConcRRSched (PVar (Seq.Seq SCont))
 
@@ -51,7 +51,8 @@ switchToNextAndFinish (ConcRRSched ref) = atomically $ do
        (Seq.viewl -> Seq.EmptyL) -> undefined
        (Seq.viewl -> x Seq.:< tail) -> do {
           writePVar ref $ tail;
-          setThreadStatus x Completed;
+          currentSCont <- getSCont;
+          setThreadStatus currentSCont Completed;
           switchTo x
        }
 
@@ -59,6 +60,7 @@ createThread :: ConcRRSched -> IO () -> IO SCont
 createThread (ConcRRSched ref) task =
   let yieldingTask = do {
     {-Exn.try-} task;
+    print "Finishing";
     switchToNextAndFinish (ConcRRSched ref);
     print "ConcRRSched.forkIO: Should not see this!"
   }
