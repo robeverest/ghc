@@ -554,7 +554,7 @@ updateThreadsPanel( void )
 	    case BlockedOnException:  b_throwto++; break;
 	    case BlockedOnBlackHole:  b_bh++;      break;
 	    case NotBlocked:          running++;   break;
-      case BlockedOnSched:
+      case Yielded:
       case BlockedOnConcDS:     break;
 	    }
 	}

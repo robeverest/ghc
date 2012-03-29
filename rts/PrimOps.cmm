@@ -601,7 +601,7 @@ stg_decodeDoublezu2Intzh
  * -------------------------------------------------------------------------- */
 
 STRING(stg_switch_msg,"Switching from thread %d to thread %d with status %s\n")
-STRING(stg_switch_reason_1, "BlockedOnSched")
+STRING(stg_switch_reason_1, "Yielded")
 STRING(stg_switch_reason_2, "BlockedOnConcDS")
 STRING(stg_switch_reason_4, "ThreadComplete")
 
@@ -689,7 +689,7 @@ stg_atomicSwitchzh
 
         //Set the current thread status
         if (switch_reason == 1) {
-          StgTSO_why_blocked(CurrentTSO) = BlockedOnSched::I16;
+          StgTSO_why_blocked(CurrentTSO) = Yielded::I16;
         }
         else {
           if (switch_reason == 2) {
@@ -791,37 +791,19 @@ stg_setFinalizzerzh
   jump %ENTRY_CODE(Sp(0));
 }
 
-stg_setSContStatuszh
-{
-  /* args: R1 = scont status tvar */
-
-  MAYBE_GC(R1_PTR, stg_setSContStatuszh);
-
-  W_ scont_status;
-
-  scont_status = R1;
-  StgTSO_scont_status (CurrentTSO) = scont_status;
-  foreign "C" dirty_TSO (MyCapability () "ptr", CurrentTSO "ptr") [];
-  jump %ENTRY_CODE(Sp(0));
-}
-
-
-
 stg_newSContzh
 {
-  /* args: R1 = closure to spark, R2 = scont status TVar */
+  /* args: R1 = closure to spark */
 
-  MAYBE_GC(R1_PTR & R2_PTR, stg_newSContzh);
+  MAYBE_GC(R1_PTR, stg_newSContzh);
 
-  W_ closure, scont_status, threadid;
+  W_ closure, threadid;
   closure = R1;
-  scont_status = R2;
 
   ("ptr" threadid) = foreign "C" createIOThread( MyCapability() "ptr",
 				RtsFlags_GcFlags_initialStkSize(RtsFlags),
 				closure "ptr") [];
-  StgTSO_why_blocked (threadid) = BlockedOnSched::I16;
-  StgTSO_scont_status (threadid) = scont_status;
+  StgTSO_why_blocked (threadid) = Yielded::I16;
 
   RET_P(threadid);
 }
@@ -829,7 +811,7 @@ stg_newSContzh
 stg_getSContzh
 {
   /* no args */
-  RET_PP(CurrentTSO,StgTSO_scont_status(CurrentTSO));
+  RET_P(CurrentTSO);
 }
 
 stg_isThreadBoundzh
@@ -842,6 +824,18 @@ stg_isThreadBoundzh
   scont = R1;
   (r) = foreign "C" isThreadBound(scont) [];
   RET_N(r);
+}
+
+stg_getStatusTVarzh
+{
+  /* args: R1 = SCont */
+
+  MAYBE_GC (R1_PTR, stg_getStatusTVarzh);
+
+  W_ scont, tvar;
+  scont = R1;
+  tvar = StgTSO_scont_status(scont);
+  RET_P(tvar);
 }
 
 

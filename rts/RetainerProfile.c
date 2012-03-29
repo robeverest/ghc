@@ -1695,7 +1695,7 @@ inner_loop:
         if (  tso->why_blocked == BlockedOnMVar
               || tso->why_blocked == BlockedOnBlackHole
               || tso->why_blocked == BlockedOnMsgThrowTo
-              || tso->why_blocked == BlockedOnSched
+              || tso->why_blocked == Yielded
               || tso->why_blocked == BlockedOnConcDS
             ) {
             retainClosure(tso->block_info.closure, c, c_child_r);

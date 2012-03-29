@@ -38,7 +38,6 @@ module LwConc.Substrate
 , setThreadStatus         -- SCont -> ThreadStatus -> PTM ()
 , getThreadStatus         -- SCont -> PTM ThreadStatus
 
-, initSubstrate           -- IO ()
 , newSCont                -- IO () -> IO SCont
 , switch                  -- (SCont -> PTM SCont) -> IO ()
 , getSCont                -- PTM SCont
@@ -187,7 +186,9 @@ data ThreadStatus = Running |
                     BlockedOnBlackHole |
                     Completed
 
-data SCont = SCont SCont# (PVar ThreadStatus)
+data SCont = SCont SCont#
+
+---------------------------------------------------------------------------------
 
 getStatusFromInt x | x == 0 = Running
                    | x == 1 = Yielded
@@ -204,83 +205,80 @@ getIntFromStatus x = case x of
 
 {-# INLINE getThreadStatus #-}
 getThreadStatus :: SCont -> PTM ThreadStatus
-getThreadStatus (SCont _ ts) = readPVar ts
+getThreadStatus (SCont sc) = do
+  st <- PTM $ \s -> case getStatusTVar# sc s of (# s, st #) -> (# s, PVar st #)
+  readPVar st
 
 {-# INLINE setThreadStatus #-}
 setThreadStatus :: SCont -> ThreadStatus -> PTM ()
-setThreadStatus (SCont _ ts) status = writePVar ts status
+setThreadStatus (SCont sc) status = do
+  st <- PTM $ \s -> case getStatusTVar# sc s of (# s, st #) -> (# s, PVar st #)
+  writePVar st status
 
-{-# INLINE initSubstrate #-}
-initSubstrate :: IO ()
-initSubstrate = do
-  status <- newPVarIO Running
-  let PVar tvarStatus# = status
-  IO $ \s ->
-    case (setSContStatus# tvarStatus# s) of s -> (# s, () #)
+-----------------------------------------------------------------------------------
 
 {-# INLINE newSCont #-}
 newSCont :: IO () -> IO SCont
 newSCont x = do
-  status <- newPVarIO Yielded
-  let PVar tvarStatus# = status
   IO $ \s ->
-   case (newSCont# x tvarStatus# s) of (# s1, scont #) -> (# s1, SCont scont status #)
-
-{-# INLINE switchToWithStatus #-}
-switchToWithStatus :: SCont -> Int# -> PTM ()
-switchToWithStatus (SCont targetSContPrim targetStatusPVar) intStatus = do
-  writePVar targetStatusPVar Running
-  PTM $ \s ->
-    case (atomicSwitch# targetSContPrim intStatus s) of s1 -> (# s1, () #)
+   case (newSCont# x s) of (# s1, scont #) -> (# s1, SCont scont #)
 
 {-# INLINE switchTo #-}
 switchTo :: SCont -> PTM ()
 switchTo targetSCont = do
-  SCont _ currentStatusPVar <- getSCont
-  currentStatus <- readPVar currentStatusPVar
-  let intStatus = getIntFromStatus currentStatus
-  switchToWithStatus targetSCont intStatus
+  -- Set target to Running
+  setThreadStatus targetSCont Running
+  -- Get Int# version of current thread's status to pass to atomicSwitch#
+  currentSCont <- getSCont
+  status <- getThreadStatus currentSCont
+  let intStatus = getIntFromStatus status
+  let SCont targetSCont# = targetSCont
+  PTM $ \s ->
+    case (atomicSwitch# targetSCont# intStatus s) of s1 -> (# s1, () #)
 
 {-# INLINE getSCont #-}
 getSCont :: PTM SCont
 getSCont = PTM $ \s10 ->
   case getSCont# s10 of
-   (# s20, scont, status #) -> (# s20, SCont scont (PVar status) #)
+   (# s20, scont #) -> (# s20, SCont scont #)
 
 {-# INLINE getSContIO #-}
 getSContIO :: IO SCont
 getSContIO = IO $ \s10 ->
   case getSCont# s10 of
-   (# s20, scont, status #) -> (# s20, SCont scont (PVar status) #)
+   (# s20, scont #) -> (# s20, SCont scont #)
 
 {-# INLINE switch  #-}
 switch :: (SCont -> PTM SCont) -> IO ()
 switch arg = atomically $ do
   currentSCont <- getSCont
+  -- At this point we expect currentSCont status to be Running
   targetSCont <- arg currentSCont
-  -- Get int# of current thread's status
-  let SCont _ currentStatusPVar = currentSCont
-  currentStatus <- readPVar currentStatusPVar
-  let intStatus = getIntFromStatus currentStatus
-  switchToWithStatus targetSCont intStatus
+  -- At this point we expect currentSCont status to not be Running
+  switchTo targetSCont
+
+-----------------------------------------------------------------------------------
 
 {-# INLINE setResumeThread #-}
 setResumeThread :: SCont -> PTM () -> IO ()
-setResumeThread (SCont sc _) r = IO $ \s ->
+setResumeThread (SCont sc) r = IO $ \s ->
   case (setResumeThread# sc rp s) of s -> (# s, () #)
        where rp = atomically $ r
 
 {-# INLINE setSwitchToNextThread #-}
 setSwitchToNextThread :: SCont -> PTM () -> IO ()
-setSwitchToNextThread (SCont sc ts) b = IO $ \s ->
+setSwitchToNextThread (SCont sc) b = IO $ \s ->
   case (setSwitchToNextThread# sc bp s) of s -> (# s, () #)
        where bp = \intStatus -> atomically $ do {
-               writePVar ts $ getStatusFromInt intStatus; b }
+               currentSCont <- getSCont;
+               setThreadStatus currentSCont $ getStatusFromInt $ I# intStatus;
+               b
+             }
 
 
 {-# INLINE setFinalizer #-}
 setFinalizer :: SCont -> IO () -> IO ()
-setFinalizer (SCont sc _) b = IO $ \s ->
+setFinalizer (SCont sc) b = IO $ \s ->
   case (setFinalizer# sc b s) of s -> (# s, () #)
 
 ----------------------------------------------------------------------------
@@ -302,7 +300,7 @@ isCurrentThreadBound = IO $ \ s# ->
         (# s2#, flg #) -> (# s2#, not (flg ==# 0#) #)
 
 isThreadBound :: SCont -> IO Bool
-isThreadBound (SCont sc ts) = IO $ \ s# ->
+isThreadBound (SCont sc) = IO $ \ s# ->
     case isThreadBound# sc s# of
         (# s2#, flg #) -> (# s2#, not (flg ==# 0#) #)
 

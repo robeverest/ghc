@@ -101,7 +101,7 @@ createThread(Capability *cap, nat size)
     tso->resume_thread  = (StgClosure*)END_TSO_QUEUE;
     tso->switch_to_next = (StgClosure*)END_TSO_QUEUE;
     tso->finalizer      = (StgClosure*)END_TSO_QUEUE;
-    tso->scont_status   = (StgTVar*)END_TSO_QUEUE;
+    tso->scont_status   = stmNewTVar (cap, (StgClosure*)Yielded_closure);
 
     tso->blocked_exceptions = END_BLOCKED_EXCEPTIONS_QUEUE;
     tso->bq = (StgBlockingQueue *)END_TSO_QUEUE;
@@ -295,7 +295,7 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
         goto unblock;
 
     case BlockedOnConcDS:
-    case BlockedOnSched:
+    case Yielded:
     default:
         // otherwise, do nothing
         return;
@@ -794,7 +794,7 @@ printThreadBlockage(StgTSO *tso)
   case BlockedOnConcDS:
     debugBelch("is blocked on a user-level concurrent data structure");
     break;
-  case BlockedOnSched:
+  case Yielded:
     debugBelch("is blocked on a user-level scheduler");
     break;
   default:

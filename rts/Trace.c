@@ -186,7 +186,7 @@ static char *thread_stop_reasons[] = {
     [6 + BlockedOnMsgThrowTo]   = "blocked on throwTo",
     [6 + ThreadMigrating]       = "migrating",
     [6 + BlockedOnConcDS]       = "blocked on a user-level concurrent data structure",
-    [6 + BlockedOnSched]        = "blocked on a user-level scheduler"
+    [6 + Yielded]        = "blocked on a user-level scheduler"
 };
 #endif
 

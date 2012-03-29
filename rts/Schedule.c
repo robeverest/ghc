@@ -1018,7 +1018,7 @@ scheduleDetectDeadlock (Capability *cap, Task *task)
           throwToSingleThreaded(cap, task->incall->tso,
                                 (StgClosure *)nonTermination_closure);
           return;
-        case BlockedOnSched:
+        case Yielded:
         case BlockedOnConcDS:
         default:
           barf("deadlock: main thread blocked in a strange way");
@@ -2730,7 +2730,7 @@ resurrectThreads (StgTSO *threads)
     cap = tso->cap;
 
     switch (tso->why_blocked) {
-      case BlockedOnSched:
+      case Yielded:
         if (tso->finalizer != (StgClosure*)END_TSO_QUEUE)
           addUpcall (cap, tso->finalizer);
         break;

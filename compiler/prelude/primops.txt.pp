@@ -1786,28 +1786,27 @@ section "Lightweight concurrency primitives"
 
 primtype SCont#
 
-primop SetSContStatusOp "setSContStatus#" GenPrimOp
-  TVar# s a -> State# RealWorld -> State# RealWorld
+primop NewSContOp "newSCont#" GenPrimOp
+  a -> State# RealWorld -> (# State# RealWorld, SCont# #)
   with
   has_side_effects = True
+  out_of_line      = True
+
+primop AtomicSwitchOp "atomicSwitch#" GenPrimOp
+  SCont# -> Int# -> State# RealWorld -> State# RealWorld
+  with
+  out_of_line = True
+  has_side_effects = True
+
+primop GetSContOp "getSCont#" GenPrimOp
+  State# RealWorld -> (# State# RealWorld, SCont# #)
+  with
   out_of_line = True
 
-primop  NewSContOp "newSCont#" GenPrimOp
-   a -> TVar# s b -> State# RealWorld -> (# State# RealWorld, SCont# #)
-   with
-   has_side_effects = True
-   out_of_line      = True
-
-primop	AtomicSwitchOp "atomicSwitch#" GenPrimOp
-   SCont# -> Int# -> State# RealWorld -> State# RealWorld
-   with
-   out_of_line = True
-   has_side_effects = True
-
-primop  GetSContOp "getSCont#" GenPrimOp
-   State# RealWorld -> (# State# RealWorld, SCont#, TVar# s a #)
-   with
-   out_of_line = True
+primop GetStatusTVarOp "getStatusTVar#" GenPrimOp
+  SCont# -> State# RealWorld -> (# State# RealWorld, TVar# s a #)
+  with
+  out_of_line = True
 
 primop SetResumeThreadOp "setResumeThread#" GenPrimOp
   SCont# -> a -> State# RealWorld -> State# RealWorld
@@ -1828,10 +1827,9 @@ primop SetFinalizerOp "setFinalizer#" GenPrimOp
   has_side_effects = True
 
 primop  IsThreadBoundOp "isThreadBound#" GenPrimOp
-   SCont# -> State# RealWorld -> (# State# RealWorld, Int# #)
-   with
-   out_of_line = True
-   has_side_effects = True
+  SCont# -> State# RealWorld -> (# State# RealWorld, Int# #)
+  with
+  out_of_line = True
 
 
 ------------------------------------------------------------------------

@@ -8,5 +8,5 @@ main = do
   }
   s <- newBoundSCont task
   putStrLn "Main: switching to task"
-  switch (\_ -> return (s, BlockedOnSched))
+  switch (\_ -> return (s, Yielded))
   putStrLn "Main: done"

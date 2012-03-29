@@ -366,6 +366,7 @@ ld-options:
          , "-u", "base_GHCziStable_StablePtr_con_info"
          , "-u", "ghczmprim_GHCziTypes_False_closure"
          , "-u", "ghczmprim_GHCziTypes_True_closure"
+         , "-u", "base_LwConcziSubstrate_Yielded_closure"
          , "-u", "base_GHCziPack_unpackCString_closure"
          , "-u", "base_GHCziIOziException_stackOverflow_closure"
          , "-u", "base_GHCziIOziException_heapOverflow_closure"

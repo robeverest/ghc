@@ -165,8 +165,8 @@ typedef struct StgTSO_ {
     StgClosure* finalizer;
 
     /*
-     * A reference to SCont status maintained in Haskell. This is required to
-     * implement the LwConc.getSCont primitive.
+     * A reference to SCont status maintained in Haskell. This is
+     * necessary to change state of the thread transactionally.
      */
     StgTVar* scont_status;
 

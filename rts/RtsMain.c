@@ -41,33 +41,33 @@ static RtsConfig rtsconfig;
 static void real_main(void) GNUC3_ATTRIBUTE(__noreturn__);
 static void real_main(void)
 {
-    int exit_status;
-    SchedulerStatus status;
+  int exit_status;
+  SchedulerStatus status;
 
-    hs_init_ghc(&progargc, &progargv, rtsconfig);
+  hs_init_ghc(&progargc, &progargv, rtsconfig);
 
-    /* kick off the computation by creating the main thread with a pointer
-       to mainIO_closure representing the computation of the overall program;
-       then enter the scheduler with this thread and off we go;
-      
-       the same for GranSim (we have only one instance of this code)
+  /* kick off the computation by creating the main thread with a pointer
+     to mainIO_closure representing the computation of the overall program;
+     then enter the scheduler with this thread and off we go;
 
-       in a parallel setup, where we have many instances of this code
-       running on different PEs, we should do this only for the main PE
-       (IAmMainThread is set in startupHaskell) 
-    */
+     the same for GranSim (we have only one instance of this code)
 
-    /* ToDo: want to start with a larger stack size */
-    { 
-	Capability *cap = rts_lock();
-        rts_evalLazyIO(&cap,progmain_closure, NULL);
-	status = rts_getSchedStatus(cap);
-	taskTimeStamp(myTask());
-	rts_unlock(cap);
-    }
+     in a parallel setup, where we have many instances of this code
+     running on different PEs, we should do this only for the main PE
+     (IAmMainThread is set in startupHaskell)
+   */
 
-    /* check the status of the entire Haskell computation */
-    switch (status) {
+  /* ToDo: want to start with a larger stack size */
+  {
+    Capability *cap = rts_lock();
+    rts_evalLazyIO(&cap,progmain_closure, NULL);
+    status = rts_getSchedStatus(cap);
+    taskTimeStamp(myTask());
+    rts_unlock(cap);
+  }
+
+  /* check the status of the entire Haskell computation */
+  switch (status) {
     case Killed:
       errorBelch("main thread exited (uncaught exception)");
       exit_status = EXIT_KILLED;
@@ -84,8 +84,8 @@ static void real_main(void)
       break;
     default:
       barf("main thread completed with invalid status");
-    }
-    shutdownHaskellAndExit(exit_status);
+  }
+  shutdownHaskellAndExit(exit_status);
 }
 
 /* The rts entry point from a compiled program using a Haskell main
@@ -102,19 +102,19 @@ int hs_main (int argc, char *argv[],     // program args
              StgClosure *main_closure,   // closure for Main.main
              RtsConfig rts_config)    // RTS configuration
 {
-    /* We do this dance with argc and argv as otherwise the SEH exception
-       stuff (the BEGIN/END CATCH below) on Windows gets confused */
-    progargc = argc;
-    progargv = argv;
-    progmain_closure = main_closure;
-    rtsconfig = rts_config;
+  /* We do this dance with argc and argv as otherwise the SEH exception
+     stuff (the BEGIN/END CATCH below) on Windows gets confused */
+  progargc = argc;
+  progargv = argv;
+  progmain_closure = main_closure;
+  rtsconfig = rts_config;
 
 #if defined(mingw32_HOST_OS)
-    BEGIN_CATCH
+  BEGIN_CATCH
 #endif
     real_main();
 #if defined(mingw32_HOST_OS)
-    END_CATCH
+  END_CATCH
 #endif
 }
 # endif /* BATCH_MODE */

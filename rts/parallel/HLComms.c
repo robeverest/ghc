@@ -1524,7 +1524,7 @@ blockThread(StgTSO *tso)
       break;
 
     case BlockedOnConcDS:
-    case BlockedOnSched:
+    case Yielded:
       IF_PAR_DEBUG(verbose,
                    belch("##++ blockedThread: TSO %d blocked in user-land",
                          tso->id));

@@ -59,7 +59,7 @@ interruptible(StgTSO *t)
       return 1;
       // NB. Threaded blocked on foreign calls (BlockedOnCCall) are
       // *not* interruptible.  We can't send these threads an exception.
-    case BlockedOnSched:
+    case Yielded:
     case BlockedOnConcDS:
     default:
       return 0;

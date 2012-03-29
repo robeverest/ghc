@@ -541,7 +541,7 @@ checkTSO(StgTSO *tso)
       	|| tso->why_blocked == BlockedOnBlackHole
       	|| tso->why_blocked == BlockedOnMsgThrowTo
         || tso->why_blocked == NotBlocked
-        || tso->why_blocked == BlockedOnSched
+        || tso->why_blocked == Yielded
         || tso->why_blocked == BlockedOnConcDS
 	) {
         ASSERT(LOOKS_LIKE_CLOSURE_PTR(tso->block_info.closure));

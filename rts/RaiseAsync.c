@@ -438,7 +438,7 @@ check_target:
       goto retry;
 
     case BlockedOnConcDS:
-    case BlockedOnSched:
+    case Yielded:
     default:
       barf("throwTo: unrecognised why_blocked (%d)", target->why_blocked);
   }
@@ -640,7 +640,7 @@ removeFromQueues(Capability *cap, StgTSO *tso)
       goto done;
 
     case BlockedOnConcDS:
-    case BlockedOnSched:
+    case Yielded:
       return;
 
     case BlockedOnMsgThrowTo:

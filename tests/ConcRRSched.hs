@@ -37,7 +37,6 @@ newConcRRSched :: IO (ConcRRSched)
 newConcRRSched = do
   ref <- newPVarIO Seq.empty
   s <- getSContIO
-  initSubstrate
   (b,u) <- getSchedActionPairPrim (ConcRRSched ref)
   setResumeThread s $ u s
   setSwitchToNextThread s b
