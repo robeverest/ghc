@@ -2033,21 +2033,37 @@ deleteAllThreads ( Capability *cap )
    -------------------------------------------------------------------------- */
 
 STATIC_INLINE void
-suspendTask (Capability *cap, Task *task)
+suspendTask (Capability *cap, Task *task, rtsBool append_to_head)
 {
   InCall *incall;
 
   incall = task->incall;
   ASSERT(incall->next == NULL && incall->prev == NULL);
-  incall->next = cap->suspended_ccalls_hd;
-  incall->prev = NULL;
-  if (cap->suspended_ccalls_hd) {
-    cap->suspended_ccalls_hd->prev = incall;
+  if (append_to_head) {
+    //If appending at the head of the list, make sure that the scheduler can be
+    //resumed.
+    ASSERT (incall->uls_stat == UserLevelSchedulerBlocked);
+    incall->next = cap->suspended_ccalls_hd;
+    incall->prev = NULL;
+    if (cap->suspended_ccalls_hd) {
+      cap->suspended_ccalls_hd->prev = incall;
+    }
+    cap->suspended_ccalls_hd = incall;
+    if (!cap->suspended_ccalls_tl) {
+      cap->suspended_ccalls_tl = incall;
+    }
   }
-  cap->suspended_ccalls_hd = incall;
-  if (!cap->suspended_ccalls_tl) {
+  else {
+    incall->prev = cap->suspended_ccalls_tl;
+    incall->next = NULL;
+    if (cap->suspended_ccalls_tl) {
+      cap->suspended_ccalls_tl->next = incall;
+    }
     cap->suspended_ccalls_tl = incall;
-  }
+    if (!cap->suspended_ccalls_hd) {
+      cap->suspended_ccalls_hd = incall;
+    }
+ }
 }
 
 STATIC_INLINE void
@@ -2073,22 +2089,11 @@ recoverSuspendedTask (Capability *cap, Task *task)
 
 STATIC_INLINE void
 relegateTask (Capability *cap, Task* task) {
-  InCall* incall;
-
   ASSERT (task == cap->suspended_ccalls_hd);
   //Remove the task from the suspended_ccalls list
   recoverSuspendedTask (cap, task);
   //Add to the back of the list
-  incall = task->incall;
-  incall->prev = cap->suspended_ccalls_tl;
-  incall->next = NULL;
-  if (cap->suspended_ccalls_tl) {
-    cap->suspended_ccalls_tl->next = incall;
-  }
-  cap->suspended_ccalls_tl = incall;
-  if (!cap->suspended_ccalls_hd) {
-    cap->suspended_ccalls_hd = incall;
-  }
+  suspendTask (cap, task, rtsFalse);
 }
 
 /* ---------------------------------------------------------------------------
@@ -2120,6 +2125,7 @@ suspendThread (StgRegTable *reg, rtsBool interruptible)
 #if mingw32_HOST_OS
   StgWord32 saved_winerror;
 #endif
+  rtsBool append_to_head = rtsTrue;
 
   saved_errno = errno;
 #if mingw32_HOST_OS
@@ -2150,9 +2156,18 @@ suspendThread (StgRegTable *reg, rtsBool interruptible)
   task->incall->suspended_tso = tso;
   task->incall->suspended_cap = cap;
 
+  if (hasHaskellScheduler || isUpcallThread (tso)) {
+    task->incall->uls_stat = NoUserLevelScheduler;
+    append_to_head = rtsFalse;
+  }
+  else
+    task->incall->uls_stat = UserLevelSchedulerBlocked;
+
   ACQUIRE_LOCK(&cap->lock);
 
-  suspendTask(cap,task);
+  //If scheduler is suspended, append to the head of the list so that a worker
+  //may resume the scheduler.
+  suspendTask (cap, task, append_to_head);
   cap->in_haskell = rtsFalse;
   releaseCapability_(cap,rtsFalse);
 
@@ -2200,8 +2215,6 @@ resumeThread (void *task_)
   incall->suspended_cap = NULL;
   tso->_link = END_TSO_QUEUE; // no write barrier reqd
 
-  traceEventRunThread(cap, tso);
-
   /* Reset blocking status */
   tso->why_blocked  = NotBlocked;
 
@@ -2211,6 +2224,15 @@ resumeThread (void *task_)
       maybePerformBlockedException(cap,tso);
     }
   }
+
+  //Check whether a worker has resumed our scheduler
+  if (incall->uls_stat == UserLevelSchedulerRunning) {
+    //Evaluate the unblock action on the upcall thread
+    addUpcall (cap, tso->resume_thread);
+    tso = prepareUpcallThread (cap, (StgTSO*)END_TSO_QUEUE);
+  }
+
+  traceEventRunThread(cap, tso);
 
   cap->r.rCurrentTSO = tso;
   cap->in_haskell = rtsTrue;

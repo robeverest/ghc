@@ -53,6 +53,7 @@ module LwConc.Substrate
 , setResumeThread         -- SCont -> PTM () -> IO ()
 , setSwitchToNextThread   -- SCont -> PTM () -> IO ()
 , setFinalizer            -- SCont -> IO () -> IO ()
+, defaultUpcall           -- IO ()
 ) where
 
 
@@ -275,11 +276,13 @@ setSwitchToNextThread (SCont sc) b = IO $ \s ->
                b
              }
 
-
 {-# INLINE setFinalizer #-}
 setFinalizer :: SCont -> IO () -> IO ()
 setFinalizer (SCont sc) b = IO $ \s ->
   case (setFinalizer# sc b s) of s -> (# s, () #)
+
+defaultUpcall :: IO ()
+defaultUpcall = IO $ \s-> (# defaultUpcallError# s, () #)
 
 ----------------------------------------------------------------------------
 -- Bound threads

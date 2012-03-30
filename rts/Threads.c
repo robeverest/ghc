@@ -98,9 +98,9 @@ createThread(Capability *cap, nat size)
     tso->why_blocked  = NotBlocked;
     tso->block_info.closure = (StgClosure *)END_TSO_QUEUE;
 
-    tso->resume_thread  = (StgClosure*)END_TSO_QUEUE;
-    tso->switch_to_next = (StgClosure*)END_TSO_QUEUE;
-    tso->finalizer      = (StgClosure*)END_TSO_QUEUE;
+    tso->resume_thread  = (StgClosure*)defaultUpcall_closure;
+    tso->switch_to_next = (StgClosure*)defaultUpcall_closure;
+    tso->finalizer      = (StgClosure*)defaultUpcall_closure;
     tso->scont_status   = stmNewTVar (cap, (StgClosure*)Yielded_closure);
 
     tso->blocked_exceptions = END_BLOCKED_EXCEPTIONS_QUEUE;
@@ -523,6 +523,15 @@ isThreadBound(StgTSO* tso USED_IF_THREADS)
   return (tso->bound != NULL);
 #endif
   return rtsFalse;
+}
+
+/* ---------------------------------------------------------------------------
+ * check whether the given thread is attached to a user-level scheduler
+ * ------------------------------------------------------------------------- */
+
+rtsBool
+hasHaskellScheduler (StgTSO* tso) {
+  return (tso->switch_to_next != (StgClosure*)defaultUpcall_closure);
 }
 
 /* -----------------------------------------------------------------------------

@@ -605,6 +605,12 @@ STRING(stg_switch_reason_1, "Yielded")
 STRING(stg_switch_reason_2, "BlockedOnConcDS")
 STRING(stg_switch_reason_4, "ThreadComplete")
 
+stg_defaultUpcallErrorzh
+{
+  /* args: no args */
+  foreign "C" barf ("defaultUpcall triggered\n");
+}
+
 stg_atomicSwitchzh
 {
   /* args: R1 = scont, R2 = switch_reason

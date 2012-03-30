@@ -42,5 +42,5 @@ EXPORTS
 	base_ControlziExceptionziBase_nonTermination_closure
 	base_ControlziExceptionziBase_nestedAtomically_closure
 
-  base_LwConcziSubstrate_PVar_con_info
   base_LwConcziSubstrate_Yielded_closure
+  base_LwConcziSubstrate_defaultUpcall_closure
