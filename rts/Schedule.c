@@ -1845,7 +1845,8 @@ forkProcess(HsStablePtr *entry
 
       // Any suspended C-calling Tasks are no more, their OS threads
       // don't exist now:
-      cap->suspended_ccalls = NULL;
+      cap->suspended_ccalls_hd = NULL;
+      cap->suspended_ccalls_tl = NULL;
 
 #if defined(THREADED_RTS)
       // Wipe our spare workers list, they no longer exist.  New
@@ -2031,22 +2032,25 @@ deleteAllThreads ( Capability *cap )
    Locks required: sched_mutex
    -------------------------------------------------------------------------- */
 
-  STATIC_INLINE void
+STATIC_INLINE void
 suspendTask (Capability *cap, Task *task)
 {
   InCall *incall;
 
   incall = task->incall;
   ASSERT(incall->next == NULL && incall->prev == NULL);
-  incall->next = cap->suspended_ccalls;
+  incall->next = cap->suspended_ccalls_hd;
   incall->prev = NULL;
-  if (cap->suspended_ccalls) {
-    cap->suspended_ccalls->prev = incall;
+  if (cap->suspended_ccalls_hd) {
+    cap->suspended_ccalls_hd->prev = incall;
   }
-  cap->suspended_ccalls = incall;
+  cap->suspended_ccalls_hd = incall;
+  if (!cap->suspended_ccalls_tl) {
+    cap->suspended_ccalls_tl = incall;
+  }
 }
 
-  STATIC_INLINE void
+STATIC_INLINE void
 recoverSuspendedTask (Capability *cap, Task *task)
 {
   InCall *incall;
@@ -2055,13 +2059,36 @@ recoverSuspendedTask (Capability *cap, Task *task)
   if (incall->prev) {
     incall->prev->next = incall->next;
   } else {
-    ASSERT(cap->suspended_ccalls == incall);
-    cap->suspended_ccalls = incall->next;
+    ASSERT(cap->suspended_ccalls_hd == incall);
+    cap->suspended_ccalls_hd = incall->next;
   }
   if (incall->next) {
     incall->next->prev = incall->prev;
+  } else {
+    ASSERT (cap->suspended_ccalls_tl == incall);
+    cap->suspended_ccalls_tl = incall->prev;
   }
   incall->next = incall->prev = NULL;
+}
+
+STATIC_INLINE void
+relegateTask (Capability *cap, Task* task) {
+  InCall* incall;
+
+  ASSERT (task == cap->suspended_ccalls_hd);
+  //Remove the task from the suspended_ccalls list
+  recoverSuspendedTask (cap, task);
+  //Add to the back of the list
+  incall = task->incall;
+  incall->prev = cap->suspended_ccalls_tl;
+  incall->next = NULL;
+  if (cap->suspended_ccalls_tl) {
+    cap->suspended_ccalls_tl->next = incall;
+  }
+  cap->suspended_ccalls_tl = incall;
+  if (!cap->suspended_ccalls_hd) {
+    cap->suspended_ccalls_hd = incall;
+  }
 }
 
 /* ---------------------------------------------------------------------------

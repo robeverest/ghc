@@ -232,14 +232,15 @@ initCapability( Capability *cap, nat i )
 
 #if defined(THREADED_RTS)
   initMutex(&cap->lock);
-  cap->running_task      = NULL; // indicates cap is free
-  cap->spare_workers     = NULL;
-  cap->n_spare_workers   = 0;
-  cap->suspended_ccalls  = NULL;
-  cap->returning_tasks_hd = NULL;
-  cap->returning_tasks_tl = NULL;
-  cap->inbox              = (Message*)END_TSO_QUEUE;
-  cap->sparks             = allocSparkPool();
+  cap->running_task           = NULL; // indicates cap is free
+  cap->spare_workers          = NULL;
+  cap->n_spare_workers        = 0;
+  cap->suspended_ccalls_hd    = NULL;
+  cap->suspended_ccalls_tl    = NULL;
+  cap->returning_tasks_hd     = NULL;
+  cap->returning_tasks_tl     = NULL;
+  cap->inbox                  = (Message*)END_TSO_QUEUE;
+  cap->sparks                 = allocSparkPool();
   cap->spark_stats.created    = 0;
   cap->spark_stats.dud        = 0;
   cap->spark_stats.overflowed = 0;
@@ -913,7 +914,7 @@ shutdownCapability (Capability *cap,
     // that will try to return to code that has been unloaded.
     // We can be a bit more relaxed when this is a standalone
     // program that is about to terminate, and let safe=false.
-    if (cap->suspended_ccalls && safe) {
+    if (cap->suspended_ccalls_hd && safe) {
       debugTrace(DEBUG_sched,
                  "thread(s) are involved in foreign calls, yielding");
       cap->running_task = NULL;
@@ -1011,7 +1012,7 @@ markCapability (evac_fn evac, void *user, Capability *cap,
 #if defined(THREADED_RTS)
   evac(user, (StgClosure **)(void *)&cap->inbox);
 #endif
-  for (incall = cap->suspended_ccalls; incall != NULL;
+  for (incall = cap->suspended_ccalls_hd; incall != NULL;
        incall=incall->next) {
     evac(user, (StgClosure **)(void *)&incall->suspended_tso);
   }

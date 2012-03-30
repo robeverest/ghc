@@ -384,7 +384,7 @@ check_target:
         Task *task = NULL;
         // walk suspended_ccalls to find the correct worker thread
         InCall *incall;
-        for (incall = cap->suspended_ccalls; incall != NULL; incall = incall->next) {
+        for (incall = cap->suspended_ccalls_hd; incall != NULL; incall = incall->next) {
           if (incall->suspended_tso == target) {
             task = incall->task;
             break;

@@ -60,7 +60,14 @@ struct Capability_ {
     // the suspended TSOs easily.  Hence, when migrating a Task from
     // the returning_tasks list, we must also migrate its entry from
     // this list.
-    InCall *suspended_ccalls;
+    //
+    // New suspended_ccalls are always added to the head of the list. An
+    // outstanding ccall's scheduler might be resumed by a worker task, in which
+    // case, the incall is moved to the tail of the suspeneded_ccalls list. This
+    // way, a worker only needs to check the incall at the head of the list to
+    // see if there are any blocked schedulers (pending work).
+    InCall *suspended_ccalls_hd;
+    InCall *suspended_ccalls_tl;
 
     // One mutable list per generation, so we don't need to take any
     // locks when updating an old-generation thunk.  This also lets us
