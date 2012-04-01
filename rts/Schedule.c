@@ -144,7 +144,6 @@ static void scheduleProcessInbox(Capability *cap);
 static void scheduleDetectDeadlock (Capability *cap, Task *task);
 static void schedulePushWork(Capability *cap, Task *task);
 static void scheduleResumeBlockedOnForeignCall (Capability *cap);
-static void scheduleUpcallThreadIfNecessary (Capability *cap);
 #if defined(THREADED_RTS)
 static void scheduleActivateSpark(Capability *cap);
 #endif
@@ -165,6 +164,10 @@ static void deleteAllThreads (Capability *cap);
 
 #ifdef FORKPROCESS_PRIMOP_SUPPORTED
 static void deleteThread_(Capability *cap, StgTSO *tso);
+#endif
+
+#if defined(THREADED_RTS)
+static void relegateTask (Capability *cap, Task* task);
 #endif
 
 /* ---------------------------------------------------------------------------
@@ -336,11 +339,13 @@ schedule (Capability *initialCapability, Task *task)
 
     scheduleYield(&cap,task);
 
-    if (emptyRunQueue(cap)) continue; // look for work again
+    if (emptyRunQueue(cap) && !pendingUpcalls (cap->upcall_queue))
+      continue; // look for work again
+
 #endif
 
 #if !defined(THREADED_RTS) && !defined(mingw32_HOST_OS)
-    if ( emptyRunQueue(cap) ) {
+    if (emptyRunQueue(cap) && !pendingUpcalls (cap->upcall_queue)) {
       ASSERT(sched_state >= SCHED_INTERRUPTING);
     }
 #endif
@@ -348,7 +353,13 @@ schedule (Capability *initialCapability, Task *task)
     //
     // Get a thread to run
     //
-    t = popRunQueue(cap);
+    if (emptyRunQueue (cap)) {
+      ASSERT (pendingUpcalls (cap->upcall_queue));
+      t = (StgTSO*)END_TSO_QUEUE;
+    }
+    else {
+      t = popRunQueue(cap);
+    }
 
 more_upcalls:
 
@@ -648,8 +659,6 @@ scheduleFindWork (Capability *cap)
 
   scheduleResumeBlockedOnForeignCall(cap);
 
-  scheduleUpcallThreadIfNecessary (cap);
-
 #if defined(THREADED_RTS)
   if (emptyRunQueue(cap)) { scheduleActivateSpark(cap); }
 #endif
@@ -904,44 +913,21 @@ scheduleCheckBlockedThreads(Capability *cap USED_IF_NOT_THREADS)
  * -------------------------------------------------------------------------- */
 
 static void
-scheduleResumeBlockedOnForeignCall(Capability *cap STG_UNUSED)
+scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
 {
-#if 0 && defined(THREADED_RTS)
-  //Check whether this task has won the race against task performing a foreign
-  //call. If so take it.
-  StgTSO* racing_tso = END_TSO_QUEUE;
-  //Racy read
-  if (cap->racing_tso != END_TSO_QUEUE) {
-    ACQUIRE_LOCK (&cap->lock);
-    //Check again since the state might have changed.
-    if (cap->racing_tso != END_TSO_QUEUE) {
-      racing_tso = cap->racing_tso;
-      cap->racing_tso = END_TSO_QUEUE;
-    }
-    RELEASE_LOCK (&cap->lock);
-  }
-  if (racing_tso != END_TSO_QUEUE) {
-    StgClosure* scheduler =
-      rts_apply (cap, (StgClosure*)racing_tso->switch_to_next,
-                 rts_mkInt (cap, 0));
-    addUpcall (cap, scheduler);
+#if defined(THREADED_RTS)
+  InCall* incall = cap->suspended_ccalls_hd;
+  if (incall && incall->uls_stat == UserLevelSchedulerBlocked) {
+    //Inform the task associated with the incall that we have resumed the
+    //scheduler.
+    incall->uls_stat = UserLevelSchedulerRunning;
+
+    //Add new upcall
+    StgTSO* tso = incall->suspended_tso;
+    addUpcall (cap, tso->switch_to_next);
+    relegateTask (cap, incall->task);
   }
 #endif
-}
-
-/* ----------------------------------------------------------------------------
- * If there is no work on the run queue, but pending upcalls, prepare pending
- * upcall in the upcall_thread and make it the current thread.
- * -------------------------------------------------------------------------- */
-
-static void
-scheduleUpcallThreadIfNecessary (Capability *cap)
-{
-  if (pendingUpcalls (cap->upcall_queue) &&
-      emptyRunQueue (cap)) {
-    StgTSO* upcall_thread = prepareUpcallThread (cap, (StgTSO*)END_TSO_QUEUE);
-    pushOnRunQueue (cap, upcall_thread);
-  }
 }
 
 /* ----------------------------------------------------------------------------
@@ -2087,14 +2073,16 @@ recoverSuspendedTask (Capability *cap, Task *task)
   incall->next = incall->prev = NULL;
 }
 
+#if defined (THREADED_RTS)
 STATIC_INLINE void
 relegateTask (Capability *cap, Task* task) {
-  ASSERT (task == cap->suspended_ccalls_hd);
+  ASSERT (task->incall == cap->suspended_ccalls_hd);
   //Remove the task from the suspended_ccalls list
   recoverSuspendedTask (cap, task);
   //Add to the back of the list
   suspendTask (cap, task, rtsFalse);
 }
+#endif
 
 /* ---------------------------------------------------------------------------
  * Suspending & resuming Haskell threads.
@@ -2156,12 +2144,17 @@ suspendThread (StgRegTable *reg, rtsBool interruptible)
   task->incall->suspended_tso = tso;
   task->incall->suspended_cap = cap;
 
-  if (hasHaskellScheduler || isUpcallThread (tso)) {
+#if defined (THREADED_RTS)
+  if (!hasHaskellScheduler (tso) || isUpcallThread (tso)) {
     task->incall->uls_stat = NoUserLevelScheduler;
     append_to_head = rtsFalse;
   }
   else
     task->incall->uls_stat = UserLevelSchedulerBlocked;
+#else
+  task->incall->uls_stat = NoUserLevelScheduler;
+  append_to_head = rtsFalse;
+#endif
 
   ACQUIRE_LOCK(&cap->lock);
 
@@ -2225,12 +2218,14 @@ resumeThread (void *task_)
     }
   }
 
+#if defined(THREADED_RTS)
   //Check whether a worker has resumed our scheduler
   if (incall->uls_stat == UserLevelSchedulerRunning) {
     //Evaluate the unblock action on the upcall thread
     addUpcall (cap, tso->resume_thread);
     tso = prepareUpcallThread (cap, (StgTSO*)END_TSO_QUEUE);
   }
+#endif
 
   traceEventRunThread(cap, tso);
 

@@ -58,6 +58,9 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
     cap->upcall_thread = current_thread;
   }
 
+  ASSERT (upcall_thread); //This can happen if upcall_thread executed a
+                          //blockAction that never cleanly returned to schedule
+                          //loop. TODO: Handle this case.
   ASSERT (isUpcallThread (upcall_thread));
 
   StgClosure* upcall = popUpcallQueue (cap->upcall_queue);
@@ -66,6 +69,11 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
     upcall_thread->stackobj = (StgStack*)upcall;
   }
   else {
+
+    ASSERT (upcall_thread->what_next != ThreadKilled);
+    upcall_thread->what_next = ThreadRunGHC;
+    upcall_thread->why_blocked = NotBlocked;
+
     StgStack* stack = upcall_thread->stackobj;
     stack->dirty = 1;
     //Pop everything
