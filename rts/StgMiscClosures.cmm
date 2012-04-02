@@ -296,6 +296,7 @@ retry:
         info == stg_BLOCKING_QUEUE_CLEAN_info ||
         info == stg_BLOCKING_QUEUE_DIRTY_info)
     {
+        foreign "C" debugBelch ("Entering Blackhole\n") [];
         ("ptr" msg) = foreign "C" allocate(MyCapability() "ptr",
                                            BYTES_TO_WDS(SIZEOF_MessageBlackHole)) [R1];
 

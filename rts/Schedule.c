@@ -925,8 +925,7 @@ scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
   ACQUIRE_LOCK (&cap->lock);
   incall = cap->suspended_ccalls_hd;
   if (incall &&
-      incall->uls_stat == UserLevelSchedulerBlocked &&
-      incall == incall->task->incall) {
+      incall->uls_stat == UserLevelSchedulerBlocked) {
 
     debugTrace (DEBUG_sched, "resuming scheduler associated with task %p"
                 " with incall %p",
