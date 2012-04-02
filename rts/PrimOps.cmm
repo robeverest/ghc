@@ -720,20 +720,19 @@ stg_atomicSwitchzh
       //been committed and mucking with CurrentTSO info violates atomicity.
       StgTSO_trec(CurrentTSO) = NO_TREC;
 
-#ifdef THREADED_RTS
-      foreign "C" pushOnRunQueue (MyCapability () "ptr", tso "ptr");
+      StgStack_sp(StgTSO_stackobj(CurrentTSO)) = Sp;
+      CurrentTSO = tso;
+      ("ptr" limit)  = foreign "C" tso_SpLim (tso "ptr") [];
+      SpLim = limit;
+      Sp = StgStack_sp(StgTSO_stackobj(CurrentTSO));
 
+#ifdef THREADED_RTS
       //Enter the scheduler. This is necessary for several reasons:
       //  - tso might be bound, or current task might be bound in which case we
       //    need to pass capability to correct task
       //  - task might have returned from a safe foreign call
       jump stg_switch_noregs;
 #else
-      StgStack_sp(StgTSO_stackobj(CurrentTSO)) = Sp;
-      CurrentTSO = tso;
-      ("ptr" limit)  = foreign "C" tso_SpLim (tso "ptr") [];
-      SpLim = limit;
-      Sp = StgStack_sp(StgTSO_stackobj(CurrentTSO));
       jump %ENTRY_CODE(Sp(0));
 #endif
     } else {

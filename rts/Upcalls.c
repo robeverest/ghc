@@ -71,6 +71,7 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
   else {
 
     ASSERT (upcall_thread->what_next != ThreadKilled);
+    upcall_thread->_link = (StgTSO*)END_TSO_QUEUE;
     upcall_thread->what_next = ThreadRunGHC;
     upcall_thread->why_blocked = NotBlocked;
 

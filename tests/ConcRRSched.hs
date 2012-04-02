@@ -89,12 +89,6 @@ switchToNextWith (ConcRRSched ref) f = do
           switchTo x
        }
 
-push :: ConcRRSched -> SCont -> PTM ()
-push (ConcRRSched ref) s = do
-  contents <- readPVar ref
-  let newSeq = s Seq.<| contents
-  writePVar ref $ newSeq
-
 enque :: ConcRRSched -> SCont -> PTM ()
 enque (ConcRRSched ref) s = do
   contents <- readPVar ref

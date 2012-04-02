@@ -916,8 +916,21 @@ static void
 scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
 {
 #if defined(THREADED_RTS)
+
+  //Unsafely check
   InCall* incall = cap->suspended_ccalls_hd;
-  if (incall && incall->uls_stat == UserLevelSchedulerBlocked) {
+  if (!incall) return;
+
+  //Safely work
+  ACQUIRE_LOCK (&cap->lock);
+  incall = cap->suspended_ccalls_hd;
+  if (incall &&
+      incall->uls_stat == UserLevelSchedulerBlocked &&
+      incall == incall->task->incall) {
+
+    debugTrace (DEBUG_sched, "resuming scheduler associated with task %p"
+                " with incall %p",
+                incall->task, incall);
     //Inform the task associated with the incall that we have resumed the
     //scheduler.
     incall->uls_stat = UserLevelSchedulerRunning;
@@ -927,6 +940,14 @@ scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
     addUpcall (cap, tso->switch_to_next);
     relegateTask (cap, incall->task);
   }
+  else {
+    debugTrace (DEBUG_sched, "scheduleResumedBlockedOnForeignCall: Skipping"
+                             "\n\tincall %p\n\tincall->uls_stat %d"
+                             "\n\tincall->task %p\n\tincall->task->incall %p",
+                             incall, incall->uls_stat, incall->task,
+                             incall->task->incall);
+  }
+  RELEASE_LOCK (&cap->lock);
 #endif
 }
 
@@ -2049,7 +2070,9 @@ suspendTask (Capability *cap, Task *task, rtsBool append_to_head)
     if (!cap->suspended_ccalls_hd) {
       cap->suspended_ccalls_hd = incall;
     }
- }
+  }
+  debugTrace (DEBUG_sched, "suspendTask: task %p task->incall %p",
+              task, incall);
 }
 
 STATIC_INLINE void
@@ -2058,6 +2081,9 @@ recoverSuspendedTask (Capability *cap, Task *task)
   InCall *incall;
 
   incall = task->incall;
+
+  debugTrace (DEBUG_sched, "recoverSuspendedTask: task %p task->incall %p",
+              task, incall);
   if (incall->prev) {
     incall->prev->next = incall->next;
   } else {
@@ -2076,7 +2102,6 @@ recoverSuspendedTask (Capability *cap, Task *task)
 #if defined (THREADED_RTS)
 STATIC_INLINE void
 relegateTask (Capability *cap, Task* task) {
-  ASSERT (task->incall == cap->suspended_ccalls_hd);
   //Remove the task from the suspended_ccalls list
   recoverSuspendedTask (cap, task);
   //Add to the back of the list
@@ -2200,8 +2225,10 @@ resumeThread (void *task_)
   // entry on the suspended_ccalls list will also have been
   // migrated.
 
+  ACQUIRE_LOCK (&cap->lock);
   // Remove the thread from the suspended list
   recoverSuspendedTask(cap,task);
+  RELEASE_LOCK (&cap->lock);
 
   tso = incall->suspended_tso;
   incall->suspended_tso = NULL;
@@ -2306,7 +2333,8 @@ scheduleWaitThread (StgTSO* tso, /*[out]*/HaskellObj* ret,
     appendToRunQueue(cap,tso);
 
   DEBUG_ONLY( id = tso->id );
-  debugTrace(DEBUG_sched, "new bound thread (%lu)", (unsigned long)id);
+  debugTrace(DEBUG_sched, "new bound thread (%lu) on task %p",
+             (unsigned long)id, task);
 
   cap = schedule(cap,task);
 

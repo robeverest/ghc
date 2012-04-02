@@ -296,7 +296,7 @@ boundTaskExiting (Task *task)
         task->stopped = rtsTrue;
     }
 
-    debugTrace(DEBUG_sched, "task exiting");
+    debugTrace(DEBUG_sched, "task exiting %p", task);
 }
 
 
