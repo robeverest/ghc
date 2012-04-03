@@ -998,10 +998,5 @@ raiseAsync(Capability *cap, StgTSO *tso, StgClosure *exception,
 
 done:
   IF_DEBUG(sanity, checkTSO(tso));
-
-  // wake it up
-  if (tso->why_blocked != NotBlocked)
-    tso->why_blocked = NotBlocked;
-
   return tso;
 }

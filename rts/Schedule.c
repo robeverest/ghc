@@ -660,8 +660,8 @@ scheduleFindWork (Capability *cap)
   scheduleCheckBlockedThreads(cap);
 
 #if defined(THREADED_RTS)
-  if (emptyRunQueue(cap)) {
-    //scheduleResumeBlockedOnForeignCall(cap);
+  if (emptyRunQueue(cap) && !pendingUpcalls (cap->upcall_queue)) {
+    scheduleResumeBlockedOnForeignCall(cap);
     scheduleActivateSpark(cap);
   }
 #endif

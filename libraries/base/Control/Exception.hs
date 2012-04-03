@@ -54,6 +54,7 @@ module Control.Exception (
         System.ExitCode(), -- instance Exception
 #endif
 
+        BlockedIndefinitelyOnConcDS(..),
         BlockedIndefinitelyOnMVar(..),
         BlockedIndefinitelyOnSTM(..),
         Deadlock(..),
