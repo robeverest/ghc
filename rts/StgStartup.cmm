@@ -12,6 +12,8 @@
 
 #include "Cmm.h"
 
+import ghczmprim_GHCziTypes_True_closure;
+
 /*
  * This module contains the two entry points and the final exit point
  * to/from the Haskell world.  We can enter either by:
@@ -64,7 +66,15 @@ INFO_TABLE_RET( stg_stop_thread, STOP_FRAME,
     */
 
     Sp = Sp + SIZEOF_StgStopFrame - WDS(2);
-    Sp(1) = R1;
+    if (LOOKS_LIKE_CLOSURE_PTR (R1)) {
+      Sp(1) = R1;
+    }
+    else {
+      //This can happen if the last action in the thread is an yield. R1 in this
+      //case happens to be Task*, which is not a valid closure and GC throws an
+      //error.
+      Sp(1) = ghczmprim_GHCziTypes_True_closure;
+    }
     Sp(0) = stg_enter_info;
 
     StgTSO_what_next(CurrentTSO) = ThreadComplete::I16;
