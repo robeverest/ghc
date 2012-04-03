@@ -21,7 +21,9 @@ typedef WSDeque UpcallQueue;
 UpcallQueue *allocUpcallQueue (void);
 
 // Add a new upcall
-void addUpcall (Capability* cap, StgClosure* p);
+void addResumeThreadUpcall       (Capability* cap, StgClosure* p);
+void addSwitchToNextThreadUpcall (Capability* cap, StgClosure* p);
+void addFinalizerUpcall          (Capability* cap, StgClosure* p);
 
 // Get an upcall from the capability's upcall queue. This could be a IO ()
 // action or a stack. Hence, immediately after picking up the upcall, check the

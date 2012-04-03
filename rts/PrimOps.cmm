@@ -765,6 +765,17 @@ stg_setResumeThreadzh
   jump %ENTRY_CODE(Sp(0));
 }
 
+stg_getResumeThreadzh
+{
+  /* args: R1 = SCont */
+  MAYBE_GC (R1_PTR, stg_getResumeThreadzh);
+
+  W_ threadid, resume_thread;
+  threadid = R1;
+  resume_thread = StgTSO_resume_thread(threadid);
+  RET_P (resume_thread);
+}
+
 stg_setSwitchToNextThreadzh
 {
   /* args: R1 = SCont, R2 = closure to resume this spark */
@@ -780,6 +791,16 @@ stg_setSwitchToNextThreadzh
   jump %ENTRY_CODE(Sp(0));
 }
 
+stg_getSwitchToNextThreadzh
+{
+  /* args: R1 = SCont */
+  MAYBE_GC (R1_PTR, stg_getSwitchToNextThreadzh);
+
+  W_ threadid, switch_to_next;
+  threadid = R1;
+  switch_to_next = StgTSO_switch_to_next (threadid);
+  RET_P (switch_to_next);
+}
 
 stg_setFinalizzerzh
 {

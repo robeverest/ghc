@@ -526,7 +526,7 @@ run_thread:
     //Handle upcall thread return
     if (isUpcallThread (t)) {
       if (ret == ThreadKilled)
-        barf ("Schedule: Upcall thread returned in an unexpected fashion");
+        barf ("Schedule: Upcall thread killed");
 
       //ret == ThreadFinished in the following.
       if (ret == ThreadFinished) {
@@ -939,8 +939,7 @@ scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
 
     //Add new upcall
     StgTSO* tso = incall->suspended_tso;
-    //4 = Completed. See libraries/base/LwConc/Substrate.hs:ThreadStatus
-    addUpcall (cap, rts_apply (cap, tso->switch_to_next, rts_mkInt (cap, 4)));
+    addSwitchToNextThreadUpcall (cap, tso->switch_to_next);
     relegateTask (cap, incall->task);
   }
   else {
@@ -2252,7 +2251,7 @@ resumeThread (void *task_)
   //Check whether a worker has resumed our scheduler
   if (incall->uls_stat == UserLevelSchedulerRunning) {
     //Evaluate the unblock action on the upcall thread
-    addUpcall (cap, tso->resume_thread);
+    addResumeThreadUpcall (cap, tso->resume_thread);
     tso = prepareUpcallThread (cap, (StgTSO*)END_TSO_QUEUE);
   }
 #endif
@@ -2807,13 +2806,13 @@ resurrectThreads (StgTSO *threads)
     switch (tso->why_blocked) {
       case Yielded:
         if (tso->finalizer != (StgClosure*)END_TSO_QUEUE)
-          addUpcall (cap, tso->finalizer);
+          addFinalizerUpcall (cap, tso->finalizer);
         break;
       case BlockedOnConcDS:
         tso = throwToSingleThreaded (cap, tso,
                                      (StgClosure*)blockedIndefinitelyOnConcDS_closure);
         if (tso->what_next == ThreadRunGHC)
-          addUpcall (cap, tso->resume_thread);
+          addResumeThreadUpcall (cap, tso->resume_thread);
         break;
       case BlockedOnMVar:
         barf ("resurrectThreads: BlockedOnMVar not implemented!");

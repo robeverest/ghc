@@ -51,9 +51,18 @@ module LwConc.Substrate
 #endif
 
 , setResumeThread         -- SCont -> PTM () -> IO ()
+, getResumeThread         -- PTM ()
 , setSwitchToNextThread   -- SCont -> PTM () -> IO ()
+, getSwitchToNextThread   -- PTM ()
+
 , setFinalizer            -- SCont -> IO () -> IO ()
 , defaultUpcall           -- IO ()
+
+-- XXX The following should not be used directly. Only exposed since the RTS
+-- cannot find it otherwise. TODO: Hide them. - KC
+
+, resumeThread            -- PTM () -> IO ()
+, switchToNextThread      -- PTM () -> Int -> IO ()
 ) where
 
 
@@ -260,21 +269,38 @@ switch arg = atomically $ do
 
 -----------------------------------------------------------------------------------
 
+{-# INLINE resumeThread #-}
+resumeThread :: PTM () -> IO () -- used by RTS
+resumeThread r = atomically r
+
+{-# INLINE switchToNextThread #-}
+switchToNextThread :: PTM () -> Int -> IO () -- used by RTS
+switchToNextThread s i = atomically $ do
+  currentSCont <- getSCont
+  setThreadStatus currentSCont $ getStatusFromInt i
+  s
+
 {-# INLINE setResumeThread #-}
 setResumeThread :: SCont -> PTM () -> IO ()
 setResumeThread (SCont sc) r = IO $ \s ->
-  case (setResumeThread# sc rp s) of s -> (# s, () #)
-       where rp = atomically $ r
+  case (setResumeThread# sc r s) of s -> (# s, () #)
+
+{-# INLINE getResumeThread #-}
+getResumeThread :: PTM ()
+getResumeThread = PTM $ \s ->
+  case (getSCont# s) of
+       (# s, scont #) -> getResumeThread# scont s
 
 {-# INLINE setSwitchToNextThread #-}
 setSwitchToNextThread :: SCont -> PTM () -> IO ()
 setSwitchToNextThread (SCont sc) b = IO $ \s ->
-  case (setSwitchToNextThread# sc bp s) of s -> (# s, () #)
-       where bp = \intStatus -> atomically $ do {
-               currentSCont <- getSCont;
-               setThreadStatus currentSCont $ getStatusFromInt intStatus;
-               b
-             }
+  case (setSwitchToNextThread# sc b s) of s -> (# s, () #)
+
+{-# INLINE getSwitchToNextThread #-}
+getSwitchToNextThread :: PTM ()
+getSwitchToNextThread = PTM $ \s ->
+  case (getSCont# s) of
+       (# s, scont #) -> getSwitchToNextThread# scont s
 
 {-# INLINE setFinalizer #-}
 setFinalizer :: SCont -> IO () -> IO ()

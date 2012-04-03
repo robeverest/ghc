@@ -326,12 +326,12 @@ hidden-modules:
 
 import-dirs:
 
-library-dirs:		"/home/t-sichan/ghc-7.4.1-lwc""/rts/dist/build" 
+library-dirs:		"/home/t-sichan/ghc-7.4.1-lwc""/rts/dist/build"
 
 hs-libraries:   "HSrts"
 
 extra-libraries:
-                		"m"		
+                		"m"
 			      , "rt"
 			      , "dl"
 
@@ -368,6 +368,8 @@ ld-options:
          , "-u", "ghczmprim_GHCziTypes_True_closure"
          , "-u", "base_LwConcziSubstrate_Yielded_closure"
          , "-u", "base_LwConcziSubstrate_defaultUpcall_closure"
+         , "-u", "base_LwConcziSubstrate_resumeThread_closure"
+         , "-u", "base_LwConcziSubstrate_switchToNextThread_closure"
          , "-u", "base_GHCziPack_unpackCString_closure"
          , "-u", "base_GHCziIOziException_stackOverflow_closure"
          , "-u", "base_GHCziIOziException_heapOverflow_closure"

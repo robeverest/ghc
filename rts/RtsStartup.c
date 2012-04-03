@@ -197,6 +197,10 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
 
     getStablePtr((StgPtr)runSparks_closure);
     getStablePtr((StgPtr)ensureIOManagerIsRunning_closure);
+
+    getStablePtr((StgPtr)defaultUpcall_closure);
+    getStablePtr((StgPtr)resumeThread_closure);
+    getStablePtr((StgPtr)switchToNextThread_closure);
 #ifndef mingw32_HOST_OS
     getStablePtr((StgPtr)runHandlers_closure);
 #endif

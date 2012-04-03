@@ -24,11 +24,34 @@ allocUpcallQueue (void)
 }
 
 // Add a new upcall
-void
+STATIC_INLINE void
 addUpcall (Capability* cap, StgClosure* p)
 {
   if (!pushWSDeque (cap->upcall_queue, p))
     barf ("addUpcall overflow!!");
+}
+
+void
+addResumeThreadUpcall (Capability* cap, StgClosure* p)
+{
+  //See libraries/base/LwConc/Substrate.hs:resumeThread
+  p = rts_apply (cap, (StgClosure*)resumeThread_closure, p);
+  addUpcall (cap, p);
+}
+
+void
+addSwitchToNextThreadUpcall (Capability* cap, StgClosure* p)
+{
+  //See libraries/base/LwConc/Substrate.hs:switchToNextThread
+  p = rts_apply (cap, (StgClosure*)switchToNextThread_closure, p);
+  p = rts_apply (cap, p, rts_mkInt (cap, 4));
+  addUpcall (cap, p);
+}
+
+void
+addFinalizerUpcall (Capability* cap, StgClosure* p)
+{
+  addUpcall (cap, p);
 }
 
 // returns true if the given upcall is a suspended upcall, i.e) it is a
