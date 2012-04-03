@@ -201,7 +201,7 @@ main(int argc, char *argv[])
     printf("\n\n");
 #endif
 
-    field_offset(StgRegTable, rR1);
+    struct_field(StgRegTable, rR1);
     field_offset(StgRegTable, rR2);
     field_offset(StgRegTable, rR3);
     field_offset(StgRegTable, rR4);

@@ -43,3 +43,4 @@ main = do
   -- invoke loop
   loop 0 n
   yield sched
+  print "Main done"

@@ -63,6 +63,9 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
                           //loop. TODO: Handle this case.
   ASSERT (isUpcallThread (upcall_thread));
 
+  if (upcall_thread->what_next != ThreadComplete) //Upcall thread is currently running
+    return upcall_thread;
+
   StgClosure* upcall = popUpcallQueue (cap->upcall_queue);
   if (isSuspendedUpcall (upcall)) {
     barf ("prepareUpcallThread: impossible!");

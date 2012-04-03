@@ -143,8 +143,8 @@ static void scheduleCheckBlockedThreads (Capability *cap);
 static void scheduleProcessInbox(Capability *cap);
 static void scheduleDetectDeadlock (Capability *cap, Task *task);
 static void schedulePushWork(Capability *cap, Task *task);
-static void scheduleResumeBlockedOnForeignCall (Capability *cap);
 #if defined(THREADED_RTS)
+static void scheduleResumeBlockedOnForeignCall (Capability *cap);
 static void scheduleActivateSpark(Capability *cap);
 #endif
 static void schedulePostRunThread(Capability *cap, StgTSO *t);
@@ -529,9 +529,11 @@ run_thread:
         barf ("Schedule: Upcall thread returned in an unexpected fashion");
 
       //ret == ThreadFinished in the following.
-      t->what_next = ThreadRunGHC;
-      t->why_blocked = NotBlocked;
-      ret = ThreadSwitch;
+      if (ret == ThreadFinished) {
+          t->what_next = ThreadComplete;
+          t->why_blocked = NotBlocked;
+          ret = ThreadSwitch;
+      }
     }
 
     if (ret == ThreadBlocked) {
@@ -608,7 +610,7 @@ run_thread:
  * Run queue operations
  * -------------------------------------------------------------------------- */
 
-void
+  void
 removeFromRunQueue (Capability *cap, StgTSO *tso)
 {
   if (tso->block_info.prev == END_TSO_QUEUE) {
@@ -632,7 +634,7 @@ removeFromRunQueue (Capability *cap, StgTSO *tso)
  * Setting up the scheduler loop
  * ------------------------------------------------------------------------- */
 
-static void
+  static void
 schedulePreLoop(void)
 {
   // initialisation for scheduler - what cannot go into initScheduler()
@@ -648,7 +650,7 @@ schedulePreLoop(void)
  * Search for work to do, and handle messages from elsewhere.
  * -------------------------------------------------------------------------- */
 
-static void
+  static void
 scheduleFindWork (Capability *cap)
 {
   scheduleStartSignalHandlers(cap);
@@ -657,10 +659,11 @@ scheduleFindWork (Capability *cap)
 
   scheduleCheckBlockedThreads(cap);
 
-  scheduleResumeBlockedOnForeignCall(cap);
-
 #if defined(THREADED_RTS)
-  if (emptyRunQueue(cap)) { scheduleActivateSpark(cap); }
+  if (emptyRunQueue(cap)) {
+    //scheduleResumeBlockedOnForeignCall(cap);
+    scheduleActivateSpark(cap);
+  }
 #endif
 }
 
@@ -691,7 +694,7 @@ shouldYieldCapability (Capability *cap, Task *task)
 // the tests in testsuite/concurrent (all ways) after modifying this,
 // and also check the benchmarks in nofib/parallel for regressions.
 
-static void
+  static void
 scheduleYield (Capability **pcap, Task *task)
 {
   Capability *cap = *pcap;
@@ -724,7 +727,7 @@ scheduleYield (Capability **pcap, Task *task)
  * Push work to other Capabilities if we have some.
  * -------------------------------------------------------------------------- */
 
-static void
+  static void
 schedulePushWork(Capability *cap USED_IF_THREADS,
                  Task *task      USED_IF_THREADS)
 {
@@ -872,7 +875,7 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
  * ------------------------------------------------------------------------- */
 
 #if defined(RTS_USER_SIGNALS) && !defined(THREADED_RTS)
-static void
+  static void
 scheduleStartSignalHandlers(Capability *cap)
 {
   if (RtsFlags.MiscFlags.install_signal_handlers && signals_pending()) {
@@ -891,7 +894,7 @@ scheduleStartSignalHandlers(Capability *cap STG_UNUSED)
  * Check for blocked threads that can be woken up.
  * ------------------------------------------------------------------------- */
 
-static void
+  static void
 scheduleCheckBlockedThreads(Capability *cap USED_IF_NOT_THREADS)
 {
 #if !defined(THREADED_RTS)
@@ -912,11 +915,10 @@ scheduleCheckBlockedThreads(Capability *cap USED_IF_NOT_THREADS)
  * calls.
  * -------------------------------------------------------------------------- */
 
+#if defined(THREADED_RTS)
 static void
 scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
 {
-#if defined(THREADED_RTS)
-
   //Unsafely check
   InCall* incall = cap->suspended_ccalls_hd;
   if (!incall) return;
@@ -936,19 +938,20 @@ scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
 
     //Add new upcall
     StgTSO* tso = incall->suspended_tso;
-    addUpcall (cap, tso->switch_to_next);
+    //4 = Completed. See libraries/base/LwConc/Substrate.hs:ThreadStatus
+    addUpcall (cap, rts_apply (cap, tso->switch_to_next, rts_mkInt (cap, 4)));
     relegateTask (cap, incall->task);
   }
   else {
     debugTrace (DEBUG_sched, "scheduleResumedBlockedOnForeignCall: Skipping"
-                             "\n\tincall %p\n\tincall->uls_stat %d"
-                             "\n\tincall->task %p\n\tincall->task->incall %p",
-                             incall, incall->uls_stat, incall->task,
-                             incall->task->incall);
+                "\n\tincall %p\n\tincall->uls_stat %d"
+                "\n\tincall->task %p\n\tincall->task->incall %p",
+                incall, incall->uls_stat, incall->task,
+                incall->task->incall);
   }
   RELEASE_LOCK (&cap->lock);
-#endif
 }
+#endif
 
 /* ----------------------------------------------------------------------------
  * Detect deadlock conditions and attempt to resolve them.
@@ -1063,7 +1066,7 @@ scheduleSendPendingMessages(void)
  * Process message in the current Capability's inbox
  * ------------------------------------------------------------------------- */
 
-static void
+  static void
 scheduleProcessInbox (Capability *cap USED_IF_THREADS)
 {
 #if defined(THREADED_RTS)
@@ -1320,9 +1323,9 @@ static void
 static void
   scheduleHandleThreadSwitch( StgTSO *t
 #if !defined(DEBUG)
-                               STG_UNUSED
+                              STG_UNUSED
 #endif
-                             )
+                            )
 {
 
   //Nothing to do here. Everything has been handled in Haskell land.
@@ -2038,7 +2041,7 @@ deleteAllThreads ( Capability *cap )
    Locks required: sched_mutex
    -------------------------------------------------------------------------- */
 
-STATIC_INLINE void
+  STATIC_INLINE void
 suspendTask (Capability *cap, Task *task, rtsBool append_to_head)
 {
   InCall *incall;
@@ -2074,7 +2077,7 @@ suspendTask (Capability *cap, Task *task, rtsBool append_to_head)
               task, incall);
 }
 
-STATIC_INLINE void
+  STATIC_INLINE void
 recoverSuspendedTask (Capability *cap, Task *task)
 {
   InCall *incall;
@@ -2099,7 +2102,7 @@ recoverSuspendedTask (Capability *cap, Task *task)
 }
 
 #if defined (THREADED_RTS)
-STATIC_INLINE void
+static void
 relegateTask (Capability *cap, Task* task) {
   //Remove the task from the suspended_ccalls list
   recoverSuspendedTask (cap, task);
@@ -2145,7 +2148,7 @@ suspendThread (StgRegTable *reg, rtsBool interruptible)
 #endif
 
   /* assume that *reg is a pointer to the StgRegTable part of a Capability.
-   */
+  */
   cap = regTableToCapability(reg);
 
   task = cap->running_task;
@@ -2197,7 +2200,7 @@ suspendThread (StgRegTable *reg, rtsBool interruptible)
   return task;
 }
 
-StgRegTable *
+  StgRegTable *
 resumeThread (void *task_)
 {
   StgTSO *tso;
@@ -2306,7 +2309,7 @@ scheduleThreadOn(Capability *cap, StgWord cpu USED_IF_THREADS, StgTSO *tso)
 #endif
 }
 
-void
+  void
 scheduleWaitThread (StgTSO* tso, /*[out]*/HaskellObj* ret,
                     Capability **pcap, rtsBool skipAppend)
 {
@@ -2781,7 +2784,7 @@ findRetryFrameHelper (Capability *cap, StgTSO *tso)
 Locks: assumes we hold *all* the capabilities.
 -------------------------------------------------------------------------- */
 
-void
+  void
 resurrectThreads (StgTSO *threads)
 {
   StgTSO *tso, *next;

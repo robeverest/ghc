@@ -272,7 +272,7 @@ setSwitchToNextThread (SCont sc) b = IO $ \s ->
   case (setSwitchToNextThread# sc bp s) of s -> (# s, () #)
        where bp = \intStatus -> atomically $ do {
                currentSCont <- getSCont;
-               setThreadStatus currentSCont $ getStatusFromInt $ I# intStatus;
+               setThreadStatus currentSCont $ getStatusFromInt intStatus;
                b
              }
 
