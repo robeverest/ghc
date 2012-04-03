@@ -679,9 +679,10 @@ shouldYieldCapability (Capability *cap, Task *task)
   //     and this task it bound).
   return (pending_sync ||
           cap->returning_tasks_hd != NULL ||
-          (!emptyRunQueue(cap) && (task->incall->tso == NULL
-                                   ? cap->run_queue_hd->bound != NULL
-                                   : cap->run_queue_hd->bound != task->incall)));
+          (!emptyRunQueue (cap) &&
+           (task->incall->tso == NULL
+            ? cap->run_queue_hd->bound != NULL
+            : cap->run_queue_hd->bound != task->incall)));
 }
 
 // This is the single place where a Task goes to sleep.  There are

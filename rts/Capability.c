@@ -376,17 +376,21 @@ moreCapabilities (nat from USED_IF_THREADS, nat to USED_IF_THREADS)
  * Initialize the upcall threads for each of the capability.
  * ------------------------------------------------------------------------- */
 
+void initUpcallThreadOnCapability (Capability* cap) {
+  cap->upcall_thread = createThread (cap, RtsFlags.GcFlags.initialStkSize);
+  cap->upcall_thread->what_next = ThreadComplete; //Default state of upcall
+                                                  //thread is ThreadComplete
+  cap->upcall_thread->is_upcall_thread = rtsTrue;
+  debugTrace (DEBUG_sched, "allocated upcall thread (%d) for capability %d",
+              cap->upcall_thread->id, cap->no);
+}
+
 void initUpcallThreads (void) {
   nat i;
   Capability* cap;
   for (i=0; i < n_capabilities; i++) {
     cap = &capabilities[i];
-    cap->upcall_thread = createThread (cap, RtsFlags.GcFlags.initialStkSize);
-    //Unless running upcall threads are in ThreadComplete state
-    cap->upcall_thread->what_next = ThreadComplete;
-    debugTrace (DEBUG_sched, "allocated upcall thread (%d) for capability %d",
-                cap->upcall_thread->id, i);
-    cap->upcall_thread->is_upcall_thread = rtsTrue;
+    initUpcallThreadOnCapability (cap);
   }
 }
 

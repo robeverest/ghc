@@ -186,6 +186,7 @@ void initCapabilities (void);
 
 // Initialize upcall threads for the available capabilities
 
+void initUpcallThreadOnCapability (Capability* cap);
 void initUpcallThreads (void);
 
 // Add and initialise more Capabilities

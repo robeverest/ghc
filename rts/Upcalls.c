@@ -47,47 +47,43 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
 {
   StgTSO *upcall_thread = current_thread;
 
-  //If cap->upcall_thread is the upcall thread, then swap it with the current
-  //thread.
+
+  //If current thread is not an upcall thread, get the upcall thread.
   if (current_thread == (StgTSO*)END_TSO_QUEUE ||
       !isUpcallThread(current_thread)) {
-    ASSERT (isUpcallThread(cap->upcall_thread));
+
+    if (cap->upcall_thread == (StgTSO*)END_TSO_QUEUE)
+      initUpcallThreadOnCapability (cap);
+
+    upcall_thread = cap->upcall_thread;
     debugTrace (DEBUG_sched, "Switching to upcall_thread %d. Saving current "
                 "thread %p", cap->upcall_thread->id, current_thread);
-    upcall_thread = cap->upcall_thread;
+    //Save current thread
     cap->upcall_thread = current_thread;
   }
 
-  ASSERT (upcall_thread); //This can happen if upcall_thread executed a
-                          //blockAction that never cleanly returned to schedule
-                          //loop. TODO: Handle this case.
   ASSERT (isUpcallThread (upcall_thread));
 
-  if (upcall_thread->what_next != ThreadComplete) //Upcall thread is currently running
+  //Upcall thread is currently running
+  if (upcall_thread->what_next != ThreadComplete)
     return upcall_thread;
 
   StgClosure* upcall = popUpcallQueue (cap->upcall_queue);
-  if (isSuspendedUpcall (upcall)) {
-    barf ("prepareUpcallThread: impossible!");
-    upcall_thread->stackobj = (StgStack*)upcall;
-  }
-  else {
 
-    ASSERT (upcall_thread->what_next != ThreadKilled);
-    upcall_thread->_link = (StgTSO*)END_TSO_QUEUE;
-    upcall_thread->what_next = ThreadRunGHC;
-    upcall_thread->why_blocked = NotBlocked;
+  ASSERT (upcall_thread->what_next != ThreadKilled);
+  upcall_thread->_link = (StgTSO*)END_TSO_QUEUE;
+  upcall_thread->what_next = ThreadRunGHC;
+  upcall_thread->why_blocked = NotBlocked;
 
-    StgStack* stack = upcall_thread->stackobj;
-    stack->dirty = 1;
-    //Pop everything
-    stack->sp = stack->stack + stack->stack_size;
-    //Push stop frame
-    stack->sp -= sizeofW(StgStopFrame);
-    SET_HDR((StgClosure*)stack->sp,
-            (StgInfoTable *)&stg_stop_thread_info,CCS_SYSTEM);
-    pushCallToClosure (cap, upcall_thread, upcall);
-  }
+  StgStack* stack = upcall_thread->stackobj;
+  stack->dirty = 1;
+  //Pop everything
+  stack->sp = stack->stack + stack->stack_size;
+  //Push stop frame
+  stack->sp -= sizeofW(StgStopFrame);
+  SET_HDR((StgClosure*)stack->sp,
+          (StgInfoTable *)&stg_stop_thread_info,CCS_SYSTEM);
+  pushCallToClosure (cap, upcall_thread, upcall);
 
   return upcall_thread;
 }
