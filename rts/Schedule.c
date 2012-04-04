@@ -527,6 +527,8 @@ run_thread:
     if (isUpcallThread (t)) {
       if (ret == ThreadKilled)
         barf ("Schedule: Upcall thread killed");
+      else if (ret == ThreadBlocked)
+        barf ("Schedule: Upcall thread blocked");
 
       //ret == ThreadFinished in the following.
       if (ret == ThreadFinished) {

@@ -186,7 +186,7 @@ Library {
         Foreign.StablePtr,
         Foreign.Storable,
         LwConc.Substrate,
-        LwConc.MVarPrim,
+        LwConc.MVar,
         LwConc.Schedulers.ConcRRSched,
         Numeric,
         Prelude,

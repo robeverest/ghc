@@ -9,7 +9,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  LWConc.MVarPrim
+-- Module      :  LWConc.MVar
 -- Copyright   :  (c) The University of Glasgow 2001
 -- License     :  BSD-style (see the file libraries/base/LICENSE)
 -- 
@@ -21,12 +21,12 @@
 --
 -----------------------------------------------------------------------------
 
-module LwConc.MVarPrim
-( MVarPrim
-, newMVarPrim       -- a -> IO (MVarPrim a)
-, newEmptyMVarPrim  -- IO (MVarPrim a)
-, putMVarPrim       -- PTM () -> PTM () -> MVarPrim a -> a -> IO ()
-, takeMVarPrim      -- PTM () -> PTM () -> MVarPrim a -> IO a
+module LwConc.MVar
+( MVar
+, newMVar       -- a -> IO (MVar a)
+, newEmptyMVar  -- IO (MVar a)
+, putMVar       -- MVar a -> a -> IO ()
+, takeMVar      -- MVar a -> IO a
 ) where
 
 import Prelude
@@ -35,24 +35,26 @@ import GHC.Prim
 import GHC.IORef
 
 
-newtype MVarPrim a = MVarPrim (PVar (MVPState a)) deriving (Eq)
+newtype MVar a = MVar (PVar (MVPState a)) deriving (Eq)
 data MVPState a = Full a [(a, PTM())]
                 | Empty [(IORef a, PTM())]
 
 
-newMVarPrim :: a -> IO (MVarPrim a)
-newMVarPrim x = do
+newMVar :: a -> IO (MVar a)
+newMVar x = do
   ref <- newPVarIO (Full x [])
-  return $ MVarPrim ref
+  return $ MVar ref
 
-newEmptyMVarPrim :: IO (MVarPrim a)
-newEmptyMVarPrim = do
+newEmptyMVar :: IO (MVar a)
+newEmptyMVar = do
   ref <- newPVarIO (Empty [])
-  return $ MVarPrim ref
+  return $ MVar ref
 
-{-# INLINE putMVarPrim #-}
-putMVarPrim :: PTM () -> PTM () -> MVarPrim a -> a -> IO ()
-putMVarPrim blockAct unblockAct (MVarPrim ref) x = atomically $ do
+{-# INLINE putMVar #-}
+putMVar :: MVar a -> a -> IO ()
+putMVar (MVar ref) x = atomically $ do
+  let blockAct = getSwitchToNextThread
+  let unblockAct = getResumeThread
   st <- readPVar ref
   case st of
        Empty [] -> do
@@ -63,17 +65,23 @@ putMVarPrim blockAct unblockAct (MVarPrim ref) x = atomically $ do
          wakeup
        Full x' ts -> do
          writePVar ref $ Full x' $ ts++[(x, unblockAct)]
+         sc <- getSCont
+         setThreadStatus sc BlockedOnConcDS
          blockAct
 
-{-# INLINE takeMVarPrim #-}
-takeMVarPrim :: PTM () -> PTM () -> MVarPrim a -> IO a
-takeMVarPrim blockAct unblockAct (MVarPrim ref) = do
+{-# INLINE takeMVar #-}
+takeMVar :: MVar a -> IO a
+takeMVar (MVar ref) = do
+  let blockAct = getSwitchToNextThread
+  let unblockAct = getResumeThread
   hole <- newIORef undefined
   atomically $ do
     st <- readPVar ref
     case st of
          Empty ts -> do
            writePVar ref $ Empty $ ts++[(hole, unblockAct)]
+           sc <- getSCont
+           setThreadStatus sc BlockedOnConcDS
            blockAct
          Full x [] -> do
            writePVar ref $ Empty []
