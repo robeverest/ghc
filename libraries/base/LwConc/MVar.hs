@@ -53,8 +53,6 @@ newEmptyMVar = do
 {-# INLINE putMVar #-}
 putMVar :: MVar a -> a -> IO ()
 putMVar (MVar ref) x = atomically $ do
-  let blockAct = getSwitchToNextThread
-  let unblockAct = getResumeThread
   st <- readPVar ref
   case st of
        Empty [] -> do
@@ -64,6 +62,8 @@ putMVar (MVar ref) x = atomically $ do
          writePVar ref $ Empty ts
          wakeup
        Full x' ts -> do
+         unblockAct <- getResumeThread
+         blockAct <- getSwitchToNextThread
          writePVar ref $ Full x' $ ts++[(x, unblockAct)]
          sc <- getSCont
          setThreadStatus sc BlockedOnConcDS
@@ -72,13 +72,13 @@ putMVar (MVar ref) x = atomically $ do
 {-# INLINE takeMVar #-}
 takeMVar :: MVar a -> IO a
 takeMVar (MVar ref) = do
-  let blockAct = getSwitchToNextThread
-  let unblockAct = getResumeThread
   hole <- newIORef undefined
   atomically $ do
     st <- readPVar ref
     case st of
          Empty ts -> do
+           blockAct <- getSwitchToNextThread
+           unblockAct <- getResumeThread
            writePVar ref $ Empty $ ts++[(hole, unblockAct)]
            sc <- getSCont
            setThreadStatus sc BlockedOnConcDS

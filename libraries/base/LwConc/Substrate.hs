@@ -51,9 +51,9 @@ module LwConc.Substrate
 #endif
 
 , setResumeThread         -- SCont -> PTM () -> IO ()
-, getResumeThread         -- PTM ()
+, getResumeThread         -- PTM (PTM ())
 , setSwitchToNextThread   -- SCont -> PTM () -> IO ()
-, getSwitchToNextThread   -- PTM ()
+, getSwitchToNextThread   -- PTM (PTM ())
 
 , setFinalizer            -- SCont -> IO () -> IO ()
 , defaultUpcall           -- IO ()
@@ -286,7 +286,7 @@ setResumeThread (SCont sc) r = IO $ \s ->
   case (setResumeThread# sc r s) of s -> (# s, () #)
 
 {-# INLINE getResumeThread #-}
-getResumeThread :: PTM ()
+getResumeThread :: PTM (PTM ())
 getResumeThread = PTM $ \s ->
   case (getSCont# s) of
        (# s, scont #) -> getResumeThread# scont s
@@ -297,7 +297,7 @@ setSwitchToNextThread (SCont sc) b = IO $ \s ->
   case (setSwitchToNextThread# sc b s) of s -> (# s, () #)
 
 {-# INLINE getSwitchToNextThread #-}
-getSwitchToNextThread :: PTM ()
+getSwitchToNextThread :: PTM (PTM ())
 getSwitchToNextThread = PTM $ \s ->
   case (getSCont# s) of
        (# s, scont #) -> getSwitchToNextThread# scont s

@@ -1,6 +1,6 @@
 import ConcRRSched
 import qualified LwConc.Substrate as Substrate
-import LwConc.MVarPrim
+import MVar
 import System.Environment
 
 task n = do
@@ -20,10 +20,8 @@ main = do
   let (n, maxTick) = parse args
   -- Define zombie task
   let zombie = do {
-    mv <- newEmptyMVarPrim;
-    s <- Substrate.atomically $ Substrate.getSCont;
-    (b, u) <- getSchedActionPair sched s;
-    takeMVarPrim b u mv;
+    mv <- newEmptyMVar;
+    takeMVar mv;
     print "Zombie: should not see this"
   }
   -- Define loop
@@ -43,4 +41,4 @@ main = do
   -- invoke loop
   loop 0 n
   yield sched
-  -- print "Main done"
+  print "Main done"
