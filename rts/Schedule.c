@@ -663,7 +663,7 @@ scheduleFindWork (Capability *cap)
 
 #if defined(THREADED_RTS)
   if (emptyRunQueue(cap) && !pendingUpcalls (cap->upcall_queue)) {
-    scheduleResumeBlockedOnForeignCall(cap);
+    //scheduleResumeBlockedOnForeignCall(cap);
     scheduleActivateSpark(cap);
   }
 #endif
@@ -1160,12 +1160,13 @@ schedulePostRunThread (Capability *cap, StgTSO *t)
 }
 
 /* -----------------------------------------------------------------------------
- * Handle a thread that returned to the scheduler with ThreadHeepOverflow
+ * Handle a thread that returned to the scheduler with ThreadHeapOverflow
  * -------------------------------------------------------------------------- */
 
   static rtsBool
 scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 {
+  IF_DEBUG (sanity, checkTSO (t));
   // did the task ask for a large block?
   if (cap->r.rHpAlloc > BLOCK_SIZE) {
     // if so, get one and push it on the front of the nursery.
@@ -2807,7 +2808,7 @@ resurrectThreads (StgTSO *threads)
 
     switch (tso->why_blocked) {
       case Yielded:
-        if (tso->finalizer != (StgClosure*)END_TSO_QUEUE)
+        if (tso->finalizer != (StgClosure*)defaultUpcall_closure)
           addFinalizerUpcall (cap, tso->finalizer);
         break;
       case BlockedOnConcDS:
