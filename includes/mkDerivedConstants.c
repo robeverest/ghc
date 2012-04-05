@@ -303,6 +303,7 @@ main(int argc, char *argv[])
     closure_field(StgTSO, bq);
     closure_field_("StgTSO_cccs", StgTSO, prof.cccs);
     closure_field(StgTSO, stackobj);
+    closure_field(StgTSO, is_upcall_thread);
 
     closure_field(StgStack, sp);
     closure_field_offset(StgStack, stack);
@@ -407,7 +408,7 @@ main(int argc, char *argv[])
 
     closure_size(MessageBlackHole);
     closure_field(MessageBlackHole, link);
-    closure_field(MessageBlackHole, tso);
+    closure_field(MessageBlackHole, upcall);
     closure_field(MessageBlackHole, bh);
 
     struct_field_("RtsFlags_ProfFlags_showCCSOnException",

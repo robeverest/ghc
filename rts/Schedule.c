@@ -941,7 +941,7 @@ scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
 
     //Add new upcall
     StgTSO* tso = incall->suspended_tso;
-    addSwitchToNextThreadUpcall (cap, tso->switch_to_next);
+    addUpcall (cap, getSwitchToNextThreadUpcall (cap, tso));
     relegateTask (cap, incall->task);
   }
   else {
@@ -2254,7 +2254,7 @@ resumeThread (void *task_)
   //Check whether a worker has resumed our scheduler
   if (incall->uls_stat == UserLevelSchedulerRunning) {
     //Evaluate the unblock action on the upcall thread
-    addResumeThreadUpcall (cap, tso->resume_thread);
+    addUpcall (cap, getResumeThreadUpcall (cap, tso));
     tso = prepareUpcallThread (cap, (StgTSO*)END_TSO_QUEUE);
   }
 #endif
@@ -2809,13 +2809,13 @@ resurrectThreads (StgTSO *threads)
     switch (tso->why_blocked) {
       case Yielded:
         if (tso->finalizer != (StgClosure*)defaultUpcall_closure)
-          addFinalizerUpcall (cap, tso->finalizer);
+          addUpcall (cap, getFinalizerUpcall (cap, tso));
         break;
       case BlockedOnConcDS:
         tso = throwToSingleThreaded (cap, tso,
                                      (StgClosure*)blockedIndefinitelyOnConcDS_closure);
         if (tso->what_next == ThreadRunGHC)
-          addResumeThreadUpcall (cap, tso->resume_thread);
+          addUpcall (cap, getResumeThreadUpcall (cap, tso));
         break;
       case BlockedOnMVar:
         barf ("resurrectThreads: BlockedOnMVar not implemented!");

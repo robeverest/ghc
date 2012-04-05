@@ -16,23 +16,22 @@
 #include "BeginPrivate.h"
 
 typedef WSDeque UpcallQueue;
+typedef StgClosure* Upcall;
 
 // Initialization
 UpcallQueue *allocUpcallQueue (void);
 
 // Add a new upcall
-void addResumeThreadUpcall       (Capability* cap, StgClosure* p);
-void addSwitchToNextThreadUpcall (Capability* cap, StgClosure* p);
-void addFinalizerUpcall          (Capability* cap, StgClosure* p);
+void addUpcall                     (Capability* cap, Upcall uc);
+
+Upcall getResumeThreadUpcall       (Capability* cap, StgTSO* tso);
+Upcall getSwitchToNextThreadUpcall (Capability* cap, StgTSO* tso);
+Upcall getFinalizerUpcall          (Capability* cap, StgTSO* tso);
 
 // Get an upcall from the capability's upcall queue. This could be a IO ()
 // action or a stack. Hence, immediately after picking up the upcall, check the
 // upcall kind using isSuspendedUpcall ().
 INLINE_HEADER StgClosure* popUpcallQueue (UpcallQueue* q);
-
-// returns true if the given upcall is a suspended upcall, i.e) it is a
-// reference to a StgStack.
-rtsBool isSuspendedUpcall (StgClosure* p);
 
 INLINE_HEADER long upcallQueueSize (UpcallQueue *q);
 INLINE_HEADER rtsBool pendingUpcalls (UpcallQueue *q);

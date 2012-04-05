@@ -24,46 +24,39 @@ allocUpcallQueue (void)
 }
 
 // Add a new upcall
-STATIC_INLINE void
-addUpcall (Capability* cap, StgClosure* p)
+void
+addUpcall (Capability* cap, Upcall uc)
 {
-  if (!pushWSDeque (cap->upcall_queue, p))
+  if (!pushWSDeque (cap->upcall_queue, uc))
     barf ("addUpcall overflow!!");
 }
 
-void
-addResumeThreadUpcall (Capability* cap, StgClosure* p)
+Upcall
+getResumeThreadUpcall (Capability* cap, StgTSO* t)
 {
   //See libraries/base/LwConc/Substrate.hs:resumeThread
+  StgClosure* p = t->resume_thread;
   p = rts_apply (cap, (StgClosure*)resumeThread_closure, p);
-  addUpcall (cap, p);
+  return p;
 }
 
-void
-addSwitchToNextThreadUpcall (Capability* cap, StgClosure* p)
+Upcall
+getSwitchToNextThreadUpcall (Capability* cap, StgTSO* t)
 {
   //See libraries/base/LwConc/Substrate.hs:switchToNextThread
+  StgClosure* p = t->switch_to_next;
   p = rts_apply (cap, (StgClosure*)switchToNextThread_closure, p);
   p = rts_apply (cap, p, rts_mkInt (cap, 4));
-  addUpcall (cap, p);
+  return p;
 }
 
-void
-addFinalizerUpcall (Capability* cap, StgClosure* p)
+Upcall
+getFinalizerUpcall (Capability* cap, StgTSO* t)
 {
-  addUpcall (cap, p);
+  StgClosure* p = t->finalizer;
+  return p;
 }
 
-// returns true if the given upcall is a suspended upcall, i.e) it is a
-// reference to a StgStack.
-rtsBool
-isSuspendedUpcall (StgClosure* p)
-{
-  return (get_itbl(p)->type == STACK);
-}
-
-
-// current_thread can be END_TSO_QUEUE if there is no current thread.
 
 StgTSO*
 prepareUpcallThread (Capability* cap, StgTSO* current_thread)

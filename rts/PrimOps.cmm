@@ -600,7 +600,7 @@ stg_decodeDoublezu2Intzh
  * Lightweight concurrency primitives
  * -------------------------------------------------------------------------- */
 
-STRING(stg_switch_msg,"Switching from thread %d to thread %d with status %s\n")
+STRING(stg_switch_msg,"Switching from thread %d (%s) to thread %d\n")
 STRING(stg_switch_reason_1, "Yielded")
 STRING(stg_switch_reason_2, "BlockedOnConcDS")
 STRING(stg_switch_reason_4, "ThreadComplete")
@@ -629,20 +629,22 @@ stg_atomicSwitchzh
   #if defined(DEBUG) || defined (TRACING)
   if (switch_reason == 1) {
     foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
-                            StgTSO_id(tso), stg_switch_reason_1) [];
+                            stg_switch_reason_1, StgTSO_id(tso)) [];
   }
   else {
     if (switch_reason == 2) {
       foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
-                            StgTSO_id(tso), stg_switch_reason_2) [];
+                            stg_switch_reason_2, StgTSO_id(tso)) [];
     }
     else {
       if (switch_reason == 4) {
         foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
-                                StgTSO_id(tso), stg_switch_reason_4) [];
+                                stg_switch_reason_4, StgTSO_id(tso)) [];
       }
       else {
-        foreign "C" barf ("Unknown switch reason %d", switch_reason) [];
+        foreign "C" debugBelch ("Switching from thread %d to %d\n",
+                                StgTSO_id(CurrentTSO), StgTSO_id(tso)) [];
+        foreign "C" barf ("Unexpected switch reason %d", switch_reason) [];
       }
     }
   }
@@ -720,7 +722,7 @@ stg_atomicSwitchzh
 
       if (TO_W_(StgStack_dirty(StgTSO_stackobj(CurrentTSO))) == 0) {
         foreign "C" dirty_STACK (MyCapability () "ptr",
-                                 StgTSO_stackobj(CurrentTSO) "ptr");
+                                 StgTSO_stackobj(CurrentTSO) "ptr") [];
       }
 
       CurrentTSO = tso;

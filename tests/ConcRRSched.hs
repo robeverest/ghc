@@ -59,7 +59,6 @@ createThread :: ConcRRSched -> IO () -> IO SCont
 createThread (ConcRRSched ref) task =
   let yieldingTask = do {
     {-Exn.try-} task;
-    print "Finishing";
     switchToNextAndFinish (ConcRRSched ref);
     print "ConcRRSched.forkIO: Should not see this!"
   }
