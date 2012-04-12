@@ -152,7 +152,7 @@ static rtsBool scheduleHandleHeapOverflow( Capability *cap, StgTSO *t );
 static rtsBool scheduleHandleYield( Capability *cap, StgTSO *t,
                                     nat prev_what_next );
 static void scheduleHandleThreadBlocked( StgTSO *t );
-static void scheduleHandleThreadSwitch( StgTSO *t );
+static void scheduleHandleThreadSwitch( Capability* cap, StgTSO *t );
 static rtsBool scheduleHandleThreadFinished( Capability *cap, Task *task,
                                              StgTSO *t );
 static rtsBool scheduleNeedHeapProfile(rtsBool ready_to_gc);
@@ -541,17 +541,16 @@ run_thread:
     if (ret == ThreadBlocked) {
       if (t->why_blocked == BlockedOnBlackHole) {
         StgTSO *owner = blackHoleOwner(t->block_info.bh->bh);
-        traceEventStopThread(cap, t, t->why_blocked + 6,
+        traceEventStopThread(cap, t, t->why_blocked + STOP_EVENT_OFFSET,
                              owner != NULL ? owner->id : 0);
       } else {
-        traceEventStopThread(cap, t, t->why_blocked + 6, 0);
+        traceEventStopThread(cap, t, t->why_blocked + STOP_EVENT_OFFSET, 0);
       }
     } else {
       traceEventStopThread(cap, t, ret, 0);
     }
 
     ASSERT_FULL_CAPABILITY_INVARIANTS(cap,task);
-    ASSERT(t->cap == cap);
 
     // ----------------------------------------------------------------------
 
@@ -594,7 +593,7 @@ run_thread:
         break;
 
       case ThreadSwitch:
-        scheduleHandleThreadSwitch (t);
+        scheduleHandleThreadSwitch (cap, t);
         goto more_upcalls;
         break;
 
@@ -1324,17 +1323,10 @@ static void
  * -------------------------------------------------------------------------- */
 
 static void
-  scheduleHandleThreadSwitch( StgTSO *t
-#if !defined(DEBUG)
-                              STG_UNUSED
-#endif
-                            )
+scheduleHandleThreadSwitch( Capability* cap, StgTSO *t)
 {
-
-  //Nothing to do here. Everything has been handled in Haskell land.
-#ifdef DEBUG
-  traceThreadStatus(DEBUG_sched, t);
-#endif
+  if (t->bound) { t->bound->task->cap = cap; }
+  t->cap = cap;
 }
 
 

@@ -168,25 +168,26 @@ static void tracePreface (void)
 
 #ifdef DEBUG
 static char *thread_stop_reasons[] = {
-    [HeapOverflow] = "heap overflow",
-    [StackOverflow] = "stack overflow",
-    [ThreadYielding] = "yielding",
-    [ThreadBlocked] = "blocked",
-    [ThreadFinished] = "finished",
-    [THREAD_SUSPENDED_FOREIGN_CALL] = "suspended while making a foreign call",
-    [6 + BlockedOnMVar]         = "blocked on an MVar",
-    [6 + BlockedOnBlackHole]    = "blocked on a black hole",
-    [6 + BlockedOnRead]         = "blocked on a read operation",
-    [6 + BlockedOnWrite]        = "blocked on a write operation",
-    [6 + BlockedOnDelay]        = "blocked on a delay operation",
-    [6 + BlockedOnSTM]          = "blocked on STM",
-    [6 + BlockedOnDoProc]       = "blocked on asyncDoProc",
-    [6 + BlockedOnCCall]        = "blocked on a foreign call",
-    [6 + BlockedOnCCall_Interruptible] = "blocked on a foreign call (interruptible)",
-    [6 + BlockedOnMsgThrowTo]   = "blocked on throwTo",
-    [6 + ThreadMigrating]       = "migrating",
-    [6 + BlockedOnConcDS]       = "blocked on a user-level concurrent data structure",
-    [6 + Yielded]               = "blocked on a user-level scheduler (Yielded)"
+    [HeapOverflow]                              = "heap overflow",
+    [StackOverflow]                             = "stack overflow",
+    [ThreadYielding]                            = "yielding",
+    [ThreadBlocked]                             = "blocked",
+    [ThreadFinished]                            = "finished",
+    [ThreadSwitch]                              = "switched to",
+    [THREAD_SUSPENDED_FOREIGN_CALL]             = "suspended while making a foreign call",
+    [STOP_EVENT_OFFSET + BlockedOnMVar]         = "blocked on an MVar",
+    [STOP_EVENT_OFFSET + BlockedOnBlackHole]    = "blocked on a black hole",
+    [STOP_EVENT_OFFSET + BlockedOnRead]         = "blocked on a read operation",
+    [STOP_EVENT_OFFSET + BlockedOnWrite]        = "blocked on a write operation",
+    [STOP_EVENT_OFFSET + BlockedOnDelay]        = "blocked on a delay operation",
+    [STOP_EVENT_OFFSET + BlockedOnSTM]          = "blocked on STM",
+    [STOP_EVENT_OFFSET + BlockedOnDoProc]       = "blocked on asyncDoProc",
+    [STOP_EVENT_OFFSET + BlockedOnCCall]        = "blocked on a foreign call",
+    [STOP_EVENT_OFFSET + BlockedOnCCall_Interruptible] = "blocked on a foreign call (interruptible)",
+    [STOP_EVENT_OFFSET + BlockedOnMsgThrowTo]   = "blocked on throwTo",
+    [STOP_EVENT_OFFSET + ThreadMigrating]       = "migrating",
+    [STOP_EVENT_OFFSET + BlockedOnConcDS]       = "blocked on a user-level concurrent data structure",
+    [STOP_EVENT_OFFSET + Yielded]               = "blocked on a user-level scheduler (Yielded)"
 };
 #endif
 
@@ -222,7 +223,7 @@ static void traceSchedEvent_stderr (Capability *cap, EventTypeNum tag,
         break;
 
     case EVENT_STOP_THREAD:     // (cap, thread, status)
-        if (info1 == 6 + BlockedOnBlackHole) {
+        if (info1 == STOP_EVENT_OFFSET + BlockedOnBlackHole) {
             debugBelch("cap %d: thread %lu stopped (blocked on black hole owned by thread %lu)\n",
                        cap->no, (lnat)tso->id, (long)info2);
         } else {

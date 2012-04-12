@@ -19,16 +19,15 @@ module ConcRRSched
 , ThreadStatus
 , newConcRRSched      -- IO (ConcRRSched)
 , forkIO              -- ConcRRSched -> IO () -> IO ()
+, forkOS              -- ConcRRSched -> IO () -> IO ()
 , yield               -- ConcRRSched -> IO ()
-, getSchedActionPair  -- ConcRRSched -> SCont -> IO (PTM (), PTM ())
-
-, createThread        -- ConcRRSched -> IO () -> IO SCont | Creates a thread but
-                      -- does not add it to the scheduler
+, newVProc            -- ConcRRSched -> IO ()
 ) where
 
 import LwConc.Substrate
 import qualified System.Exit as E
 import qualified Data.Sequence as Seq
+import qualified Control.Concurrent as Conc
 -- import qualified Control.OldException as Exn
 
 newtype ConcRRSched = ConcRRSched (PVar (Seq.Seq SCont))
@@ -43,6 +42,22 @@ newConcRRSched = do
    -- Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
   return $ ConcRRSched (ref)
 
+newVProc :: ConcRRSched -> IO ()
+newVProc sched = do
+  let init = do {
+    s <- getSContIO;
+    (b,u) <- getSchedActionPairPrim sched;
+    setResumeThread s $ u s;
+    setSwitchToNextThread s b;
+  }
+  let loop = do {
+    yield sched;
+    loop
+  }
+  Conc.forkOn 1 $ init >> loop
+  return ()
+
+
 switchToNextAndFinish :: ConcRRSched -> IO ()
 switchToNextAndFinish (ConcRRSched ref) = atomically $ do
   contents <- readPVar ref
@@ -55,28 +70,33 @@ switchToNextAndFinish (ConcRRSched ref) = atomically $ do
           switchTo x
        }
 
-createThread :: ConcRRSched -> IO () -> IO SCont
-createThread (ConcRRSched ref) task =
+data SContKind = Bound | Unbound
+
+fork :: ConcRRSched -> IO () -> SContKind -> IO ()
+fork (ConcRRSched ref) task kind = do
   let yieldingTask = do {
     {-Exn.try-} task;
     switchToNextAndFinish (ConcRRSched ref);
     print "ConcRRSched.forkIO: Should not see this!"
   }
-  in do {
-    s <- newSCont yieldingTask;
-    (b,u) <- getSchedActionPairPrim (ConcRRSched ref);
-    setResumeThread s $ u s;
-    setSwitchToNextThread s b;
-      -- Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
-    return s
-    }
-
-forkIO :: ConcRRSched -> IO () -> IO ()
-forkIO (ConcRRSched ref) task = do
-  thread <- createThread (ConcRRSched ref) task
+  let makeSCont = case kind of
+                    Bound -> newBoundSCont
+                    Unbound -> newSCont
+  s <- makeSCont yieldingTask;
+  (b,u) <- getSchedActionPairPrim (ConcRRSched ref);
+  setResumeThread s $ u s;
+  setSwitchToNextThread s b;
+  -- Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
   atomically $ do
     contents <- readPVar ref
-    writePVar ref $ contents Seq.|> thread
+    writePVar ref $ contents Seq.|> s
+
+forkIO :: ConcRRSched -> IO () -> IO ()
+forkIO sched task = fork sched task Unbound
+
+
+forkOS :: ConcRRSched -> IO () -> IO ()
+forkOS sched task = fork sched task Bound
 
 switchToNextWith :: ConcRRSched -> (Seq.Seq SCont -> Seq.Seq SCont) -> PTM ()
 switchToNextWith (ConcRRSched ref) f = do

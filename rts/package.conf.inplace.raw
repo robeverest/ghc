@@ -326,12 +326,12 @@ hidden-modules:
 
 import-dirs:
 
-library-dirs:		"/home/t-sichan/ghc-7.4.1-lwc""/rts/dist/build"
+library-dirs:		"/home/t-sichan/ghc-7.4.1-lwc""/rts/dist/build" 
 
 hs-libraries:   "HSrts"
 
 extra-libraries:
-                		"m"
+                		"m"		
 			      , "rt"
 			      , "dl"
 
