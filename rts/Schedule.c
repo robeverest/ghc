@@ -1323,8 +1323,8 @@ static void
  * -------------------------------------------------------------------------- */
 
 static void
-scheduleHandleThreadSwitch( Capability* cap STG_UNUSED,
-                            StgTSO *t STG_UNUSED)
+scheduleHandleThreadSwitch( Capability* cap,
+                            StgTSO *t)
 {
   if (t->bound) { t->bound->task->cap = cap; }
   t->cap = cap;
