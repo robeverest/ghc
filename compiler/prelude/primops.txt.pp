@@ -1847,6 +1847,10 @@ primop DefaultUpcallError "defaultUpcallError#" GenPrimOp
   out_of_line = True
   has_side_effects = True
 
+primop ScheduleThreadOnFreeCap "scheduleThreadOnFreeCap#" GenPrimOp
+  SCont# -> State# RealWorld -> State# RealWorld
+  with out_of_line = True
+  has_side_effects = True
 
 ------------------------------------------------------------------------
 section "Weak pointers"

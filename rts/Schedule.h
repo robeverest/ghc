@@ -33,6 +33,8 @@ void scheduleThread (Capability *cap, StgTSO *tso);
 // the desired Capability).
 void scheduleThreadOn(Capability *cap, StgWord cpu, StgTSO *tso);
 
+void scheduleThreadOnFreeCap (Capability *cap, StgTSO *tso);
+
 /* wakeUpRts()
  *
  * Causes an OS thread to wake up and run the scheduler, if necessary.

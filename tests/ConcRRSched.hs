@@ -44,19 +44,15 @@ newConcRRSched = do
 
 newVProc :: ConcRRSched -> IO ()
 newVProc sched = do
-  let init = do {
-    s <- getSContIO;
-    (b,u) <- getSchedActionPairPrim sched;
-    setResumeThread s $ u s;
-    setSwitchToNextThread s b;
-  }
   let loop = do {
     yield sched;
     loop
   }
-  Conc.forkOn 1 $ init >> loop
-  return ()
-
+  s <- newBoundSCont $ print "Running VProc" >> loop
+  (b,u) <- getSchedActionPairPrim sched;
+  setResumeThread s $ u s;
+  setSwitchToNextThread s b;
+  scheduleThreadOnFreeCap s
 
 switchToNextAndFinish :: ConcRRSched -> IO ()
 switchToNextAndFinish (ConcRRSched ref) = atomically $ do

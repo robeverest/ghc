@@ -605,6 +605,17 @@ STRING(stg_switch_reason_1, "Yielded")
 STRING(stg_switch_reason_2, "BlockedOnConcDS")
 STRING(stg_switch_reason_4, "ThreadComplete")
 
+stg_scheduleThreadOnFreeCapzh
+{
+  /* args: R1 = scont */
+
+  W_ scont;
+  scont = R1;
+
+  foreign "C" scheduleThreadOnFreeCap (MyCapability () "ptr", scont "ptr") [];
+  jump %ENTRY_CODE(Sp(0));
+}
+
 stg_defaultUpcallErrorzh
 {
   /* args: no args */
@@ -642,9 +653,14 @@ stg_atomicSwitchzh
                                 stg_switch_reason_4, StgTSO_id(tso)) [];
       }
       else {
-        foreign "C" debugBelch ("Switching from thread %d to %d\n",
+        if (switch_reason == 0 && StgTSO_id(CurrentTSO) == StgTSO_id(tso)) {
+          foreign "C" debugBelch ("Self-switching thread %d\n", StgTSO_id(CurrentTSO)) [];
+        }
+        else {
+          foreign "C" debugBelch ("Switching from thread %d to %d\n",
                                 StgTSO_id(CurrentTSO), StgTSO_id(tso)) [];
-        foreign "C" barf ("Unexpected switch reason %d", switch_reason) [];
+          foreign "C" barf ("Unexpected switch reason %d", switch_reason) [];
+        }
       }
     }
   }

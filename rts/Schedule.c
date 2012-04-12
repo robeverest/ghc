@@ -1323,7 +1323,8 @@ static void
  * -------------------------------------------------------------------------- */
 
 static void
-scheduleHandleThreadSwitch( Capability* cap, StgTSO *t)
+scheduleHandleThreadSwitch( Capability* cap STG_UNUSED,
+                            StgTSO *t STG_UNUSED)
 {
   if (t->bound) { t->bound->task->cap = cap; }
   t->cap = cap;
@@ -2287,7 +2288,7 @@ scheduleThread(Capability *cap, StgTSO *tso)
   appendToRunQueue(cap,tso);
 }
 
-  void
+void
 scheduleThreadOn(Capability *cap, StgWord cpu USED_IF_THREADS, StgTSO *tso)
 {
   tso->flags |= TSO_LOCKED; // we requested explicit affinity; don't
@@ -2304,10 +2305,50 @@ scheduleThreadOn(Capability *cap, StgWord cpu USED_IF_THREADS, StgTSO *tso)
 #endif
 }
 
-  void
-scheduleWaitThread (StgTSO* tso, /*[out]*/HaskellObj* ret,
-                    Capability **pcap, rtsBool skipAppend)
-{
+void scheduleThreadOnFreeCap (Capability* cap USED_IF_THREADS,
+                              StgTSO *tso USED_IF_THREADS) {
+#if defined(THREADED_RTS)
+  Capability* cap0;
+  Task* task = cap->running_task;
+  nat i;
+  rtsBool done = rtsFalse;
+
+  tso->flags |= TSO_LOCKED; //request affinity
+
+retry:
+  for (i=0; i < n_capabilities; i++) {
+    cap0 = &capabilities[i];
+    if (cap != cap0 && tryGrabCapability(cap0,task)) {
+      if (!emptyRunQueue(cap0)
+          || cap->returning_tasks_hd != NULL
+          || cap->inbox != (Message*)END_TSO_QUEUE) {
+        // it already has some work, we just grabbed it at
+        // the wrong moment.  Or maybe it's deadlocked!
+        releaseCapability(cap0);
+      } else {
+        done = rtsTrue;
+        break;
+      }
+    }
+  }
+
+  if (!done) goto retry;
+  tso->cap = cap0;
+  ASSERT (tso->bound);
+  tso->bound->task->cap = cap0;
+  appendToRunQueue (cap0, tso);
+  releaseAndWakeupCapability (cap0);
+
+  //Restore original capability
+  cap->running_task->cap = cap;
+
+#else
+  barf ("scheduleThreadOnFreeCap undefined on un-threaded rts\n");
+#endif
+}
+
+void scheduleWaitThread (StgTSO* tso, /*[out]*/HaskellObj* ret,
+                         Capability **pcap, rtsBool skipAppend) {
   Task *task;
   DEBUG_ONLY( StgThreadID id );
   Capability *cap;

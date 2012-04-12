@@ -58,6 +58,8 @@ module LwConc.Substrate
 , setFinalizer            -- SCont -> IO () -> IO ()
 , defaultUpcall           -- IO ()
 
+, scheduleThreadOnFreeCap -- SCont -> IO ()
+
 -- XXX The following should not be used directly. Only exposed since the RTS
 -- cannot find it otherwise. TODO: Hide them. - KC
 
@@ -372,3 +374,20 @@ newBoundSCont action0
         freeStablePtr entry
         return s
   | otherwise = failNonThreaded
+
+
+----------------------------------------------------------------------------
+-- Spinning up more schedulers (Unstable)
+
+-- Given a bound thread, assigns it a free capability
+----------------------------------------------------------------------------
+
+scheduleThreadOnFreeCap :: SCont -> IO ()
+scheduleThreadOnFreeCap (SCont s) = do
+  isBound <- isThreadBound $ SCont s
+  if not isBound
+    then do
+      print "LwConc.Substrate.newVProc: Given SCont unbound!!"
+      undefined
+    else
+      IO $ \st -> case scheduleThreadOnFreeCap# s st of st -> (# st, () #)
