@@ -265,7 +265,7 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
       {
         if (tso->_link == END_TSO_QUEUE) {
           tso->block_info.closure = (StgClosure*)END_TSO_QUEUE;
-          goto unblock;
+          goto unblock2;
         } else {
           return;
         }
@@ -286,13 +286,15 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
         // remove the block frame from the stack
         ASSERT(tso->stackobj->sp[0] == (StgWord)&stg_block_throwto_info);
         tso->stackobj->sp += 3;
-        goto unblock;
+        goto unblock2;
       }
 
     case BlockedOnBlackHole:
     case BlockedOnSTM:
+      goto unblock1;
+
     case ThreadMigrating:
-      goto unblock;
+      goto unblock2;
 
     case BlockedOnConcDS:
     case Yielded:
@@ -301,24 +303,17 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
       return;
   }
 
-unblock:
+unblock1:
   // just run the thread now, if the BH is not really available,
   // we'll block again.
   tso->why_blocked = NotBlocked;
   addUpcall (cap, getResumeThreadUpcall (cap, tso));
+  return;
 
-  // We used to set the context switch flag here, which would
-  // trigger a context switch a short time in the future (at the end
-  // of the current nursery block).  The idea is that we have just
-  // woken up a thread, so we may need to load-balance and migrate
-  // threads to other CPUs.  On the other hand, setting the context
-  // switch flag here unfairly penalises the current thread by
-  // yielding its time slice too early.
-  //
-  // The synthetic benchmark nofib/smp/chan can be used to show the
-  // difference quite clearly.
-
-  // cap->context_switch = 1;
+unblock2:
+  tso->why_blocked = NotBlocked;
+  appendToRunQueue(cap,tso);
+  return;
 }
 
 
