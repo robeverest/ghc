@@ -35,8 +35,7 @@ module LwConc.Substrate
 
 , SCont
 , ThreadStatus (..)
-, setThreadStatus         -- SCont -> ThreadStatus -> PTM ()
-, getThreadStatus         -- SCont -> PTM ThreadStatus
+, setCurrentSContStatus   -- ThreadStatus -> PTM ()
 
 , newSCont                -- IO () -> IO SCont
 , switch                  -- (SCont -> PTM SCont) -> IO ()
@@ -58,7 +57,7 @@ module LwConc.Substrate
 , setFinalizer            -- SCont -> IO () -> IO ()
 , defaultUpcall           -- IO ()
 
-, scheduleThreadOnFreeCap -- SCont -> IO ()
+, scheduleSContOnFreeCap -- SCont -> IO ()
 
 -- XXX The following should not be used directly. Only exposed since the RTS
 -- cannot find it otherwise. TODO: Hide them. - KC
@@ -215,17 +214,23 @@ getIntFromStatus x = case x of
                           BlockedOnBlackHole -> 3#
                           Completed -> 4#
 
-{-# INLINE getThreadStatus #-}
-getThreadStatus :: SCont -> PTM ThreadStatus
-getThreadStatus (SCont sc) = do
+{-# INLINE getSContStatus #-}
+getSContStatus :: SCont -> PTM ThreadStatus
+getSContStatus (SCont sc) = do
   st <- PTM $ \s -> case getStatusTVar# sc s of (# s, st #) -> (# s, PVar st #)
   readPVar st
 
-{-# INLINE setThreadStatus #-}
-setThreadStatus :: SCont -> ThreadStatus -> PTM ()
-setThreadStatus (SCont sc) status = do
+{-# INLINE setSContStatus #-}
+setSContStatus :: SCont -> ThreadStatus -> PTM ()
+setSContStatus (SCont sc) status = do
   st <- PTM $ \s -> case getStatusTVar# sc s of (# s, st #) -> (# s, PVar st #)
   writePVar st status
+
+{-# INLINE setCurrentSContStatus #-}
+setCurrentSContStatus :: ThreadStatus -> PTM ()
+setCurrentSContStatus status = do
+  s <- getSCont
+  setSContStatus s status
 
 -----------------------------------------------------------------------------------
 
@@ -239,10 +244,10 @@ newSCont x = do
 switchTo :: SCont -> PTM ()
 switchTo targetSCont = do
   -- Set target to Running
-  setThreadStatus targetSCont Running
+  setSContStatus targetSCont Running
   -- Get Int# version of current thread's status to pass to atomicSwitch#
   currentSCont <- getSCont
-  status <- getThreadStatus currentSCont
+  status <- getSContStatus currentSCont
   let intStatus = getIntFromStatus status
   let SCont targetSCont# = targetSCont
   PTM $ \s ->
@@ -278,8 +283,7 @@ resumeThread r = atomically r
 {-# INLINE switchToNextThread #-}
 switchToNextThread :: PTM () -> Int -> IO () -- used by RTS
 switchToNextThread s i = atomically $ do
-  currentSCont <- getSCont
-  setThreadStatus currentSCont $ getStatusFromInt i
+  setCurrentSContStatus $ getStatusFromInt i
   s
 
 {-# INLINE setResumeThread #-}
@@ -346,6 +350,7 @@ newBoundSCont :: IO () -> IO SCont
 newBoundSCont action0
   | rtsSupportsBoundThreads = do
         b <- Exception.getMaskingState
+        callingSCont <- getSContIO
         let
             -- async exceptions are masked in the child if they are masked
             -- in the parent, as for forkIO (see #1048). forkOS_createThread
@@ -354,7 +359,11 @@ newBoundSCont action0
                         Unmasked -> unsafeUnmask action0
                         MaskedInterruptible -> action0
                         MaskedUninterruptible -> uninterruptibleMask_ action0
-            action_plus = Exception.catch action1 childHandler
+            action2 = switchback >> action1
+                      where switchback = atomically $ do
+                                            setCurrentSContStatus Yielded
+                                            switchTo callingSCont
+            action_plus = Exception.catch action2 childHandler
         s <- newSCont action_plus
         entry <- newStablePtr s
         err <- forkOS_createThreadForSCont entry
@@ -371,6 +380,16 @@ newBoundSCont action0
                }
         }
         wait
+        -- At this point we know that a new OS thread and a bound task have been
+        -- created and the bound SCont's TSO structure has been marked as bound.
+        -- But we need to make sure that new bound task has entered the schedule
+        -- () loop and has yielded the capability. Hence, we switch to and
+        -- switch back (action2 above) from the new bound task.
+        atomically $ do {
+          setCurrentSContStatus Yielded;
+          switchTo s
+        }
+        -- We are back.
         freeStablePtr entry
         return s
   | otherwise = failNonThreaded
@@ -382,8 +401,8 @@ newBoundSCont action0
 -- Given a bound thread, assigns it a free capability
 ----------------------------------------------------------------------------
 
-scheduleThreadOnFreeCap :: SCont -> IO ()
-scheduleThreadOnFreeCap (SCont s) = do
+scheduleSContOnFreeCap :: SCont -> IO ()
+scheduleSContOnFreeCap (SCont s) = do
   isBound <- isThreadBound $ SCont s
   if not isBound
     then do

@@ -2363,12 +2363,12 @@ void scheduleWaitThread (StgTSO* tso, /*[out]*/HaskellObj* ret,
 
   // This TSO is now a bound thread; make the Task and TSO
   // point to each other.
-  tso->bound = task->incall;
   tso->cap = cap;
 
   task->incall->tso = tso;
   task->incall->ret = ret;
   task->incall->stat = NoStatus;
+  tso->bound = task->incall;
 
   if (!skipAppend)
     appendToRunQueue(cap,tso);

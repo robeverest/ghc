@@ -52,7 +52,7 @@ newVProc sched = do
   (b,u) <- getSchedActionPairPrim sched;
   setResumeThread s $ u s;
   setSwitchToNextThread s b;
-  scheduleThreadOnFreeCap s
+  scheduleSContOnFreeCap s
 
 switchToNextAndFinish :: ConcRRSched -> IO ()
 switchToNextAndFinish (ConcRRSched ref) = atomically $ do
@@ -61,8 +61,7 @@ switchToNextAndFinish (ConcRRSched ref) = atomically $ do
        (Seq.viewl -> Seq.EmptyL) -> undefined
        (Seq.viewl -> x Seq.:< tail) -> do {
           writePVar ref $ tail;
-          currentSCont <- getSCont;
-          setThreadStatus currentSCont Completed;
+          setCurrentSContStatus Completed;
           switchTo x
        }
 
@@ -114,12 +113,8 @@ enque (ConcRRSched ref) s = do
 yield :: ConcRRSched -> IO ()
 yield sched = atomically $ do
   s <- getSCont
-  setThreadStatus s Yielded
+  setCurrentSContStatus Yielded
   switchToNextWith sched (\tail -> tail Seq.|> s)
-
--- blockAction must be called by the thread t whose SCont corresponds to the
--- Scont passed to the getSchedActionPair function.  unblockAction must be
--- called by a thread other than t, which adds t back to its scheduler.
 
 getSchedActionPairPrim :: ConcRRSched -> IO (PTM (), SCont -> PTM ())
 getSchedActionPairPrim sched = do
@@ -127,8 +122,3 @@ getSchedActionPairPrim sched = do
   let unblockAction s = do
       enque sched s
   return (blockAction, unblockAction)
-
-getSchedActionPair :: ConcRRSched -> SCont -> IO (PTM (), PTM ())
-getSchedActionPair sched s = do
-  (b, u) <- getSchedActionPairPrim sched
-  return (setThreadStatus s BlockedOnConcDS >> b, u s)
