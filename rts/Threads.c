@@ -290,9 +290,9 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
       }
 
     case BlockedOnBlackHole:
-    case BlockedOnSTM:
       goto unblock1;
 
+    case BlockedOnSTM:
     case ThreadMigrating:
       goto unblock2;
 

@@ -600,7 +600,7 @@ stg_decodeDoublezu2Intzh
  * Lightweight concurrency primitives
  * -------------------------------------------------------------------------- */
 
-STRING(stg_switch_msg,"Switching from thread %d (%s) to thread %d\n")
+STRING(stg_switch_msg,"Switching from thread %d (%s) to thread %d [%d]\n")
 STRING(stg_switch_reason_1, "Yielded")
 STRING(stg_switch_reason_2, "BlockedOnConcDS")
 STRING(stg_switch_reason_4, "ThreadComplete")
@@ -631,6 +631,7 @@ stg_atomicSwitchzh
    */
   W_ tso, switch_reason;
   W_ frame_type, frame, trec, outer, valid, limit, q, next_invariant;
+  W_ cap;
 
   MAYBE_GC (R1_PTR, stg_atomicSwitchzh); // STM operations may allocate
 
@@ -638,19 +639,23 @@ stg_atomicSwitchzh
   switch_reason = R2;
 
   #if defined(DEBUG) || defined (TRACING)
+  cap = MyCapability ();
   if (switch_reason == 1) {
     foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
-                            stg_switch_reason_1, StgTSO_id(tso)) [];
+                            stg_switch_reason_1, StgTSO_id(tso),
+                            Capability_no(cap)) [];
   }
   else {
     if (switch_reason == 2) {
       foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
-                            stg_switch_reason_2, StgTSO_id(tso)) [];
+                              stg_switch_reason_2, StgTSO_id(tso),
+                              Capability_no(cap)) [];
     }
     else {
       if (switch_reason == 4) {
         foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
-                                stg_switch_reason_4, StgTSO_id(tso)) [];
+                                stg_switch_reason_4, StgTSO_id(tso),
+                                Capability_no(cap)) [];
       }
       else {
         if (switch_reason == 0 && StgTSO_id(CurrentTSO) == StgTSO_id(tso)) {
@@ -743,6 +748,7 @@ stg_atomicSwitchzh
 
       CurrentTSO = tso;
       StgTSO_why_blocked(CurrentTSO) = NotBlocked::I16;
+      StgTSO_cap(CurrentTSO) = MyCapability ();
       ("ptr" limit)  = foreign "C" tso_SpLim (tso "ptr") [];
       SpLim = limit;
       Sp = StgStack_sp(StgTSO_stackobj(CurrentTSO));

@@ -1,15 +1,13 @@
+{-# LANGUAGE BangPatterns #-}
+
 import ConcRRSched
-import LwConc.Substrate
+import Data.IORef (atomicModifyIORef, newIORef)
 import qualified GHC.Conc as C
 import System.Environment
 
 task _ 0 = return ()
 task p n = do
-  let d = if n `mod` 2 == 0 then 1 else -1
-  atomically $ do {
-      c <- readPVar p;
-      writePVar p $ c + d
-  }
+  atomicModifyIORef p $ \a -> let !b = a+1 in (b,b)
   task p $ n - 1
 
 loop _ p 0 = return ()
@@ -33,7 +31,7 @@ main = do
   sched <- newConcRRSched
   n <- C.getNumCapabilities
   spawnScheds sched $ n-1
-  p <- newPVarIO 0
+  p <- newIORef 0
   loop sched p $ parse args
   yield sched
   print "Main done"

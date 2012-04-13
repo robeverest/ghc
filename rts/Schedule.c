@@ -2334,8 +2334,11 @@ retry:
 
   if (!done) goto retry;
   tso->cap = cap0;
+
   ASSERT (tso->bound);
+  ACQUIRE_LOCK(&tso->bound->task->lock);
   tso->bound->task->cap = cap0;
+  RELEASE_LOCK(&tso->bound->task->lock);
   appendToRunQueue (cap0, tso);
   releaseAndWakeupCapability (cap0);
 
