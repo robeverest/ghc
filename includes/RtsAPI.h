@@ -127,6 +127,7 @@ extern "C" {
   // acquires a token which may be used to create new objects and
   // evaluate them.
   Capability *rts_lock (void);
+  void rts_lockWithCapability (Capability *cap);
 
   // releases the token acquired with rts_lock().
   void rts_unlock (Capability *token);

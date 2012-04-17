@@ -12,7 +12,7 @@ task p n = do
 
 loop _ p 0 = return ()
 loop sched p n = do
-  forkIO sched $ task p 10000
+  forkIO sched $ task p 100000
   loop sched p $ n-1
 
 spawnScheds _ 0 = return ()

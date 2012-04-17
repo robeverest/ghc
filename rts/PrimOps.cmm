@@ -769,6 +769,21 @@ stg_atomicSwitchzh
   }
 }
 
+stg_iCanRunzh
+{
+  /* args: R1 = SCont */
+
+  W_ scont, result;
+  scont = R1;
+  if (StgTSO_cap(scont) == MyCapability ()) {
+    result = 1;
+  }
+  else {
+    result = 0;
+  }
+  RET_N(result);
+}
+
 /* Set the resume thread closure for the given TSO. This closure, when
  * evaluated, will add the given thread to its user-level scheduler.
  */

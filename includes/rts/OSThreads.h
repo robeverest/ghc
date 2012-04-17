@@ -216,6 +216,13 @@ void setThreadAffinity     (nat n, nat m);
 // Support for forkOS (defined regardless of THREADED_RTS, but does
 // nothing when !THREADED_RTS).
 //
+
+typedef struct {
+  HsStablePtr entry;
+  Capability* cap;
+} CreateTaskForSContArgs;
+
+
 int forkOS_createThread ( HsStablePtr entry );
 int forkOS_createThreadForSCont ( HsStablePtr entry );
 

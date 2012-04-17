@@ -57,7 +57,11 @@ module LwConc.Substrate
 , setFinalizer            -- SCont -> IO () -> IO ()
 , defaultUpcall           -- IO ()
 
-, scheduleSContOnFreeCap -- SCont -> IO ()
+-- experimental
+, scheduleSContOnFreeCap  -- SCont -> IO ()
+, iCanRun                 -- SCont -> PTM Bool
+                          -- Whether the given SCont can be run on the current
+                          -- capability.
 
 -- XXX The following should not be used directly. Only exposed since the RTS
 -- cannot find it otherwise. TODO: Hide them. - KC
@@ -339,6 +343,22 @@ isThreadBound (SCont sc) = IO $ \ s# ->
     case isThreadBound# sc s# of
         (# s2#, flg #) -> (# s2#, not (flg ==# 0#) #)
 
+
+isThreadBoundPTM :: SCont -> PTM Bool
+isThreadBoundPTM (SCont sc) = PTM $ \ s# ->
+    case isThreadBound# sc s# of
+        (# s2#, flg #) -> (# s2#, not (flg ==# 0#) #)
+
+iCanRun :: SCont -> PTM Bool
+iCanRun (SCont sc) = do
+  b <- isThreadBoundPTM $ SCont sc
+  if not b
+     then return True
+     else
+      PTM $ \s -> case iCanRun# sc s of
+                       (# s, flg #) -> (# s, not (flg ==# 0#) #)
+
+
 failNonThreaded :: IO a
 failNonThreaded = fail $ "RTS doesn't support multiple OS threads "
                        ++"(use ghc -threaded when linking)"
@@ -384,7 +404,7 @@ newBoundSCont action0
         -- created and the bound SCont's TSO structure has been marked as bound.
         -- But we need to make sure that new bound task has entered the schedule
         -- () loop and has yielded the capability. Hence, we switch to and
-        -- switch back (action2 above) from the new bound task.
+        -- switch back (see action2 above) from the new bound task.
         atomically $ do {
           setCurrentSContStatus Yielded;
           switchTo s

@@ -55,15 +55,25 @@ newVProc sched = do
   scheduleSContOnFreeCap s
 
 switchToNextAndFinish :: ConcRRSched -> IO ()
-switchToNextAndFinish (ConcRRSched ref) = atomically $ do
-  contents <- readPVar ref
+switchToNextAndFinish (ConcRRSched ref) =
+  let body = do {
+  contents <- readPVar ref;
   case contents of
        (Seq.viewl -> Seq.EmptyL) -> undefined
-       (Seq.viewl -> x Seq.:< tail) -> do {
-          writePVar ref $ tail;
-          setCurrentSContStatus Completed;
-          switchTo x
-       }
+       (Seq.viewl -> x Seq.:< tail) -> do
+          canRun <- iCanRun x
+          if canRun
+            then do {
+              writePVar ref $ tail;
+              setCurrentSContStatus Completed;
+              switchTo x
+            }
+            else do {
+              enque (ConcRRSched ref) x;
+              body
+            }
+  }
+  in atomically $ body
 
 data SContKind = Bound | Unbound
 
@@ -95,13 +105,20 @@ forkOS sched task = fork sched task Bound
 
 switchToNextWith :: ConcRRSched -> (Seq.Seq SCont -> Seq.Seq SCont) -> PTM ()
 switchToNextWith (ConcRRSched ref) f = do
-  contents <- readPVar ref
+  contents <- readPVar ref;
   case f contents of
-       (Seq.viewl -> Seq.EmptyL) -> undefined
-       (Seq.viewl -> x Seq.:< tail) -> do {
-          writePVar ref $ tail;
-          switchTo x
-       }
+      (Seq.viewl -> Seq.EmptyL) -> undefined
+      (Seq.viewl -> x Seq.:< tail) -> do
+        canRun <-iCanRun x
+        if canRun
+          then do {
+            writePVar ref $ tail;
+            switchTo x
+          }
+          else do {
+            enque (ConcRRSched ref) x;
+            switchToNextWith (ConcRRSched ref) (\x -> x)
+          }
 
 enque :: ConcRRSched -> SCont -> PTM ()
 enque (ConcRRSched ref) s = do

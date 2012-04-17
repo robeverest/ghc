@@ -437,8 +437,6 @@ giveCapabilityToTask (Capability *cap USED_IF_DEBUG, Task *task)
   debugTrace(DEBUG_sched, "passing capability %d to %s %p",
              cap->no, task->incall->tso ? "bound task" : "worker",
              (void *)task);
-  debugTrace (DEBUG_sched, "task(%p)->cap->no = %d", (void*)task->id,
-              task->cap->no);
   ASSERT(task->cap == cap);
   ACQUIRE_LOCK(&task->lock);
   if (task->wakeup == rtsFalse) {

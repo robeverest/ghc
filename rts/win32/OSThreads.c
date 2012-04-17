@@ -243,7 +243,7 @@ forkOS_createThread ( HsStablePtr entry )
 			   (unsigned*)&pId) == 0);
 }
 
-int forkOS_createThreadForSCont ( HsStablePtr entry )
+int forkOS_createThreadForSCont ( Capability* cap, HsStablePtr entry )
 {
   return -1;
 }

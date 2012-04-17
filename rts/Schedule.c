@@ -550,7 +550,16 @@ run_thread:
       traceEventStopThread(cap, t, ret, 0);
     }
 
-    ASSERT_FULL_CAPABILITY_INVARIANTS(cap,task);
+#ifdef DEBUG
+    //If switching from bound thread, the bound task might have migrated
+    //capabilites. If so, task->cap == cap would not hold.
+    if (ret == ThreadSwitch) {
+      ASSERT_PARTIAL_CAPABILITY_INVARIANTS (cap, task);
+    }
+    else {
+      ASSERT_FULL_CAPABILITY_INVARIANTS(cap,task);
+    }
+#endif
 
     // ----------------------------------------------------------------------
 
@@ -1323,11 +1332,12 @@ static void
  * -------------------------------------------------------------------------- */
 
 static void
-scheduleHandleThreadSwitch( Capability* cap,
-                            StgTSO *t)
+scheduleHandleThreadSwitch( Capability* cap USED_IF_THREADS,
+                            StgTSO *t USED_IF_THREADS)
 {
-  if (t->bound) { t->bound->task->cap = cap; }
+#ifdef THREADED_RTS
   t->cap = cap;
+#endif
 }
 
 
@@ -2305,6 +2315,7 @@ scheduleThreadOn(Capability *cap, StgWord cpu USED_IF_THREADS, StgTSO *tso)
 #endif
 }
 
+//tso must be bound and its associated task must be sleeping.
 void scheduleThreadOnFreeCap (Capability* cap USED_IF_THREADS,
                               StgTSO *tso USED_IF_THREADS) {
 #if defined(THREADED_RTS)
@@ -2337,6 +2348,9 @@ retry:
 
   ASSERT (tso->bound);
   ACQUIRE_LOCK(&tso->bound->task->lock);
+  debugTrace (DEBUG_sched,
+              "Scheduling bound task %p with tso %d on Capability %d",
+              (void*)task->id, tso->id, cap0->no);
   tso->bound->task->cap = cap0;
   RELEASE_LOCK(&tso->bound->task->lock);
   appendToRunQueue (cap0, tso);

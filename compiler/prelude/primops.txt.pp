@@ -1852,6 +1852,11 @@ primop ScheduleThreadOnFreeCap "scheduleThreadOnFreeCap#" GenPrimOp
   with out_of_line = True
   has_side_effects = True
 
+primop ICanRunOp "iCanRun#" GenPrimOp
+  SCont# -> State# RealWorld -> (# State# RealWorld, Int# #)
+  with
+  out_of_line = True
+
 ------------------------------------------------------------------------
 section "Weak pointers"
 ------------------------------------------------------------------------

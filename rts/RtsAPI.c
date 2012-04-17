@@ -573,7 +573,7 @@ rts_getSchedStatus (Capability *cap)
   return cap->running_task->incall->stat;
 }
 
-  Capability *
+Capability *
 rts_lock (void)
 {
   Capability *cap;
@@ -592,6 +592,13 @@ rts_lock (void)
   cap = NULL;
   waitForReturnCapability(&cap, task);
   return (Capability *)cap;
+}
+
+void rts_lockWithCapability (Capability* cap) {
+  Task *task;
+  task = newBoundTask ();
+  task->cap = cap;
+  waitForReturnCapability (&cap, task);
 }
 
 // Exiting the RTS: we hold a Capability that is not necessarily the

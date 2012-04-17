@@ -215,11 +215,20 @@ forkOS_createThread ( HsStablePtr entry )
 }
 
 static void*
-forkOS_createThreadForSContWrapper (void* entry)
+forkOS_createThreadForSContWrapper (void* p)
 {
   Capability *cap;
-  cap = rts_lock();
-  rts_bindSContToCurrentTask (&cap, (HsStablePtr) entry);
+  CreateTaskForSContArgs *args;
+  HsStablePtr entry;
+
+  args = (CreateTaskForSContArgs*)p;
+  cap = args->cap;
+  entry = args->entry;
+  free (args);
+
+  rts_lockWithCapability (cap);
+  rts_bindSContToCurrentTask (&cap, entry);
+
   taskTimeStamp(myTask());
   rts_unlock(cap);
   return NULL;
@@ -229,8 +238,17 @@ int
 forkOS_createThreadForSCont ( HsStablePtr entry )
 {
   pthread_t tid;
+  CreateTaskForSContArgs* args;
+  Capability* cap;
+
+  cap = myTask()->cap;
+  args = (CreateTaskForSContArgs*)malloc (sizeof(CreateTaskForSContArgs));
+  ASSERT (args);
+  args->cap = cap;
+  args->entry = entry;
+
   int result = pthread_create(&tid, NULL, forkOS_createThreadForSContWrapper,
-                              (void*)entry);
+                              (void*)args);
   if(!result)
     pthread_detach (tid);
   return result;
