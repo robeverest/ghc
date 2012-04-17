@@ -748,7 +748,6 @@ stg_atomicSwitchzh
 
       CurrentTSO = tso;
       StgTSO_why_blocked(CurrentTSO) = NotBlocked::I16;
-      StgTSO_cap(CurrentTSO) = MyCapability ();
       ("ptr" limit)  = foreign "C" tso_SpLim (tso "ptr") [];
       SpLim = limit;
       Sp = StgStack_sp(StgTSO_stackobj(CurrentTSO));
