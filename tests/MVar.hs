@@ -67,8 +67,7 @@ putMVar (MVar ref) x = atomically $ do
          blockAct <- getSwitchToNextThread
          unblockAct <- getResumeThread
          writePVar ref $ Full x' $ ts Seq.|> (x, unblockAct)
-         sc <- getSCont
-         setThreadStatus sc BlockedOnConcDS
+         setCurrentSContStatus BlockedOnConcDS
          blockAct
 
 {-# INLINE takeMVar #-}
@@ -83,7 +82,7 @@ takeMVar (MVar ref) = do
            unblockAct <- getResumeThread
            writePVar ref $ Empty $ ts Seq.|> (hole, unblockAct)
            sc <- getSCont
-           setThreadStatus sc BlockedOnConcDS
+           setCurrentSContStatus BlockedOnConcDS
            blockAct
          Full x (Seq.viewl -> Seq.EmptyL) -> do
            writePVar ref $ Empty Seq.empty
