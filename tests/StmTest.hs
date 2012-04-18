@@ -14,7 +14,7 @@ data State = State {
   }
 
 loopmax = 10
-numthreads = 50
+numthreads = 500
 
 main
   = do t <- atomically (newPVar 0)

@@ -151,7 +151,7 @@ static void schedulePostRunThread(Capability *cap, StgTSO *t);
 static rtsBool scheduleHandleHeapOverflow( Capability *cap, StgTSO *t );
 static rtsBool scheduleHandleYield( Capability *cap, StgTSO *t,
                                     nat prev_what_next );
-static void scheduleHandleThreadBlocked( StgTSO *t );
+static void scheduleHandleThreadBlocked( Capability* cap, StgTSO *t );
 static void scheduleHandleThreadSwitch( Capability* cap, StgTSO *t );
 static rtsBool scheduleHandleThreadFinished( Capability *cap, Task *task,
                                              StgTSO *t );
@@ -593,7 +593,7 @@ run_thread:
         break;
 
       case ThreadBlocked:
-        scheduleHandleThreadBlocked(t);
+        scheduleHandleThreadBlocked(cap, t);
         break;
 
       case ThreadFinished:
@@ -1139,9 +1139,8 @@ scheduleActivateSpark(Capability *cap)
   static void
 schedulePostRunThread (Capability *cap, StgTSO *t)
 {
-  // We have to be able to catch transactions that are in an
-  // infinite loop as a result of seeing an inconsistent view of
-  // memory, e.g.
+  // We have to be able to catch transactions that are in an infinite loop as a
+  // result of seeing an inconsistent view of memory, e.g.
   //
   //   atomically $ do
   //       [a,b] <- mapM readTVar [ta,tb]
@@ -1154,12 +1153,12 @@ schedulePostRunThread (Capability *cap, StgTSO *t)
       debugTrace(DEBUG_sched | DEBUG_stm,
                  "trec %p found wasting its time", t);
 
-      // strip the stack back to the
-      // ATOMICALLY_FRAME, aborting the (nested)
-      // transaction, and saving the stack of any
-      // partially-evaluated thunks on the heap.
+      // strip the stack back to the ATOMICALLY_FRAME, aborting the (nested)
+      // transaction, and saving the stack of any partially-evaluated thunks on
+      // the heap.
+      //XXX KC -- We do not need to add an upcall since t is the current running
+      //thread.
       throwToSingleThreaded_(cap, t, NULL, rtsTrue);
-
       //            ASSERT(get_itbl((StgClosure *)t->sp)->type == ATOMICALLY_FRAME);
     }
   }
@@ -1305,16 +1304,10 @@ scheduleHandleYield( Capability *cap, StgTSO *t, nat prev_what_next )
  * -------------------------------------------------------------------------- */
 
 static void
-  scheduleHandleThreadBlocked( StgTSO *t
-#if !defined(DEBUG)
-                               STG_UNUSED
-#endif
-                             )
+scheduleHandleThreadBlocked(Capability *cap, StgTSO *t)
 {
 
-  // We don't need to do anything.  The thread is blocked, and it
-  // has tidied up its stack and placed itself on whatever queue
-  // it needs to be on.
+  addUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
 
   // ASSERT(t->why_blocked != NotBlocked);
   // Not true: for example,
