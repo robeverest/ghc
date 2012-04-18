@@ -1852,9 +1852,15 @@ primop ScheduleThreadOnFreeCap "scheduleThreadOnFreeCap#" GenPrimOp
   with out_of_line = True
   has_side_effects = True
 
-primop ICanRunOp "iCanRun#" GenPrimOp
+primop ICanRunSContOp "iCanRunSCont#" GenPrimOp
   SCont# -> State# RealWorld -> (# State# RealWorld, Int# #)
   with
+  out_of_line = True
+
+primop SetOCOp "setOC#" GenPrimOp
+  SCont# -> Int# -> State# RealWorld -> State# RealWorld
+  with
+  has_side_effects = True
   out_of_line = True
 
 ------------------------------------------------------------------------

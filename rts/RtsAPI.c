@@ -439,6 +439,7 @@ createStrictIOThread(Capability *cap, nat stack_size,  StgClosure *closure)
   return t;
 }
 
+
 /* ----------------------------------------------------------------------------
    Evaluating Haskell expressions
    ------------------------------------------------------------------------- */

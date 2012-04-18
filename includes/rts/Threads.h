@@ -37,6 +37,8 @@ StgTSO *createUserLevelThread (Capability *cap, nat stack_size,
 StgTSO *createStrictIOThread  (Capability *cap, nat stack_size,
 			       StgClosure *closure);
 
+void setOwningCapability (Capability* cap, StgTSO* tso, nat target);
+
 // Suspending/resuming threads around foreign calls
 void *        suspendThread (StgRegTable *, rtsBool interruptible);
 StgRegTable * resumeThread  (void *);

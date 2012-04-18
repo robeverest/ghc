@@ -36,9 +36,12 @@ Upcall
 getResumeThreadUpcall (Capability* cap, StgTSO* t)
 {
   //See libraries/base/LwConc/Substrate.hs:resumeThread
+  ASSERT (!t->is_upcall_thread);
   ASSERT (t->resume_thread != (StgClosure*)defaultUpcall_closure);
   StgClosure* p = t->resume_thread;
   p = rts_apply (cap, (StgClosure*)resumeThread_closure, p);
+  debugTrace (DEBUG_sched, "cap %d: getResumeThreadUpcall(%p) for thread %d",
+              cap->no, (void*)p, t->id);
   return p;
 }
 
@@ -51,16 +54,20 @@ Upcall
 getSwitchToNextThreadUpcall (Capability* cap, StgTSO* t)
 {
   //See libraries/base/LwConc/Substrate.hs:switchToNextThread
+  ASSERT (!t->is_upcall_thread);
   ASSERT (t->switch_to_next != (StgClosure*)defaultUpcall_closure);
   StgClosure* p = t->switch_to_next;
   p = rts_apply (cap, (StgClosure*)switchToNextThread_closure, p);
   p = rts_apply (cap, p, rts_mkInt (cap, 4));
+  debugTrace (DEBUG_sched, "cap %d: getSwitchToNextThreadupcall(%p) for thread %d",
+              cap->no, (void*)p, t->id);
   return p;
 }
 
 Upcall
-getFinalizerUpcall (Capability* cap, StgTSO* t)
+getFinalizerUpcall (Capability* cap STG_UNUSED, StgTSO* t)
 {
+  ASSERT (!t->is_upcall_thread);
   StgClosure* p = t->finalizer;
   return p;
 }
@@ -81,7 +88,8 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
 
     upcall_thread = cap->upcall_thread;
     debugTrace (DEBUG_sched, "Switching to upcall_thread %d. Saving current "
-                "thread %p", cap->upcall_thread->id, current_thread);
+                "thread %d", cap->upcall_thread->id,
+                (current_thread == (StgTSO*)END_TSO_QUEUE)?-1:current_thread->id);
     //Save current thread
     cap->upcall_thread = current_thread;
   }
@@ -90,7 +98,7 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
 
   //Upcall thread is currently running
   if (upcall_thread->what_next != ThreadComplete)
-    barf ("Upcall thread has not finished previous call!\n");
+    return upcall_thread;
 
   StgClosure* upcall = popUpcallQueue (cap->upcall_queue);
 
@@ -98,6 +106,10 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
   upcall_thread->_link = (StgTSO*)END_TSO_QUEUE;
   upcall_thread->what_next = ThreadRunGHC;
   upcall_thread->why_blocked = NotBlocked;
+  //Save the upcall in the finalzer slot of the upcall thread so that it can be
+  //retrieved quickly if the upcall happens to block on a black hole -- KC.
+  upcall_thread->finalizer = upcall;
+
 
   StgStack* stack = upcall_thread->stackobj;
   stack->dirty = 1;

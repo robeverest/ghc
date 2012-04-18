@@ -13,8 +13,8 @@ data State = State {
   count :: PVar Int
   }
 
-loopmax = 10
-numthreads = 500
+loopmax = 100
+numthreads = 50
 
 main
   = do t <- atomically (newPVar 0)

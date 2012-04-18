@@ -30,17 +30,18 @@ import qualified Data.Sequence as Seq
 import qualified Control.Concurrent as Conc
 -- import qualified Control.OldException as Exn
 
-newtype ConcRRSched = ConcRRSched (PVar (Seq.Seq SCont))
+data ConcRRSched = ConcRRSched (PVar (Seq.Seq SCont)) (PVar Int)
 
 newConcRRSched :: IO (ConcRRSched)
 newConcRRSched = do
   ref <- newPVarIO Seq.empty
+  token <- newPVarIO 0
   s <- getSContIO
-  (b,u) <- getSchedActionPairPrim (ConcRRSched ref)
+  (b,u) <- getSchedActionPairPrim (ConcRRSched ref token)
   setResumeThread s $ u s
   setSwitchToNextThread s b
    -- Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
-  return $ ConcRRSched (ref)
+  return $ ConcRRSched ref token
 
 newVProc :: ConcRRSched -> IO ()
 newVProc sched = do
@@ -55,13 +56,13 @@ newVProc sched = do
   scheduleSContOnFreeCap s
 
 switchToNextAndFinish :: ConcRRSched -> IO ()
-switchToNextAndFinish (ConcRRSched ref) =
+switchToNextAndFinish (ConcRRSched ref token) =
   let body = do {
   contents <- readPVar ref;
   case contents of
        (Seq.viewl -> Seq.EmptyL) -> undefined
        (Seq.viewl -> x Seq.:< tail) -> do
-          canRun <- iCanRun x
+          canRun <- iCanRunSCont x
           if canRun
             then do {
               writePVar ref $ tail;
@@ -69,7 +70,7 @@ switchToNextAndFinish (ConcRRSched ref) =
               switchTo x
             }
             else do {
-              enque (ConcRRSched ref) x;
+              enque (ConcRRSched ref token) x;
               body
             }
   }
@@ -78,23 +79,27 @@ switchToNextAndFinish (ConcRRSched ref) =
 data SContKind = Bound | Unbound
 
 fork :: ConcRRSched -> IO () -> SContKind -> IO ()
-fork (ConcRRSched ref) task kind = do
+fork (ConcRRSched ref token) task kind = do
   let yieldingTask = do {
     {-Exn.try-} task;
-    switchToNextAndFinish (ConcRRSched ref);
+    switchToNextAndFinish (ConcRRSched ref token);
     print "ConcRRSched.forkIO: Should not see this!"
   }
   let makeSCont = case kind of
                     Bound -> newBoundSCont
                     Unbound -> newSCont
   s <- makeSCont yieldingTask;
-  (b,u) <- getSchedActionPairPrim (ConcRRSched ref);
+  (b,u) <- getSchedActionPairPrim (ConcRRSched ref token);
   setResumeThread s $ u s;
   setSwitchToNextThread s b;
+  t <- atomically $ readPVar token
+  nc <- Conc.getNumCapabilities
+  setOC s t
   -- Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
   atomically $ do
     contents <- readPVar ref
     writePVar ref $ contents Seq.|> s
+    writePVar token $ (t + 1) `mod` nc
 
 forkIO :: ConcRRSched -> IO () -> IO ()
 forkIO sched task = fork sched task Unbound
@@ -104,24 +109,24 @@ forkOS :: ConcRRSched -> IO () -> IO ()
 forkOS sched task = fork sched task Bound
 
 switchToNextWith :: ConcRRSched -> (Seq.Seq SCont -> Seq.Seq SCont) -> PTM ()
-switchToNextWith (ConcRRSched ref) f = do
+switchToNextWith (ConcRRSched ref tok) f = do
   contents <- readPVar ref;
   case f contents of
       (Seq.viewl -> Seq.EmptyL) -> undefined
       (Seq.viewl -> x Seq.:< tail) -> do
-        canRun <-iCanRun x
+        canRun <-iCanRunSCont x
         if canRun
           then do {
             writePVar ref $ tail;
             switchTo x
           }
           else do {
-            enque (ConcRRSched ref) x;
-            switchToNextWith (ConcRRSched ref) (\x -> x)
+            enque (ConcRRSched ref tok) x;
+            switchToNextWith (ConcRRSched ref tok) (\x -> x)
           }
 
 enque :: ConcRRSched -> SCont -> PTM ()
-enque (ConcRRSched ref) s = do
+enque (ConcRRSched ref _) s = do
   contents <- readPVar ref
   let newSeq = contents Seq.|> s
   writePVar ref $ newSeq

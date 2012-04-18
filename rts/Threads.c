@@ -232,6 +232,22 @@ removeThreadFromDeQueue (Capability *cap,
 }
 
 /* ----------------------------------------------------------------------------
+   setOwningCapability ()
+
+   Change a threads owning capability. Thread must belong to this capability and
+   must not be running.
+
+   ------------------------------------------------------------------------- */
+
+void
+setOwningCapability (Capability *cap USED_IF_DEBUG,
+                     StgTSO *tso,
+                     nat target) {
+  ASSERT (cap == tso->cap);
+  tso->cap = &capabilities[target];
+}
+
+/* ----------------------------------------------------------------------------
    tryWakeupThread()
 
    Attempt to wake up a thread.  tryWakeupThread is idempotent: it is

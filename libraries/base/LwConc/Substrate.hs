@@ -59,9 +59,10 @@ module LwConc.Substrate
 
 -- experimental
 , scheduleSContOnFreeCap  -- SCont -> IO ()
-, iCanRun                 -- SCont -> PTM Bool
+, iCanRunSCont            -- SCont -> PTM Bool
                           -- Whether the given SCont can be run on the current
                           -- capability.
+, setOC                   -- SCont -> Int -> IO ()
 
 -- XXX The following should not be used directly. Only exposed since the RTS
 -- cannot find it otherwise. TODO: Hide them. - KC
@@ -349,14 +350,6 @@ isThreadBoundPTM (SCont sc) = PTM $ \ s# ->
     case isThreadBound# sc s# of
         (# s2#, flg #) -> (# s2#, not (flg ==# 0#) #)
 
-iCanRun :: SCont -> PTM Bool
-iCanRun (SCont sc) = do
-  b <- isThreadBoundPTM $ SCont sc
-  if not b
-     then return True
-     else
-      PTM $ \s -> case iCanRun# sc s of
-                       (# s, flg #) -> (# s, not (flg ==# 0#) #)
 
 
 failNonThreaded :: IO a
@@ -430,3 +423,16 @@ scheduleSContOnFreeCap (SCont s) = do
       undefined
     else
       IO $ \st -> case scheduleThreadOnFreeCap# s st of st -> (# st, () #)
+
+iCanRunSCont :: SCont -> PTM Bool
+iCanRunSCont (SCont sc) = do
+  b <- isThreadBoundPTM $ SCont sc
+  if not b
+     then return True
+     else
+      PTM $ \s -> case iCanRunSCont# sc s of
+                       (# s, flg #) -> (# s, not (flg ==# 0#) #)
+
+setOC :: SCont -> Int -> IO ()
+setOC (SCont sc) (I# i) = IO $
+  \s -> case setOC# sc i s of s -> (# s, () #)

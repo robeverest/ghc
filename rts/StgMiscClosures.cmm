@@ -273,7 +273,7 @@ INFO_TABLE(stg_IND_PERM,1,0,IND_PERM,"IND_PERM","IND_PERM")
 
 INFO_TABLE(stg_BLACKHOLE,1,0,BLACKHOLE,"BLACKHOLE","BLACKHOLE")
 {
-    W_ r, p, info, bq, msg, owner, bd, uc;
+    W_ r, p, info, bq, msg, owner, bd, uc, buct;
 
     TICK_ENT_DYN_IND(); /* tick */
 
@@ -303,8 +303,14 @@ retry:
 
         SET_HDR(msg, stg_MSG_BLACKHOLE_info, CCS_SYSTEM);
         if (uc == 0) {
-          ("ptr" uc) = foreign "C" getResumeThreadUpcall (MyCapability() "ptr",
-                                                          CurrentTSO "ptr") [R1];
+          buct = TO_W_(StgTSO_is_upcall_thread(CurrentTSO));
+          if (buct == 1) {
+            uc = StgTSO_finalizer (CurrentTSO);
+          }
+          else {
+            ("ptr" uc) = foreign "C" getResumeThreadUpcall (MyCapability() "ptr",
+                                                            CurrentTSO "ptr") [R1];
+          }
         }
         MessageBlackHole_upcall(msg) = uc;
         MessageBlackHole_bh(msg) = R1;

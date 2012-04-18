@@ -523,20 +523,6 @@ run_thread:
     t->saved_winerror = GetLastError();
 #endif
 
-    //Handle upcall thread return
-    if (isUpcallThread (t)) {
-      if (ret == ThreadKilled)
-        barf ("Schedule: Upcall thread killed");
-      else if (ret == ThreadBlocked)
-        barf ("Schedule: Upcall thread blocked");
-
-      //ret == ThreadFinished in the following.
-      if (ret == ThreadFinished) {
-          t->what_next = ThreadComplete;
-          t->why_blocked = NotBlocked;
-          ret = ThreadSwitch;
-      }
-    }
 
     if (ret == ThreadBlocked) {
       if (t->why_blocked == BlockedOnBlackHole) {
@@ -548,6 +534,16 @@ run_thread:
       }
     } else {
       traceEventStopThread(cap, t, ret, 0);
+    }
+
+    //Handle upcall thread return
+    if (isUpcallThread (t)) {
+      if (ret == ThreadKilled)
+        barf ("Schedule: Upcall thread killed");
+
+      t->what_next = ThreadComplete;
+      t->why_blocked = NotBlocked;
+      ret = ThreadSwitch;
     }
 
 #ifdef DEBUG
@@ -714,6 +710,7 @@ scheduleYield (Capability **pcap, Task *task)
   //
   if (!shouldYieldCapability(cap,task) &&
       (!emptyRunQueue(cap) ||
+       pendingUpcalls(cap->upcall_queue) ||
        !emptyInbox(cap) ||
        sched_state >= SCHED_INTERRUPTING))
     return;
@@ -1325,12 +1322,9 @@ scheduleHandleThreadBlocked(Capability *cap, StgTSO *t)
  * -------------------------------------------------------------------------- */
 
 static void
-scheduleHandleThreadSwitch( Capability* cap USED_IF_THREADS,
-                            StgTSO *t USED_IF_THREADS)
+scheduleHandleThreadSwitch( Capability* cap STG_UNUSED,
+                            StgTSO *t STG_UNUSED)
 {
-#ifdef THREADED_RTS
-  t->cap = cap;
-#endif
 }
 
 

@@ -769,7 +769,21 @@ stg_atomicSwitchzh
   }
 }
 
-stg_iCanRunzh
+stg_setOCzh
+{
+  /* args: R1 = SCont, R2 = int */
+  W_ scont, target;
+  scont = R1;
+  target = R2;
+
+#if defined (THREADED_RTS)
+  foreign "C" setOwningCapability (MyCapability() "ptr", scont, target) [];
+#endif
+
+  jump %ENTRY_CODE(Sp(0));
+}
+
+stg_iCanRunSContzh
 {
   /* args: R1 = SCont */
 
