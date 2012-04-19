@@ -34,7 +34,10 @@ Upcall getFinalizerUpcall          (Capability* cap, StgTSO* tso);
 INLINE_HEADER StgClosure* popUpcallQueue (UpcallQueue* q);
 
 INLINE_HEADER long upcallQueueSize (UpcallQueue *q);
-INLINE_HEADER rtsBool pendingUpcalls (UpcallQueue *q);
+
+//Upcall queue has at least 1 element || (upcall queue size == 0 &&
+//cap->upcall_thread is the saved thread)
+rtsBool pendingUpcalls (Capability* cap);
 
 //If there are pending upcalls prepare the upcall thread with the first upcall.
 //Save the given current thread in cap->upcall_thread.
@@ -61,11 +64,6 @@ INLINE_HEADER long upcallQueueSize (UpcallQueue* q)
 INLINE_HEADER StgClosure* popUpcallQueue (UpcallQueue* q)
 {
   return popWSDeque (q);
-}
-
-INLINE_HEADER rtsBool pendingUpcalls (UpcallQueue* q)
-{
-  return upcallQueueSize (q) > 0;
 }
 
 

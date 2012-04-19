@@ -72,7 +72,9 @@ switchToNextAndFinish sched = do
   let body = do {
   contents <- readPVar ref;
   case contents of
-       (Seq.viewl -> Seq.EmptyL) -> body
+       (Seq.viewl -> Seq.EmptyL) -> do
+          unsafeIOToPTM $ print "Spinning...."
+          body
        (Seq.viewl -> x Seq.:< tail) -> do
           canRun <- iCanRunSCont x
           if canRun

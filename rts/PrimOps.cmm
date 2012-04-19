@@ -862,6 +862,9 @@ stg_iCanRunSContzh
   if (StgTSO_cap(scont) != MyCapability ()) {
     result = 0;
   }
+  foreign "C" debugBelch ("cap %d: can I run thread %d? %d\n",
+                          Capability_no (MyCapability ()),
+                          StgTSO_id (scont), result);
 #endif
 
   RET_N(result);

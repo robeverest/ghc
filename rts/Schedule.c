@@ -339,13 +339,13 @@ schedule (Capability *initialCapability, Task *task)
 
     scheduleYield(&cap,task);
 
-    if (emptyRunQueue(cap) && !pendingUpcalls (cap->upcall_queue))
+    if (emptyRunQueue(cap) && !pendingUpcalls(cap))
       continue; // look for work again
 
 #endif
 
 #if !defined(THREADED_RTS) && !defined(mingw32_HOST_OS)
-    if (emptyRunQueue(cap) && !pendingUpcalls (cap->upcall_queue)) {
+    if (emptyRunQueue(cap) && !pendingUpcalls(cap)) {
       ASSERT(sched_state >= SCHED_INTERRUPTING);
     }
 #endif
@@ -354,7 +354,7 @@ schedule (Capability *initialCapability, Task *task)
     // Get a thread to run
     //
     if (emptyRunQueue (cap)) {
-      ASSERT (pendingUpcalls (cap->upcall_queue));
+      ASSERT (pendingUpcalls(cap));
       t = (StgTSO*)END_TSO_QUEUE;
     }
     else {
@@ -366,8 +366,9 @@ more_upcalls:
     /* If there are pending upcalls, prepare switching to upcall thread. If no
      * pending upcalls, restore original thread if necessary.
      */
-    if (pendingUpcalls (cap->upcall_queue))
+    if (upcallQueueSize (cap->upcall_queue) > 0) {
       t = prepareUpcallThread (cap, t);
+    }
     else {
       t = restoreCurrentThreadIfNecessary (cap, t);
       //If we had switched to the upcall thread when we had no current thread,
@@ -541,7 +542,7 @@ run_thread:
       if (t->what_next == ThreadKilled)
         barf ("Schedule: Upcall thread killed");
 
-      if (ret == ThreadComplete ||
+      if (ret == ThreadFinished ||
           (ret == ThreadBlocked && t->why_blocked == BlockedOnBlackHole)) {
         t->what_next = ThreadComplete;
         t->why_blocked = NotBlocked;
@@ -669,7 +670,7 @@ scheduleFindWork (Capability *cap)
   scheduleCheckBlockedThreads(cap);
 
 #if defined(THREADED_RTS)
-  if (emptyRunQueue(cap) && !pendingUpcalls (cap->upcall_queue)) {
+  if (emptyRunQueue(cap) && !pendingUpcalls(cap)) {
     //scheduleResumeBlockedOnForeignCall(cap);
     scheduleActivateSpark(cap);
   }
@@ -713,7 +714,7 @@ scheduleYield (Capability **pcap, Task *task)
   //
   if (!shouldYieldCapability(cap,task) &&
       (!emptyRunQueue(cap) ||
-       pendingUpcalls(cap->upcall_queue) ||
+       pendingUpcalls(cap) ||
        !emptyInbox(cap) ||
        sched_state >= SCHED_INTERRUPTING))
     return;
@@ -976,7 +977,7 @@ scheduleDetectDeadlock (Capability *cap, Task *task)
    * other tasks are waiting for work, we must have a deadlock of
    * some description.
    */
-  if ( emptyThreadQueues(cap) )
+  if ( emptyThreadQueues(cap))
   {
 #if defined(THREADED_RTS)
     /*

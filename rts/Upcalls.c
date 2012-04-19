@@ -89,7 +89,7 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
     upcall_thread = cap->upcall_thread;
     debugTrace (DEBUG_sched, "Switching to upcall_thread %d. Saving current "
                 "thread %d", cap->upcall_thread->id,
-                (current_thread == (StgTSO*)END_TSO_QUEUE)?-1:current_thread->id);
+                (current_thread == (StgTSO*)END_TSO_QUEUE)?-1:(int)current_thread->id);
     //Save current thread
     cap->upcall_thread = current_thread;
   }
@@ -133,12 +133,13 @@ restoreCurrentThreadIfNecessary (Capability* cap, StgTSO* current_thread) {
 
   StgTSO* return_thread = current_thread;
 
-  //Given Thread is the upcall thread
-  if (isUpcallThread (current_thread)) {
+  //Given Thread is the upcall thread, which has finished
+  if (isUpcallThread (current_thread) &&
+      current_thread->what_next == ThreadComplete) {
     return_thread = cap->upcall_thread;
     debugTrace (DEBUG_sched, "Saving upcall thread %d and restoring original"
                 " thread %d", current_thread->id,
-                (return_thread == (StgTSO*)END_TSO_QUEUE)?-1:return_thread->id);
+                (return_thread == (StgTSO*)END_TSO_QUEUE)?-1:(int)return_thread->id);
     //Save the upcall thread
     cap->upcall_thread = current_thread;
   }
@@ -177,4 +178,15 @@ traverseUpcallQueue (evac_fn evac, void* user, Capability *cap)
   debugTrace(DEBUG_gc,
              "traversed upcall queue, len=%ld; (hd=%ld; tl=%ld)",
              upcallQueueSize(queue), queue->bottom, queue->top);
+}
+
+rtsBool pendingUpcalls (Capability* cap)
+{
+  UpcallQueue* q = cap->upcall_queue;
+  if (upcallQueueSize (q) > 0)
+    return rtsTrue;
+  if (cap->upcall_thread != (StgTSO*)END_TSO_QUEUE &&
+      !isUpcallThread (cap->upcall_thread))
+    return rtsTrue;
+  return rtsFalse;
 }

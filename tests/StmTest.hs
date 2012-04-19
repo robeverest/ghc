@@ -13,7 +13,7 @@ data State = State {
   count :: PVar Int
   }
 
-loopmax = 1
+loopmax = 0
 numthreads = 2
 
 main
@@ -39,13 +39,10 @@ spawnScheds s n = do
 proc :: State -> (State -> IO ()) -> Int -> IO ()
 proc st w 0 = do c <- atomically (do cnt <- readPVar (count st)
                                      writePVar (count st) (cnt+1)
-                                     if cnt+1 >= numthreads
-                                        then do {
-                                          unsafeIOToPTM $ print "Finishing...";
-                                          asyncPutMVar (chan st) ()
-                                        }
-                                        else return ()
                                      return cnt)
+                 if (c+1) >= numthreads
+                    then atomically $ asyncPutMVar (chan st) ()
+                    else return ()
                  return ()
 proc st w i
   = do w st
@@ -61,9 +58,7 @@ dotv st
 domv :: State -> IO ()
 domv st
   = do n <- takeMVar (vm st)
-       print "doMV: before putMVar"
        putMVar (vm st) (n+1)
-       print "doMV: after putMVar"
        return ()
 
 forkIter :: ParRRSched -> Int -> IO () -> IO ()
