@@ -538,12 +538,15 @@ run_thread:
 
     //Handle upcall thread return
     if (isUpcallThread (t)) {
-      if (ret == ThreadKilled)
+      if (t->what_next == ThreadKilled)
         barf ("Schedule: Upcall thread killed");
 
-      t->what_next = ThreadComplete;
-      t->why_blocked = NotBlocked;
-      ret = ThreadSwitch;
+      if (ret == ThreadComplete ||
+          (ret == ThreadBlocked && t->why_blocked == BlockedOnBlackHole)) {
+        t->what_next = ThreadComplete;
+        t->why_blocked = NotBlocked;
+        ret = ThreadSwitch;
+      }
     }
 
 #ifdef DEBUG
@@ -1304,7 +1307,8 @@ static void
 scheduleHandleThreadBlocked(Capability *cap, StgTSO *t)
 {
 
-  addUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
+  if (t->why_blocked == BlockedOnBlackHole)
+    addUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
 
   // ASSERT(t->why_blocked != NotBlocked);
   // Not true: for example,

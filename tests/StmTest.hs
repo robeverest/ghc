@@ -1,6 +1,6 @@
 module Main where
 
-import ConcRRSched
+import ParRRSched
 import PChan
 import MVar
 import LwConc.Substrate
@@ -9,25 +9,26 @@ import qualified GHC.Conc as C
 data State = State {
   vt :: PVar Int,
   vm :: MVar Int,
-  chan :: PChan (),
+  chan :: MVar (),
   count :: PVar Int
   }
 
-loopmax = 100
-numthreads = 50
+loopmax = 1
+numthreads = 2
 
 main
   = do t <- atomically (newPVar 0)
        m <- newEmptyMVar
        putMVar m 0
-       c <- atomically (newPChan)
+       c <- newEmptyMVar
        cnt <- atomically (newPVar 0)
-       sched <- newConcRRSched
+       sched <- newParRRSched
        nc <- C.getNumCapabilities
        spawnScheds sched $ nc-1
        let st = State t m c cnt
        forkIter sched numthreads (proc st domv loopmax)
-       atomically (readPChan c)
+       takeMVar c
+       yield sched
        return ()
 
 spawnScheds _ 0 = return ()
@@ -39,7 +40,10 @@ proc :: State -> (State -> IO ()) -> Int -> IO ()
 proc st w 0 = do c <- atomically (do cnt <- readPVar (count st)
                                      writePVar (count st) (cnt+1)
                                      if cnt+1 >= numthreads
-                                        then writePChan (chan st) ()
+                                        then do {
+                                          unsafeIOToPTM $ print "Finishing...";
+                                          asyncPutMVar (chan st) ()
+                                        }
                                         else return ()
                                      return cnt)
                  return ()
@@ -57,10 +61,12 @@ dotv st
 domv :: State -> IO ()
 domv st
   = do n <- takeMVar (vm st)
+       print "doMV: before putMVar"
        putMVar (vm st) (n+1)
+       print "doMV: after putMVar"
        return ()
 
-forkIter :: ConcRRSched -> Int -> IO () -> IO ()
+forkIter :: ParRRSched -> Int -> IO () -> IO ()
 forkIter s n p
   = iter n (do forkIO s p
                return ())

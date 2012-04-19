@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 
-import ConcRRSched
+import ParRRSched
 import Data.IORef (atomicModifyIORef, newIORef)
 import qualified GHC.Conc as C
 import System.Environment
@@ -28,7 +28,7 @@ rInt = read
 
 main = do
   args <- getArgs
-  sched <- newConcRRSched
+  sched <- newParRRSched
   n <- C.getNumCapabilities
   spawnScheds sched $ n-1
   p <- newIORef 0

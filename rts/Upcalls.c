@@ -136,6 +136,9 @@ restoreCurrentThreadIfNecessary (Capability* cap, StgTSO* current_thread) {
   //Given Thread is the upcall thread
   if (isUpcallThread (current_thread)) {
     return_thread = cap->upcall_thread;
+    debugTrace (DEBUG_sched, "Saving upcall thread %d and restoring original"
+                " thread %d", current_thread->id,
+                (return_thread == (StgTSO*)END_TSO_QUEUE)?-1:return_thread->id);
     //Save the upcall thread
     cap->upcall_thread = current_thread;
   }

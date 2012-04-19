@@ -35,6 +35,7 @@ module LwConc.Substrate
 
 , SCont
 , ThreadStatus (..)
+, getSContId              -- SCont -> PTM Int
 , setCurrentSContStatus   -- ThreadStatus -> PTM ()
 
 , newSCont                -- IO () -> IO SCont
@@ -42,6 +43,7 @@ module LwConc.Substrate
 , getSCont                -- PTM SCont
 , getSContIO              -- IO SCont
 , switchTo                -- SCont -> PTM ()
+, abortAndRetry           -- PTM ()
 
 #ifdef __GLASGOW_HASKELL__
 , newBoundSCont           -- IO () -> IO SCont
@@ -62,7 +64,12 @@ module LwConc.Substrate
 , iCanRunSCont            -- SCont -> PTM Bool
                           -- Whether the given SCont can be run on the current
                           -- capability.
+
 , setOC                   -- SCont -> Int -> IO ()
+, getCurrentCapability    -- IO Int
+, getCurrentCapabilityPTM -- PTM Int
+, getSContCapability      -- SCont -> PTM Int
+, getNumCapabilities      -- IO Int
 
 -- XXX The following should not be used directly. Only exposed since the RTS
 -- cannot find it otherwise. TODO: Hide them. - KC
@@ -83,7 +90,7 @@ import GHC.IO
 import Control.Monad    ( when )
 #endif
 
-import GHC.Conc (yield, childHandler)
+import GHC.Conc (yield, childHandler, getNumCapabilities)
 import Data.Typeable
 import Foreign.StablePtr
 import Foreign.C.Types
@@ -237,6 +244,12 @@ setCurrentSContStatus status = do
   s <- getSCont
   setSContStatus s status
 
+
+{-# INLINE getSContId #-}
+getSContId :: SCont -> PTM Int
+getSContId (SCont sc) = PTM $ \s ->
+  case getSContId# sc s of (# s, i #) -> (# s, (I# i) #)
+
 -----------------------------------------------------------------------------------
 
 {-# INLINE newSCont #-}
@@ -257,6 +270,11 @@ switchTo targetSCont = do
   let SCont targetSCont# = targetSCont
   PTM $ \s ->
     case (atomicSwitch# targetSCont# intStatus s) of s1 -> (# s1, () #)
+
+{-# INLINE abortAndRetry #-}
+abortAndRetry :: PTM ()
+abortAndRetry = PTM $ \s ->
+  case abortAndRetry# s of s -> (# s, () #)
 
 {-# INLINE getSCont #-}
 getSCont :: PTM SCont
@@ -425,14 +443,26 @@ scheduleSContOnFreeCap (SCont s) = do
       IO $ \st -> case scheduleThreadOnFreeCap# s st of st -> (# st, () #)
 
 iCanRunSCont :: SCont -> PTM Bool
-iCanRunSCont (SCont sc) = do
-  b <- isThreadBoundPTM $ SCont sc
-  if not b
-     then return True
-     else
-      PTM $ \s -> case iCanRunSCont# sc s of
-                       (# s, flg #) -> (# s, not (flg ==# 0#) #)
+iCanRunSCont (SCont sc) =
+   PTM $ \s -> case iCanRunSCont# sc s of
+                   (# s, flg #) -> (# s, not (flg ==# 0#) #)
 
 setOC :: SCont -> Int -> IO ()
 setOC (SCont sc) (I# i) = IO $
   \s -> case setOC# sc i s of s -> (# s, () #)
+
+getCurrentCapability :: IO Int
+getCurrentCapability = IO $
+  \s -> case getCurrentCapability# s of
+             (# s, n #) -> (# s, (I# n) #)
+
+
+getCurrentCapabilityPTM :: PTM Int
+getCurrentCapabilityPTM = PTM $
+  \s -> case getCurrentCapability# s of
+             (# s, n #) -> (# s, (I# n) #)
+
+getSContCapability :: SCont -> PTM Int
+getSContCapability (SCont sc) = PTM $
+  \s -> case getSContCapability# sc s of
+             (# s, n #) -> (# s, (I# n) #)

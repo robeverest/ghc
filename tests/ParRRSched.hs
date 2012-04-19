@@ -1,3 +1,4 @@
+{-# LANGUAGE ViewPatterns #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  LwConc.Schedulers.ParRRSched
@@ -15,91 +16,152 @@
 
 module ParRRSched
 (ParRRSched
-, newParRRSched       -- IO (ParRRSched)
+, ThreadStatus
+, newParRRSched      -- IO (ParRRSched)
 , forkIO              -- ParRRSched -> IO () -> IO ()
+, forkOS              -- ParRRSched -> IO () -> IO ()
 , yield               -- ParRRSched -> IO ()
-, getSchedActionPair  -- ParRRSched -> IO (PTM (), PTM ())
-
-, SCont
-, switchToNext        -- ParRRSched -> (SCont -> PTM ()) -> PTM ()
+, newVProc            -- ParRRSched -> IO ()
 ) where
 
 import LwConc.Substrate
-import qualified Control.Concurrent as Conc
+import qualified System.Exit as E
 import qualified Data.Sequence as Seq
+import Data.Array.IArray
+import qualified Control.Concurrent as Conc
+-- import qualified Control.OldException as Exn
 
-newtype ParRRSched = ParRRSched (PVar (Seq.Seq SCont))
+data ParRRSched = ParRRSched (Array Int (PVar (Seq.Seq SCont))) (PVar Int)
 
 newParRRSched :: IO (ParRRSched)
 newParRRSched = do
-  ref <- newPVarIO Seq.empty
-  return $ ParRRSched (ref)
+  token <- newPVarIO 0
+  s <- getSContIO
+  nc <- Conc.getNumCapabilities
+  rl <- createPVarList nc []
+  let sched = ParRRSched (listArray (0, nc-1) rl) token
+  (b,u) <- getSchedActionPairPrim sched
+  setResumeThread s $ u s
+  setSwitchToNextThread s b
+   -- Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
+  return sched
 
-forkIO :: ParRRSched -> IO () -> IO ()
-forkIO (ParRRSched ref) task = do
+createPVarList 0 l = return l
+createPVarList n l = do {
+  ref <- newPVarIO Seq.empty;
+  createPVarList (n-1) $ ref:l
+}
+
+newVProc :: ParRRSched -> IO ()
+newVProc sched = do
+  let loop = do {
+    yield sched;
+    loop
+  }
+  s <- newBoundSCont $ print "Running VProc" >> loop
+  (b,u) <- getSchedActionPairPrim sched;
+  setResumeThread s $ u s;
+  setSwitchToNextThread s b;
+  scheduleSContOnFreeCap s
+
+switchToNextAndFinish :: ParRRSched -> IO ()
+switchToNextAndFinish sched = do
+  let ParRRSched pa _ = sched
+  cc <- getCurrentCapability
+  let ref = pa ! cc
+  let body = do {
+  contents <- readPVar ref;
+  case contents of
+       (Seq.viewl -> Seq.EmptyL) -> body
+       (Seq.viewl -> x Seq.:< tail) -> do
+          canRun <- iCanRunSCont x
+          if canRun
+            then do {
+              writePVar ref $ tail;
+              setCurrentSContStatus Completed;
+              switchTo x
+            }
+            else do {
+              enque sched x;
+              body
+            }
+  }
+  atomically $ body
+
+data SContKind = Bound | Unbound
+
+fork :: ParRRSched -> IO () -> SContKind -> IO ()
+fork sched task kind = do
+  let ParRRSched pa token = sched
   let yieldingTask = do {
-    task;
-    atomically $ switchToNextWith (ParRRSched ref) (\tail -> tail);
+    {-Exn.try-} task;
+    switchToNextAndFinish sched;
     print "ParRRSched.forkIO: Should not see this!"
   }
-  thread <- newSCont yieldingTask
+  let makeSCont = case kind of
+                    Bound -> newBoundSCont
+                    Unbound -> newSCont
+  s <- makeSCont yieldingTask;
+  (b,u) <- getSchedActionPairPrim sched;
+  setResumeThread s $ u s;
+  setSwitchToNextThread s b;
+  t <- atomically $ readPVar token
+  nc <- Conc.getNumCapabilities
+  cc <- getCurrentCapability
+  let ref = pa ! t
+  setOC s t
+  -- Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
   atomically $ do
     contents <- readPVar ref
-    writePVar ref $ contents Seq.|> thread
+    writePVar ref $ contents Seq.|> s
+    writePVar token $ (t + 1) `mod` nc
+
+forkIO :: ParRRSched -> IO () -> IO ()
+forkIO sched task = fork sched task Unbound
+
+
+forkOS :: ParRRSched -> IO () -> IO ()
+forkOS sched task = fork sched task Bound
 
 switchToNextWith :: ParRRSched -> (Seq.Seq SCont -> Seq.Seq SCont) -> PTM ()
-switchToNextWith (ParRRSched ref) f = do
-  oldContents <- readPVar ref
-  let contents = f oldContents
-  if Seq.length contents == 0
-     then unsafeIOToPTM $ do
-       putStrLn "***** NO THREADS TO SWITCH TO *****"
-       tid <- Conc.myThreadId
-       Conc.killThread tid
-     else do
-       let x = Seq.index contents 0
-       let tail = Seq.drop 1 contents
-       writePVar ref $ tail
-       switchSContPTM x
-
-getNext :: ParRRSched -> PTM SCont
-getNext (ParRRSched ref) = do
-  contents <- readPVar ref
-  if Seq.length contents == 0
-     then getNext $ ParRRSched ref
-     else do
-       let x = Seq.index contents 0
-       let tail = Seq.drop 1 contents
-       writePVar ref $ tail
-       return x
-
+switchToNextWith sched f = do
+  let ParRRSched pa _ = sched
+  cc <- getCurrentCapabilityPTM
+  let ref = pa ! cc
+  contents <- readPVar ref;
+  case f contents of
+      (Seq.viewl -> Seq.EmptyL) -> switchToNextWith sched (\x -> x)
+      (Seq.viewl -> x Seq.:< tail) -> do
+        canRun <-iCanRunSCont x
+        if canRun
+          then do {
+            writePVar ref $ tail;
+            switchTo x
+          }
+          else do {
+            enque sched x;
+            switchToNextWith sched (\x -> x)
+          }
 
 enque :: ParRRSched -> SCont -> PTM ()
-enque (ParRRSched ref) s = do
+enque (ParRRSched pa _) s = do
+  sc <- getSContCapability s
+  let ref = pa ! sc
   contents <- readPVar ref
   let newSeq = contents Seq.|> s
   writePVar ref $ newSeq
 
+
 yield :: ParRRSched -> IO ()
 yield sched = atomically $ do
   s <- getSCont
+  setCurrentSContStatus Yielded
   switchToNextWith sched (\tail -> tail Seq.|> s)
 
--- blockAction must be called by the same thread (say t) which invoked
--- getSchedActionPair. unblockAction must be called by a thread other than t,
--- which adds t back to its scheduler.
-
-getSchedActionPair :: ParRRSched -> IO (PTM (), PTM ())
-getSchedActionPair sched = do
-  s <- atomically $ getSCont
-  let blockAction   = switchToNextWith sched (\tail -> tail)
-  let unblockAction = enque sched s
+getSchedActionPairPrim :: ParRRSched -> IO (PTM (), SCont -> PTM ())
+getSchedActionPairPrim sched = do
+  let blockAction = switchToNextWith sched (\tail -> tail)
+  let unblockAction s = do
+      id <- getSContId s
+      enque sched s
   return (blockAction, unblockAction)
-
-switchToNext :: ParRRSched -> (SCont -> PTM ()) -> PTM ()
-switchToNext sched f = do
-  s <- getSCont
-  f s
-  next <- getNext sched
-  switchSContPTM next
-

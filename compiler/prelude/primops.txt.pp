@@ -1863,6 +1863,27 @@ primop SetOCOp "setOC#" GenPrimOp
   has_side_effects = True
   out_of_line = True
 
+primop GetCurrentCapability "getCurrentCapability#" GenPrimOp
+  State# RealWorld -> (# State# RealWorld, Int# #)
+  with
+  out_of_line = True
+
+primop AbortAndRetry "abortAndRetry#" GenPrimOp
+  State# RealWorld -> State# RealWorld
+  with
+  has_side_effects = True
+  out_of_line = True
+
+primop GetSContCapability "getSContCapability#" GenPrimOp
+  SCont# -> State# RealWorld -> (# State# RealWorld, Int# #)
+  with
+  out_of_line = True
+
+primop GetSContId "getSContId#" GenPrimOp
+  SCont# -> State# RealWorld -> (# State# RealWorld, Int# #)
+  with
+  out_of_line = True
+
 ------------------------------------------------------------------------
 section "Weak pointers"
 ------------------------------------------------------------------------

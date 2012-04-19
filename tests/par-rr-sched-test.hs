@@ -1,5 +1,6 @@
-import ConcRRSched
+import ParRRSched
 import System.Environment
+import qualified GHC.Conc as C
 
 task n = do
   print $ "Running" ++ show n
@@ -26,7 +27,13 @@ rInt = read
 
 main = do
   args <- getArgs
-  sched <- newConcRRSched
-  newVProc sched
+  sched <- newParRRSched
+  n <- C.getNumCapabilities
+  spawnScheds sched $ n-1
   loop sched 0 $ parse args
   -- yield sched
+
+spawnScheds _ 0 = return ()
+spawnScheds s n = do
+  newVProc s
+  spawnScheds s $ n-1

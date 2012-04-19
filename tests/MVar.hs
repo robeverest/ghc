@@ -27,6 +27,7 @@ module MVar
 , newMVar       -- a -> IO (MVar a)
 , newEmptyMVar  -- IO (MVar a)
 , putMVar       -- MVar a -> a -> IO ()
+, asyncPutMVar  -- MVar a -> a -> PTM ()
 , takeMVar      -- MVar a -> IO a
 ) where
 
@@ -51,6 +52,21 @@ newEmptyMVar :: IO (MVar a)
 newEmptyMVar = do
   ref <- newPVarIO $ Empty Seq.empty
   return $ MVar ref
+
+{-# INLINE asyncPutMVar #-}
+asyncPutMVar :: MVar a -> a -> PTM ()
+asyncPutMVar (MVar ref) x = do
+  st <- readPVar ref
+  case st of
+       Empty (Seq.viewl -> Seq.EmptyL) -> do
+         writePVar ref $ Full x Seq.empty
+       Empty (Seq.viewl -> (hole, wakeup) Seq.:< ts) -> do
+         unsafeIOToPTM $ writeIORef hole x
+         writePVar ref $ Empty ts
+         wakeup
+       Full x' ts -> do
+         writePVar ref $ Full x' $ ts Seq.|> (x, return ())
+
 
 {-# INLINE putMVar #-}
 putMVar :: MVar a -> a -> IO ()

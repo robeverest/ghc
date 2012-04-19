@@ -244,6 +244,8 @@ setOwningCapability (Capability *cap USED_IF_DEBUG,
                      StgTSO *tso,
                      nat target) {
   ASSERT (cap == tso->cap);
+  debugTrace (DEBUG_sched, "cap %d: Setting the capability of thread %d to %d",
+              cap->no, tso->id, target);
   tso->cap = &capabilities[target];
 }
 
@@ -376,7 +378,7 @@ pushCallToClosure (Capability *cap, StgTSO *tso, StgClosure *closure) {
    migrateThread
    ------------------------------------------------------------------------- */
 
-  void
+void
 migrateThread (Capability *from, StgTSO *tso, Capability *to)
 {
   traceEventMigrateThread (from, tso, to->no);
