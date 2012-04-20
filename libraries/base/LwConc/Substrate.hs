@@ -340,7 +340,10 @@ switchToNextThreadRts sc = atomically $ do
 {-# INLINE unblockThreadRts #-}
 unblockThreadRts :: SCont -> IO () -- used by RTS
 unblockThreadRts sc = atomically $ do
-  stat <- getSContStatus sc
+  setSContStatus sc Yielded
+  unblock <- getUnblockThreadSCont sc
+  unblock
+  {- stat <- getSContStatus sc
   shouldUnblock <- case stat of
                      Running -> error "unblockThreadRTS: thread running??"
                      otherwise-> do {
@@ -352,7 +355,7 @@ unblockThreadRts sc = atomically $ do
        unblock <- getUnblockThreadSCont sc;
        unblock
      }
-     else return ()
+     else return () -}
 
 {-# INLINE setUnblockThread #-}
 setUnblockThread :: SCont -> PTM () -> IO ()
