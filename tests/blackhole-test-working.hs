@@ -13,8 +13,11 @@ data State = State {
   count :: PVar Int
   }
 
+
+-- XXX KC loopmax=0 numthread=2 -N2 will enter blackhole consistently
+
 loopmax = 0
-numthreads = 2
+numthreads = 3
 
 main
   = do t <- atomically (newPVar 0)

@@ -70,23 +70,15 @@ switchToNextAndFinish sched = do
   cc <- getCurrentCapability
   let ref = pa ! cc
   let body = do {
-  contents <- readPVar ref;
-  case contents of
+    contents <- readPVar ref;
+    case contents of
        (Seq.viewl -> Seq.EmptyL) -> do
           unsafeIOToPTM $ print "Spinning...."
           body
        (Seq.viewl -> x Seq.:< tail) -> do
-          canRun <- iCanRunSCont x
-          if canRun
-            then do {
-              writePVar ref $ tail;
-              setCurrentSContStatus Completed;
+              writePVar ref $ tail
+              setCurrentSContStatus Completed
               switchTo x
-            }
-            else do {
-              enque sched x;
-              body
-            }
   }
   atomically $ body
 
@@ -132,18 +124,11 @@ switchToNextWith sched f = do
   let ref = pa ! cc
   contents <- readPVar ref;
   case f contents of
-      (Seq.viewl -> Seq.EmptyL) -> switchToNextWith sched (\x -> x)
+      (Seq.viewl -> Seq.EmptyL) -> do
+        switchToNextWith sched (\x -> x)
       (Seq.viewl -> x Seq.:< tail) -> do
-        canRun <-iCanRunSCont x
-        if canRun
-          then do {
-            writePVar ref $ tail;
+            writePVar ref $ tail
             switchTo x
-          }
-          else do {
-            enque sched x;
-            switchToNextWith sched (\x -> x)
-          }
 
 enque :: ParRRSched -> SCont -> PTM ()
 enque (ParRRSched pa _) s = do

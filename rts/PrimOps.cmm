@@ -700,9 +700,12 @@ stg_atomicSwitchzh
       }
       else {
         if (switch_reason == 0 && StgTSO_id(CurrentTSO) == StgTSO_id(tso)) {
+          tso = CurrentTSO;
+#if 0
           foreign "C" debugBelch ("Self-switching thread %d [%d]\n",
                                   StgTSO_id(CurrentTSO),
                                   Capability_no(cap)) [];
+#endif
         }
         else {
           foreign "C" debugBelch ("Switching from thread %d to %d\n",
