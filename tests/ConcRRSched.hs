@@ -38,7 +38,7 @@ newConcRRSched = do
   token <- newPVarIO 0
   s <- getSContIO
   (b,u) <- getSchedActionPairPrim (ConcRRSched ref token)
-  setResumeThread s $ u s
+  setUnblockThread s $ u s
   setSwitchToNextThread s b
    -- Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
   return $ ConcRRSched ref token
@@ -51,7 +51,7 @@ newVProc sched = do
   }
   s <- newBoundSCont $ print "Running VProc" >> loop
   (b,u) <- getSchedActionPairPrim sched;
-  setResumeThread s $ u s;
+  setUnblockThread s $ u s;
   setSwitchToNextThread s b;
   scheduleSContOnFreeCap s
 
@@ -90,7 +90,7 @@ fork (ConcRRSched ref token) task kind = do
                     Unbound -> newSCont
   s <- makeSCont yieldingTask;
   (b,u) <- getSchedActionPairPrim (ConcRRSched ref token);
-  setResumeThread s $ u s;
+  setUnblockThread s $ u s;
   setSwitchToNextThread s b;
   t <- atomically $ readPVar token
   nc <- Conc.getNumCapabilities

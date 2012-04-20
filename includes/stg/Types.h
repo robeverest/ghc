@@ -120,6 +120,7 @@ typedef StgWord volatile*   StgVolatilePtr;   /* pointer to volatile word   */
 typedef StgWord             StgOffset;        /* byte offset within closure */
 typedef StgWord8 	          StgCode;  	     /* close enough */
 typedef void*		            StgStablePtr;
+typedef void*               StgSCont;
 typedef StgWord8*           StgByteArray;
 
 /*

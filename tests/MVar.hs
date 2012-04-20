@@ -81,7 +81,7 @@ putMVar (MVar ref) x = atomically $ do
          wakeup
        Full x' ts -> do
          blockAct <- getSwitchToNextThread
-         unblockAct <- getResumeThread
+         unblockAct <- getUnblockThread
          writePVar ref $ Full x' $ ts Seq.|> (x, unblockAct)
          setCurrentSContStatus BlockedOnConcDS
          blockAct
@@ -95,7 +95,7 @@ takeMVar (MVar ref) = do
     case st of
          Empty ts -> do
            blockAct <- getSwitchToNextThread
-           unblockAct <- getResumeThread
+           unblockAct <- getUnblockThread
            writePVar ref $ Empty $ ts Seq.|> (hole, unblockAct)
            sc <- getSCont
            setCurrentSContStatus BlockedOnConcDS

@@ -160,6 +160,7 @@ extern "C" {
   HaskellObj   rts_mkFloat      ( Capability *, HsFloat  f );
   HaskellObj   rts_mkDouble     ( Capability *, HsDouble f );
   HaskellObj   rts_mkStablePtr  ( Capability *, HsStablePtr s );
+  HaskellObj   rts_mkSCont      ( Capability *, HsStablePtr s );
   HaskellObj   rts_mkBool       ( Capability *, HsBool   b );
   HaskellObj   rts_mkString     ( Capability *, char    *s );
 

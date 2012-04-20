@@ -51,8 +51,9 @@ module LwConc.Substrate
 , rtsSupportsBoundThreads -- Bool
 #endif
 
-, setResumeThread         -- SCont -> PTM () -> IO ()
-, getResumeThread         -- PTM (PTM ())
+, setUnblockThread         -- SCont -> PTM () -> IO ()
+, getUnblockThread         -- PTM (PTM ())
+
 , setSwitchToNextThread   -- SCont -> PTM () -> IO ()
 , getSwitchToNextThread   -- PTM (PTM ())
 
@@ -74,8 +75,8 @@ module LwConc.Substrate
 -- XXX The following should not be used directly. Only exposed since the RTS
 -- cannot find it otherwise. TODO: Hide them. - KC
 
-, resumeThread            -- PTM () -> IO ()
-, switchToNextThread      -- PTM () -> Int -> IO ()
+, unblockThreadRts        -- PTM () -> IO ()
+, switchToNextThreadRts   -- PTM () -> Int -> IO ()
 ) where
 
 
@@ -298,38 +299,82 @@ switch arg = atomically $ do
   switchTo targetSCont
 
 -----------------------------------------------------------------------------------
-
-{-# INLINE resumeThread #-}
-resumeThread :: PTM () -> IO () -- used by RTS
-resumeThread r = atomically r
-
-{-# INLINE switchToNextThread #-}
-switchToNextThread :: PTM () -> Int -> IO () -- used by RTS
-switchToNextThread s i = atomically $ do
-  setCurrentSContStatus $ getStatusFromInt i
-  s
-
-{-# INLINE setResumeThread #-}
-setResumeThread :: SCont -> PTM () -> IO ()
-setResumeThread (SCont sc) r = IO $ \s ->
-  case (setResumeThread# sc r s) of s -> (# s, () #)
-
-{-# INLINE getResumeThread #-}
-getResumeThread :: PTM (PTM ())
-getResumeThread = PTM $ \s ->
-  case (getSCont# s) of
-       (# s, scont #) -> getResumeThread# scont s
+-- switchToNextThread and friends..
+-----------------------------------------------------------------------------------
 
 {-# INLINE setSwitchToNextThread #-}
 setSwitchToNextThread :: SCont -> PTM () -> IO ()
 setSwitchToNextThread (SCont sc) b = IO $ \s ->
   case (setSwitchToNextThread# sc b s) of s -> (# s, () #)
 
+{-# INLINE getSwitchToNextThreadSCont #-}
+getSwitchToNextThreadSCont :: SCont -> PTM (PTM ())
+getSwitchToNextThreadSCont (SCont sc) =
+  PTM $ \s -> getSwitchToNextThread# sc s
+
 {-# INLINE getSwitchToNextThread #-}
 getSwitchToNextThread :: PTM (PTM ())
-getSwitchToNextThread = PTM $ \s ->
-  case (getSCont# s) of
-       (# s, scont #) -> getSwitchToNextThread# scont s
+getSwitchToNextThread = do
+  currentSCont <- getSCont
+  s <- getSwitchToNextThreadSCont currentSCont
+  return s
+
+{-# INLINE switchToNextThreadRts #-}
+switchToNextThreadRts :: SCont -> IO () -- used by RTS
+switchToNextThreadRts sc = atomically $ do
+  setCurrentSContStatus Completed
+  stat <- getSContStatus sc
+  case stat of
+      Running -> setSContStatus sc BlockedOnBlackHole -- Hasn't been unblocked yet
+      Yielded -> return () -- Has been unblocked and put on the run queue
+      otherwise -> error "switchToNextThread: Impossible status"
+  stat <- getSContStatus sc
+  return stat
+  switch <- getSwitchToNextThreadSCont sc
+  switch
+
+-----------------------------------------------------------------------------------
+-- unblockThread and friends..
+-----------------------------------------------------------------------------------
+
+{-# INLINE unblockThreadRts #-}
+unblockThreadRts :: SCont -> IO () -- used by RTS
+unblockThreadRts sc = atomically $ do
+  stat <- getSContStatus sc
+  shouldUnblock <- case stat of
+                     Running -> error "unblockThreadRTS: thread running??"
+                     otherwise-> do {
+                       setSContStatus sc Yielded; -- Unblock it
+                       return True
+                     }
+  if shouldUnblock
+     then do {
+       unblock <- getUnblockThreadSCont sc;
+       unblock
+     }
+     else return ()
+
+{-# INLINE setUnblockThread #-}
+setUnblockThread :: SCont -> PTM () -> IO ()
+setUnblockThread (SCont sc) r = IO $ \s ->
+  case (setUnblockThread# sc r s) of s -> (# s, () #)
+
+{-# INLINE getUnblockThreadSCont #-}
+getUnblockThreadSCont :: SCont -> PTM(PTM ())
+getUnblockThreadSCont (SCont sc) =
+  PTM $ \s -> getUnblockThread# sc s
+
+{-# INLINE getUnblockThread #-}
+getUnblockThread :: PTM (PTM ())
+getUnblockThread = do
+  currentSCont <- getSCont
+  u <- getUnblockThreadSCont currentSCont
+  return u
+
+
+-----------------------------------------------------------------------------------
+-- Misc upcalls
+-----------------------------------------------------------------------------------
 
 {-# INLINE setFinalizer #-}
 setFinalizer :: SCont -> IO () -> IO ()

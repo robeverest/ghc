@@ -32,33 +32,35 @@ addUpcall (Capability* cap, Upcall uc)
   debugTrace (DEBUG_sched, "Adding new upcall %p", (void*)uc);
 }
 
+//See libraries/base/LwConc/Substrate.hs:unblockThreadRts
 Upcall
 getResumeThreadUpcall (Capability* cap, StgTSO* t)
 {
-  //See libraries/base/LwConc/Substrate.hs:resumeThread
+  Upcall p;
+
   ASSERT (!t->is_upcall_thread);
   ASSERT (t->resume_thread != (StgClosure*)defaultUpcall_closure);
-  StgClosure* p = t->resume_thread;
-  p = rts_apply (cap, (StgClosure*)resumeThread_closure, p);
+
+  p = rts_apply (cap, (StgClosure*)unblockThreadRts_closure,
+                 rts_mkSCont (cap, t));
+
   debugTrace (DEBUG_sched, "cap %d: getResumeThreadUpcall(%p) for thread %d",
               cap->no, (void*)p, t->id);
   return p;
 }
 
-//XXX KC -- If the upcall thread were used to evaluate switchToNextThread
-//upcall, the upcall thread would be lost. Solution: in stg_atomicSwitchzh, when
-//switching from a upcall thread, set cap->upcall_thread to current (upcall)
-//thread.
-
+//See libraries/base/LwConc/Substrate.hs:switchToNextThread
 Upcall
 getSwitchToNextThreadUpcall (Capability* cap, StgTSO* t)
 {
-  //See libraries/base/LwConc/Substrate.hs:switchToNextThread
+  Upcall p;
+
   ASSERT (!t->is_upcall_thread);
   ASSERT (t->switch_to_next != (StgClosure*)defaultUpcall_closure);
-  StgClosure* p = t->switch_to_next;
-  p = rts_apply (cap, (StgClosure*)switchToNextThread_closure, p);
-  p = rts_apply (cap, p, rts_mkInt (cap, 4));
+
+  p = rts_apply (cap, (StgClosure*)switchToNextThreadRts_closure,
+                 rts_mkSCont (cap, t));
+
   debugTrace (DEBUG_sched, "cap %d: getSwitchToNextThreadupcall(%p) for thread %d",
               cap->no, (void*)p, t->id);
   return p;

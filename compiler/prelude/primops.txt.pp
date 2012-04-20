@@ -1808,13 +1808,13 @@ primop GetStatusTVarOp "getStatusTVar#" GenPrimOp
   with
   out_of_line = True
 
-primop SetResumeThreadOp "setResumeThread#" GenPrimOp
+primop SetUnblockThreadOp "setUnblockThread#" GenPrimOp
   SCont# -> a -> State# RealWorld -> State# RealWorld
   with
   out_of_line = True
   has_side_effects = True
 
-primop GetResumeThreadOp "getResumeThread#" GenPrimOp
+primop GetUnblockThreadOp "getUnblockThread#" GenPrimOp
   SCont# -> State# RealWorld -> (# State# RealWorld, a #)
   with
   out_of_line = True

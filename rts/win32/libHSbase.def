@@ -15,6 +15,7 @@ EXPORTS
 	base_GHCziWord_W64zh_con_info
 
 	base_GHCziStable_StablePtr_con_info
+  base_LwConcziSubstrate_SCont_con_info
 
 	base_GHCziPack_unpackCString_closure
 
@@ -44,5 +45,5 @@ EXPORTS
 
   base_LwConcziSubstrate_Yielded_closure
   base_LwConcziSubstrate_defaultUpcall_closure
-  base_LwConcziSubstrate_resumeThread_closure
-  base_LwConcziSubstrate_switchToNextThread_closure
+  base_LwConcziSubstrate_unblockThreadRts_closure
+  base_LwConcziSubstrate_switchToNextThreadRts_closure

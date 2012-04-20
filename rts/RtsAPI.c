@@ -149,11 +149,20 @@ rts_mkDouble (Capability *cap, HsDouble d)
   return p;
 }
 
-  HaskellObj
+HaskellObj
 rts_mkStablePtr (Capability *cap, HsStablePtr s)
 {
   StgClosure *p = (StgClosure *)allocate(cap,sizeofW(StgHeader)+1);
   SET_HDR(p, StablePtr_con_info, CCS_SYSTEM);
+  p->payload[0]  = (StgClosure *)s;
+  return p;
+}
+
+HaskellObj
+rts_mkSCont (Capability *cap, HsSCont s)
+{
+  StgClosure *p = (StgClosure *)allocate(cap,sizeofW(StgHeader)+1);
+  SET_HDR(p, SCont_con_info, CCS_SYSTEM);
   p->payload[0]  = (StgClosure *)s;
   return p;
 }
@@ -330,7 +339,7 @@ rts_getDouble (HaskellObj p)
   return (double)(PK_DBL((P_)UNTAG_CLOSURE(p)->payload));
 }
 
-  HsStablePtr
+HsStablePtr
 rts_getStablePtr (HaskellObj p)
 {
   // See comment above:
@@ -339,7 +348,7 @@ rts_getStablePtr (HaskellObj p)
   return (StgStablePtr)(UNTAG_CLOSURE(p)->payload[0]);
 }
 
-  HsPtr
+HsPtr
 rts_getPtr (HaskellObj p)
 {
   // See comment above:

@@ -10,7 +10,7 @@ main = do
   }
   let spawnTask = do {
     s <- newSCont task;
-    setResumeThreadClosure s resumeThreadClosure
+    setUnblockThreadClosure s resumeThreadClosure
   }
   spawnTask
   s <- atomically $ getSCont

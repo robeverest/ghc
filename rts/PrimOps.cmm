@@ -876,11 +876,11 @@ stg_iCanRunSContzh
 /* Set the resume thread closure for the given TSO. This closure, when
  * evaluated, will add the given thread to its user-level scheduler.
  */
-stg_setResumeThreadzh
+stg_setUnblockThreadzh
 {
   /* args: R1 = SCont, R2 = closure to resume this spark */
 
-  MAYBE_GC (R1_PTR & R2_PTR, stg_setResumeThreadzh);
+  MAYBE_GC (R1_PTR & R2_PTR, stg_setUnblockThreadzh);
 
   W_ threadid, resume_thread;
   threadid = R1;
@@ -891,10 +891,10 @@ stg_setResumeThreadzh
   jump %ENTRY_CODE(Sp(0));
 }
 
-stg_getResumeThreadzh
+stg_getUnblockThreadzh
 {
   /* args: R1 = SCont */
-  MAYBE_GC (R1_PTR, stg_getResumeThreadzh);
+  MAYBE_GC (R1_PTR, stg_getUnblockThreadzh);
 
   W_ threadid, resume_thread;
   threadid = R1;
