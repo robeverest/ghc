@@ -23,9 +23,19 @@
 
 
 module LwConc.Substrate
-( PTM
+(
+
+------------------------------------------------------------------------------
+-- PTM
+------------------------------------------------------------------------------
+
+PTM
 , unsafeIOToPTM           -- IO a -> PTM a
 , atomically              -- PTM a -> IO a
+
+------------------------------------------------------------------------------
+-- PVar
+------------------------------------------------------------------------------
 
 , PVar
 , newPVar                 -- a -> PTM (PVar a)
@@ -33,23 +43,44 @@ module LwConc.Substrate
 , readPVar                -- PVar a -> PTM a
 , writePVar               -- PVar a -> a -> PTM ()
 
+------------------------------------------------------------------------------
+-- SCont management
+------------------------------------------------------------------------------
 , SCont
-, ThreadStatus (..)
-, getSContId              -- SCont -> PTM Int
-, setCurrentSContStatus   -- ThreadStatus -> PTM ()
-
 , newSCont                -- IO () -> IO SCont
-, switch                  -- (SCont -> PTM SCont) -> IO ()
 , getSCont                -- PTM SCont
 , getSContIO              -- IO SCont
+, getSContId              -- SCont -> PTM Int
+
+------------------------------------------------------------------------------
+-- Switch
+------------------------------------------------------------------------------
+
+, switch                  -- (SCont -> PTM SCont) -> IO ()
 , switchTo                -- SCont -> PTM ()
-, abortAndRetry           -- PTM ()
+
+
+------------------------------------------------------------------------------
+-- ThreadStatus
+------------------------------------------------------------------------------
+
+, ThreadStatus (..)
+, setCurrentSContStatus   -- ThreadStatus -> PTM ()
+
+------------------------------------------------------------------------------
+-- Bound SConts
+------------------------------------------------------------------------------
 
 #ifdef __GLASGOW_HASKELL__
 , newBoundSCont           -- IO () -> IO SCont
 , isCurrentThreadBound    -- IO Bool
 , rtsSupportsBoundThreads -- Bool
 #endif
+
+
+------------------------------------------------------------------------------
+-- Upcall actions
+------------------------------------------------------------------------------
 
 , setUnblockThread         -- SCont -> PTM () -> IO ()
 , getUnblockThread         -- PTM (PTM ())
@@ -60,20 +91,30 @@ module LwConc.Substrate
 , setFinalizer            -- SCont -> IO () -> IO ()
 , defaultUpcall           -- IO ()
 
--- experimental
-, scheduleSContOnFreeCap  -- SCont -> IO ()
-, iCanRunSCont            -- SCont -> PTM Bool
-                          -- Whether the given SCont can be run on the current
-                          -- capability.
+------------------------------------------------------------------------------
+-- Capability Management
+------------------------------------------------------------------------------
 
 , setOC                   -- SCont -> Int -> IO ()
 , getCurrentCapability    -- IO Int
 , getCurrentCapabilityPTM -- PTM Int
 , getSContCapability      -- SCont -> PTM Int
 , getNumCapabilities      -- IO Int
+, iCanRunSCont            -- SCont -> PTM Bool
+                          -- Whether the given SCont can be run on the current
+                          -- capability.
 
+------------------------------------------------------------------------------
+-- Experimental
+------------------------------------------------------------------------------
+
+, abortAndRetry           -- PTM ()
+, scheduleSContOnFreeCap  -- SCont -> IO ()
+
+------------------------------------------------------------------------------
 -- XXX The following should not be used directly. Only exposed since the RTS
 -- cannot find it otherwise. TODO: Hide them. - KC
+------------------------------------------------------------------------------
 
 , unblockThreadRts        -- PTM () -> IO ()
 , switchToNextThreadRts   -- PTM () -> Int -> IO ()

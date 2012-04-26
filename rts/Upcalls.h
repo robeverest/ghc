@@ -35,9 +35,8 @@ INLINE_HEADER StgClosure* popUpcallQueue (UpcallQueue* q);
 
 INLINE_HEADER long upcallQueueSize (UpcallQueue *q);
 
-//Upcall queue has at least 1 element || (upcall queue size == 0 &&
-//cap->upcall_thread is the saved thread)
-rtsBool pendingUpcalls (Capability* cap);
+//upcallQueueSize == 0 && cap->upcall_thread is not the saved thread
+rtsBool emptyUpcallQueue (Capability* cap);
 
 //If there are pending upcalls prepare the upcall thread with the first upcall.
 //Save the given current thread in cap->upcall_thread.

@@ -339,13 +339,13 @@ schedule (Capability *initialCapability, Task *task)
 
     scheduleYield(&cap,task);
 
-    if (emptyRunQueue(cap) && !pendingUpcalls(cap))
+    if (emptyRunQueue(cap) && emptyUpcallQueue (cap))
       continue; // look for work again
 
 #endif
 
 #if !defined(THREADED_RTS) && !defined(mingw32_HOST_OS)
-    if (emptyRunQueue(cap) && !pendingUpcalls(cap)) {
+    if (emptyRunQueue(cap) && emptyUpcallQueue (cap)) {
       ASSERT(sched_state >= SCHED_INTERRUPTING);
     }
 #endif
@@ -354,7 +354,7 @@ schedule (Capability *initialCapability, Task *task)
     // Get a thread to run
     //
     if (emptyRunQueue (cap)) {
-      ASSERT (pendingUpcalls(cap));
+      ASSERT (!emptyUpcallQueue (cap));
       t = (StgTSO*)END_TSO_QUEUE;
     }
     else {
@@ -587,7 +587,6 @@ run_thread:
 
       case ThreadYielding:
         if (scheduleHandleYield(cap, t, prev_what_next)) {
-          // shortcut for switching between compiler/interpreter:
           goto run_thread;
         }
         break;
@@ -670,7 +669,7 @@ scheduleFindWork (Capability *cap)
   scheduleCheckBlockedThreads(cap);
 
 #if defined(THREADED_RTS)
-  if (emptyRunQueue(cap) && !pendingUpcalls(cap)) {
+  if (emptyRunQueue(cap) && emptyUpcallQueue (cap)) {
     //scheduleResumeBlockedOnForeignCall(cap);
     scheduleActivateSpark(cap);
   }
@@ -714,7 +713,7 @@ scheduleYield (Capability **pcap, Task *task)
   //
   if (!shouldYieldCapability(cap,task) &&
       (!emptyRunQueue(cap) ||
-       pendingUpcalls(cap) ||
+       !emptyUpcallQueue(cap) ||
        !emptyInbox(cap) ||
        sched_state >= SCHED_INTERRUPTING))
     return;
@@ -977,7 +976,7 @@ scheduleDetectDeadlock (Capability *cap, Task *task)
    * other tasks are waiting for work, we must have a deadlock of
    * some description.
    */
-  if ( emptyThreadQueues(cap))
+  if (emptyThreadQueues(cap) && emptyUpcallQueue (cap))
   {
 #if defined(THREADED_RTS)
     /*
@@ -1259,7 +1258,7 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
  * Handle a thread that returned to the scheduler with ThreadYielding
  * -------------------------------------------------------------------------- */
 
-  static rtsBool
+static rtsBool
 scheduleHandleYield( Capability *cap, StgTSO *t, nat prev_what_next )
 {
   /* put the thread back on the run queue.  Then, if we're ready to
@@ -1288,7 +1287,12 @@ scheduleHandleYield( Capability *cap, StgTSO *t, nat prev_what_next )
   // better than the alternative.
   if (cap->context_switch != 0) {
     cap->context_switch = 0;
-    appendToRunQueue(cap,t);
+    if (hasHaskellScheduler (t)) {
+      addUpcall (cap, getResumeThreadUpcall (cap, t));
+      addUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
+    }
+    else
+      appendToRunQueue(cap,t);
   } else {
     pushOnRunQueue(cap,t);
   }

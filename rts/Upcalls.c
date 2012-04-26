@@ -182,13 +182,11 @@ traverseUpcallQueue (evac_fn evac, void* user, Capability *cap)
              upcallQueueSize(queue), queue->bottom, queue->top);
 }
 
-rtsBool pendingUpcalls (Capability* cap)
+//upcallQueueSize == 0 && cap->upcall_thread is not the saved thread
+rtsBool emptyUpcallQueue (Capability* cap)
 {
   UpcallQueue* q = cap->upcall_queue;
-  if (upcallQueueSize (q) > 0)
-    return rtsTrue;
-  if (cap->upcall_thread != (StgTSO*)END_TSO_QUEUE &&
-      !isUpcallThread (cap->upcall_thread))
-    return rtsTrue;
-  return rtsFalse;
+  return (upcallQueueSize (q) == 0 &&
+          cap->upcall_thread != (StgTSO*)END_TSO_QUEUE &&
+          isUpcallThread (cap->upcall_thread));
 }
