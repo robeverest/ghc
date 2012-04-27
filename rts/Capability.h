@@ -97,11 +97,14 @@ struct Capability_ {
     //Upcall thread -- Every capability has a upcall thread attached to it,
     //which is used to execute the upcalls (resume_thread actions, finalizers,
     //etc). upcall_thread picks up work from upcall_queue, and evaluates each
-    //upcall until they are finished or get blocked. When the upcall thread is
-    //running, the current thread on the capability is stashed here, so that the
-    //GC can find it. Also, for a upcall thread, resume_thread ==
-    //switch_to_next == scont_state == END_TSO_QUEUE.
+    //upcall until they are finished or get blocked. Also, for an upcall thread,
+    //resume_thread == switch_to_next == scont_state == END_TSO_QUEUE.
     StgTSO* upcall_thread;
+
+    //When the upcall thread is running, the current thread on the capability is
+    //stashed here, so that the GC can find it. Otherwise, it is END_TSO_QUEUE.
+    StgTSO* saved_thread;
+
     UpcallQueue* upcall_queue;
 
 #if defined(THREADED_RTS)

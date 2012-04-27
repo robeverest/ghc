@@ -949,7 +949,7 @@ scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
 
     //Add new upcall
     StgTSO* tso = incall->suspended_tso;
-    addUpcall (cap, getSwitchToNextThreadUpcall (cap, tso));
+    pushUpcall (cap, getSwitchToNextThreadUpcall (cap, tso));
     relegateTask (cap, incall->task);
   }
   else {
@@ -1288,10 +1288,10 @@ scheduleHandleYield( Capability *cap, StgTSO *t, nat prev_what_next )
   if (cap->context_switch != 0) {
     cap->context_switch = 0;
     if (hasHaskellScheduler (t)) {
-      //addUpcall pushes to the front, since want to first do the ResumeThread
+      //pushUpcall pushes to the front, since want to first do the ResumeThread
       //action, we push it last.
-      addUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
-      addUpcall (cap, getResumeThreadUpcall (cap, t));
+      pushUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
+      pushUpcall (cap, getResumeThreadUpcall (cap, t));
       t->why_blocked = Yielded;
     }
     else
@@ -1316,7 +1316,7 @@ scheduleHandleThreadBlocked(Capability *cap, StgTSO *t)
 {
 
   if (t->why_blocked == BlockedOnBlackHole)
-    addUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
+    pushUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
 
   // ASSERT(t->why_blocked != NotBlocked);
   // Not true: for example,
@@ -2256,7 +2256,7 @@ resumeThread (void *task_)
   //Check whether a worker has resumed our scheduler
   if (incall->uls_stat == UserLevelSchedulerRunning) {
     //Evaluate the unblock action on the upcall thread
-    addUpcall (cap, getResumeThreadUpcall (cap, tso));
+    pushUpcall (cap, getResumeThreadUpcall (cap, tso));
     tso = prepareUpcallThread (cap, (StgTSO*)END_TSO_QUEUE);
   }
 #endif
@@ -2858,13 +2858,13 @@ resurrectThreads (StgTSO *threads)
     switch (tso->why_blocked) {
       case Yielded:
         if (tso->finalizer != (StgClosure*)defaultUpcall_closure)
-          addUpcall (cap, getFinalizerUpcall (cap, tso));
+          pushUpcall (cap, getFinalizerUpcall (cap, tso));
         break;
       case BlockedOnConcDS:
         tso = throwToSingleThreaded (cap, tso,
                                      (StgClosure*)blockedIndefinitelyOnConcDS_closure);
         if (tso->what_next == ThreadRunGHC)
-          addUpcall (cap, getResumeThreadUpcall (cap, tso));
+          pushUpcall (cap, getResumeThreadUpcall (cap, tso));
         break;
       case BlockedOnMVar:
         barf ("resurrectThreads: BlockedOnMVar not implemented!");

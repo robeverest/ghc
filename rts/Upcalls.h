@@ -22,7 +22,7 @@ typedef StgClosure* Upcall;
 UpcallQueue *allocUpcallQueue (void);
 
 // Add a new upcall
-void addUpcall                     (Capability* cap, Upcall uc);
+void pushUpcall                     (Capability* cap, Upcall uc);
 
 Upcall getResumeThreadUpcall       (Capability* cap, StgTSO* tso);
 Upcall getSwitchToNextThreadUpcall (Capability* cap, StgTSO* tso);

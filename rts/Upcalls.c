@@ -25,10 +25,10 @@ allocUpcallQueue (void)
 
 // Add a new upcall
 void
-addUpcall (Capability* cap, Upcall uc)
+pushUpcall (Capability* cap, Upcall uc)
 {
   if (!pushWSDeque (cap->upcall_queue, uc))
-    barf ("addUpcall overflow!!");
+    barf ("pushUpcall overflow!!");
   debugTrace (DEBUG_sched, "Adding new upcall %p (queue size = %d)",
               (void*)uc, upcallQueueSize (cap->upcall_queue));
 }

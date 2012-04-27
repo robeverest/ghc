@@ -325,7 +325,7 @@ unblock1:
   // just run the thread now, if the BH is not really available,
   // we'll block again.
   tso->why_blocked = NotBlocked;
-  addUpcall (cap, getResumeThreadUpcall (cap, tso));
+  pushUpcall (cap, getResumeThreadUpcall (cap, tso));
   return;
 
 unblock2:
@@ -409,7 +409,7 @@ wakeBlockingQueue(Capability *cap, StgBlockingQueue *bq)
     i = msg->header.info;
     if (i != &stg_IND_info) {
       ASSERT(i == &stg_MSG_BLACKHOLE_info);
-      addUpcall (cap, msg->upcall);
+      pushUpcall (cap, msg->upcall);
     }
   }
 
