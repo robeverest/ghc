@@ -35,7 +35,9 @@ INLINE_HEADER StgClosure* popUpcallQueue (UpcallQueue* q);
 
 INLINE_HEADER long upcallQueueSize (UpcallQueue *q);
 
-//upcallQueueSize == 0 && cap->upcall_thread is not the saved thread
+//upcallQueueSize == 0 && cap->saved_thread == END_TSO_QUEUE. Second condition
+//necessary since restoring the saved thread can be necessary for the program to
+//run to completion.
 rtsBool emptyUpcallQueue (Capability* cap);
 
 //If there are pending upcalls prepare the upcall thread with the first upcall.
@@ -73,4 +75,4 @@ INLINE_HEADER rtsBool isUpcallThread (StgTSO* tso)
 
 #include "EndPrivate.h"
 
-#endif /* SPARKS_H */
+#endif /* UPCALLS_H */
