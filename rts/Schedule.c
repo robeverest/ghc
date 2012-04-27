@@ -1288,8 +1288,11 @@ scheduleHandleYield( Capability *cap, StgTSO *t, nat prev_what_next )
   if (cap->context_switch != 0) {
     cap->context_switch = 0;
     if (hasHaskellScheduler (t)) {
-      addUpcall (cap, getResumeThreadUpcall (cap, t));
+      //addUpcall pushes to the front, since want to first do the ResumeThread
+      //action, we push it last.
       addUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
+      addUpcall (cap, getResumeThreadUpcall (cap, t));
+      t->why_blocked = Yielded;
     }
     else
       appendToRunQueue(cap,t);
@@ -2723,7 +2726,7 @@ raiseExceptionHelper (StgRegTable *reg, StgTSO *tso, StgClosure *exception)
         continue;
 
       case ATOMICALLY_FRAME:
-        debugTrace(DEBUG_stm, "found ATOMICALLY_FRAME at %p", p);
+        debugTrace(DEBUG_stm, "STM: found ATOMICALLY_FRAME at %p", p);
         tso->stackobj->sp = p;
         return ATOMICALLY_FRAME;
 
@@ -2732,7 +2735,7 @@ raiseExceptionHelper (StgRegTable *reg, StgTSO *tso, StgClosure *exception)
         return CATCH_FRAME;
 
       case CATCH_STM_FRAME:
-        debugTrace(DEBUG_stm, "found CATCH_STM_FRAME at %p", p);
+        debugTrace(DEBUG_stm, "STM: found CATCH_STM_FRAME at %p", p);
         tso->stackobj->sp = p;
         return CATCH_STM_FRAME;
 

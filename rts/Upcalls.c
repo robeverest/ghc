@@ -29,7 +29,8 @@ addUpcall (Capability* cap, Upcall uc)
 {
   if (!pushWSDeque (cap->upcall_queue, uc))
     barf ("addUpcall overflow!!");
-  debugTrace (DEBUG_sched, "Adding new upcall %p", (void*)uc);
+  debugTrace (DEBUG_sched, "Adding new upcall %p (queue size = %d)",
+              (void*)uc, upcallQueueSize (cap->upcall_queue));
 }
 
 //See libraries/base/LwConc/Substrate.hs:unblockThreadRts
