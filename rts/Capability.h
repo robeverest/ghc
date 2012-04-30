@@ -101,7 +101,8 @@ struct Capability_ {
     //resume_thread == switch_to_next == scont_state == END_TSO_QUEUE.
     StgTSO* upcall_thread;
 
-    UpcallQueue* upcall_queue;
+    UpcallQueue* upcall_queue_returning;
+    UpcallQueue* upcall_queue_non_returning;
 
 #if defined(THREADED_RTS)
     // Worker Tasks waiting in the wings.  Singly-linked.

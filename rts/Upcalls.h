@@ -22,16 +22,14 @@ typedef StgClosure* Upcall;
 UpcallQueue *allocUpcallQueue (void);
 
 // Add a new upcall
-void pushUpcall                    (Capability* cap, Upcall uc);
+void pushUpcallReturning           (Capability* cap, Upcall uc);
+void pushUpcallNonReturning        (Capability* cap, Upcall uc);
 
 Upcall getResumeThreadUpcall       (Capability* cap, StgTSO* tso);
 Upcall getSwitchToNextThreadUpcall (Capability* cap, StgTSO* tso);
 Upcall getFinalizerUpcall          (Capability* cap, StgTSO* tso);
 
-// Get an upcall from the capability's upcall queue. This could be a IO ()
-// action or a stack. Hence, immediately after picking up the upcall, check the
-// upcall kind using isSuspendedUpcall ().
-INLINE_HEADER StgClosure* popUpcallQueue (UpcallQueue* q);
+StgClosure* popUpcallQueue (Capability* cap);
 
 INLINE_HEADER long upcallQueueSize (UpcallQueue *q);
 
@@ -60,10 +58,6 @@ INLINE_HEADER long upcallQueueSize (UpcallQueue* q)
   return dequeElements(q);
 }
 
-INLINE_HEADER StgClosure* popUpcallQueue (UpcallQueue* q)
-{
-  return popWSDeque (q);
-}
 
 
 INLINE_HEADER rtsBool isUpcallThread (StgTSO* tso)

@@ -118,8 +118,7 @@ loop:
 
         r = messageBlackHole(cap, b);
         if (r == 0) {
-            pushUpcall (cap, b->upcall);
-            //tryWakeupThread(cap, b->tso);
+          pushUpcallReturning (cap, b->upcall);
         }
         return;
     }

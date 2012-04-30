@@ -1,11 +1,4 @@
 * -----------------------------------------------------------------------------
-* Unblock actions must be evaluated before block actions -- HIGH
-* -----------------------------------------------------------------------------
-
-This is necessary since the completion of block action might depend on the
-completion of unblock action.
-
-* -----------------------------------------------------------------------------
 * Implementing sleep/wakeup capabilities -- HIGH
 * -----------------------------------------------------------------------------
 

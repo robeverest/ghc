@@ -366,7 +366,7 @@ more_upcalls:
     /* If there are pending upcalls, prepare switching to upcall thread. If no
      * pending upcalls, restore original thread if necessary.
      */
-    if (upcallQueueSize (cap->upcall_queue) > 0) {
+    if (!emptyUpcallQueue(cap)) {
       t = prepareUpcallThread (cap, t);
     }
     else {
@@ -949,7 +949,7 @@ scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
 
     //Add new upcall
     StgTSO* tso = incall->suspended_tso;
-    pushUpcall (cap, getSwitchToNextThreadUpcall (cap, tso));
+    pushUpcallNonReturning (cap, getSwitchToNextThreadUpcall (cap, tso));
     relegateTask (cap, incall->task);
   }
   else {
@@ -1288,10 +1288,8 @@ scheduleHandleYield( Capability *cap, StgTSO *t, nat prev_what_next )
   if (cap->context_switch != 0) {
     cap->context_switch = 0;
     if (hasHaskellScheduler (t)) {
-      //pushUpcall pushes to the front, since want to first do the ResumeThread
-      //action, we push it last.
-      pushUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
-      pushUpcall (cap, getResumeThreadUpcall (cap, t));
+      pushUpcallNonReturning (cap, getSwitchToNextThreadUpcall (cap, t));
+      pushUpcallReturning (cap, getResumeThreadUpcall (cap, t));
       t->why_blocked = Yielded;
     }
     else
@@ -1316,7 +1314,7 @@ scheduleHandleThreadBlocked(Capability *cap, StgTSO *t)
 {
 
   if (hasHaskellScheduler (t))
-    pushUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
+    pushUpcallNonReturning (cap, getSwitchToNextThreadUpcall (cap, t));
 
   // ASSERT(t->why_blocked != NotBlocked);
   // Not true: for example,
@@ -2256,7 +2254,7 @@ resumeThread (void *task_)
   //Check whether a worker has resumed our scheduler
   if (incall->uls_stat == UserLevelSchedulerRunning) {
     //Evaluate the unblock action on the upcall thread
-    pushUpcall (cap, getResumeThreadUpcall (cap, tso));
+    pushUpcallReturning (cap, getResumeThreadUpcall (cap, tso));
     tso = prepareUpcallThread (cap, (StgTSO*)END_TSO_QUEUE);
   }
 #endif
@@ -2858,13 +2856,13 @@ resurrectThreads (StgTSO *threads)
     switch (tso->why_blocked) {
       case Yielded:
         if (tso->finalizer != (StgClosure*)defaultUpcall_closure)
-          pushUpcall (cap, getFinalizerUpcall (cap, tso));
+          pushUpcallReturning (cap, getFinalizerUpcall (cap, tso));
         break;
       case BlockedOnConcDS:
         tso = throwToSingleThreaded (cap, tso,
                                      (StgClosure*)blockedIndefinitelyOnConcDS_closure);
         if (tso->what_next == ThreadRunGHC)
-          pushUpcall (cap, getResumeThreadUpcall (cap, tso));
+          pushUpcallNonReturning (cap, getResumeThreadUpcall (cap, tso));
         break;
       case BlockedOnMVar:
         barf ("resurrectThreads: BlockedOnMVar not implemented!");

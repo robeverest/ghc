@@ -23,14 +23,22 @@ allocUpcallQueue (void)
   return newWSDeque (4096); //TODO KC -- Add this to RtsFlags.UpcallFlags
 }
 
-// Add a new upcall
 void
-pushUpcall (Capability* cap, Upcall uc)
+pushUpcallReturning (Capability* cap, Upcall uc)
 {
-  if (!pushWSDeque (cap->upcall_queue, uc))
+  if (!pushWSDeque (cap->upcall_queue_returning, uc))
     barf ("pushUpcall overflow!!");
-  debugTrace (DEBUG_sched, "Adding new upcall %p (queue size = %d)",
-              (void*)uc, upcallQueueSize (cap->upcall_queue));
+  debugTrace (DEBUG_sched, "Adding new returning upcall %p (queue size = %d)",
+              (void*)uc, upcallQueueSize (cap->upcall_queue_returning));
+}
+
+void
+pushUpcallNonReturning (Capability* cap, Upcall uc)
+{
+  if (!pushWSDeque (cap->upcall_queue_non_returning, uc))
+    barf ("pushUpcall overflow!!");
+  debugTrace (DEBUG_sched, "Adding new non returning upcall %p (queue size = %d)",
+              (void*)uc, upcallQueueSize (cap->upcall_queue_non_returning));
 }
 
 //See libraries/base/LwConc/Substrate.hs:unblockThreadRts
@@ -109,7 +117,7 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
   if (upcall_thread->what_next != ThreadComplete)
     return upcall_thread;
 
-  StgClosure* upcall = popUpcallQueue (cap->upcall_queue);
+  StgClosure* upcall = popUpcallQueue (cap);
 
   ASSERT (upcall_thread->what_next != ThreadKilled);
   upcall_thread->_link = (StgTSO*)END_TSO_QUEUE;
@@ -170,37 +178,60 @@ restoreCurrentThreadIfNecessary (Capability* cap, StgTSO* current_thread) {
 void
 traverseUpcallQueue (evac_fn evac, void* user, Capability *cap)
 {
-  //XXX KC -- Copy paste from traverseSparkPool. Merge these if possible.
   StgClosure **upcallp;
+  UpcallQueue* queues[2];
   UpcallQueue *queue;
   StgWord top,bottom, modMask;
+  nat i;
 
-  queue = cap->upcall_queue;
+  queues[0] = cap->upcall_queue_returning;
+  queues[1] = cap->upcall_queue_non_returning;
 
-  ASSERT_WSDEQUE_INVARIANTS(queue);
+  for (i=0; i < 2; i++) {
+    queue = queues[i];
 
-  top = queue->top;
-  bottom = queue->bottom;
-  upcallp = (StgClosurePtr*)queue->elements;
-  modMask = queue->moduloSize;
+    ASSERT_WSDEQUE_INVARIANTS(queue);
 
-  while (top < bottom) {
-    /* call evac for all closures in range (wrap-around via modulo)
-     * In GHC-6.10, evac takes an additional 1st argument to hold a
-     * GC-specific register, see rts/sm/GC.c::mark_root()
-     */
-    evac( user , upcallp + (top & modMask) );
-    top++;
+    top = queue->top;
+    bottom = queue->bottom;
+    upcallp = (StgClosurePtr*)queue->elements;
+    modMask = queue->moduloSize;
+
+    while (top < bottom) {
+      /* call evac for all closures in range (wrap-around via modulo)
+      * In GHC-6.10, evac takes an additional 1st argument to hold a
+      * GC-specific register, see rts/sm/GC.c::mark_root()
+      */
+      evac( user , upcallp + (top & modMask) );
+      top++;
+    }
+
+    debugTrace(DEBUG_gc,
+              "traversed upcall queue, len=%ld; (hd=%ld; tl=%ld)",
+              upcallQueueSize(queue), queue->bottom, queue->top);
   }
-
-  debugTrace(DEBUG_gc,
-             "traversed upcall queue, len=%ld; (hd=%ld; tl=%ld)",
-             upcallQueueSize(queue), queue->bottom, queue->top);
 }
 
 //upcallQueueSize == 0
 rtsBool emptyUpcallQueue (Capability* cap)
 {
-  UpcallQueue* q = cap->upcall_queue;
-  return (upcallQueueSize (q) == 0);
+  UpcallQueue* r = cap->upcall_queue_returning;
+  UpcallQueue* nr = cap->upcall_queue_non_returning;
+  return (upcallQueueSize (r) == 0 &&
+          upcallQueueSize (nr) == 0);
+}
+
+StgClosure* popUpcallQueue (Capability* cap)
+{
+  UpcallQueue *r,*nr;
+  ASSERT (!emptyUpcallQueue (cap));
+
+  r = cap->upcall_queue_returning;
+  nr = cap->upcall_queue_non_returning;
+
+  if (upcallQueueSize (r) > 0) {
+    //Assume no stealing
+    return popWSDeque (r);
+  }
+  return popWSDeque (nr);
 }

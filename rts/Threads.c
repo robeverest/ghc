@@ -328,7 +328,7 @@ unblock1:
   // just run the thread now, if the BH is not really available,
   // we'll block again.
   tso->why_blocked = Yielded;
-  pushUpcall (cap, getResumeThreadUpcall (cap, tso));
+  pushUpcallReturning (cap, getResumeThreadUpcall (cap, tso));
   return;
 
 unblock2:
@@ -412,7 +412,7 @@ wakeBlockingQueue(Capability *cap, StgBlockingQueue *bq)
     i = msg->header.info;
     if (i != &stg_IND_info) {
       ASSERT(i == &stg_MSG_BLACKHOLE_info);
-      pushUpcall (cap, msg->upcall);
+      pushUpcallReturning (cap, msg->upcall);
     }
   }
 

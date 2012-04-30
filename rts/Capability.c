@@ -272,7 +272,8 @@ initCapability( Capability *cap, nat i )
   cap->context_switch = 0;
   cap->pinned_object_block = NULL;
   cap->upcall_thread = (StgTSO*)END_TSO_QUEUE;
-  cap->upcall_queue = allocUpcallQueue();
+  cap->upcall_queue_returning = allocUpcallQueue();
+  cap->upcall_queue_non_returning = allocUpcallQueue();
 
 #ifdef PROFILING
   cap->r.rCCCS = CCS_SYSTEM;
