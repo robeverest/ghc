@@ -95,7 +95,7 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
                 "thread %d.", cap->upcall_thread->id,
                 (current_thread == (StgTSO*)END_TSO_QUEUE)?-1:(int)current_thread->id);
     //Save current thread
-    ASSERT (saved_thread == (StgTSO*)END_TSO_QUEUE);
+    ASSERT (cap->saved_thread == (StgTSO*)END_TSO_QUEUE);
     cap->saved_thread = current_thread;
   }
   else {

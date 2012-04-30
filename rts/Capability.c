@@ -605,7 +605,7 @@ releaseCapabilityAndQueueWorker (Capability* cap USED_IF_THREADS)
  * made it.
  *
  * ------------------------------------------------------------------------- */
-  void
+void
 waitForReturnCapability (Capability **pCap, Task *task)
 {
 #if !defined(THREADED_RTS)

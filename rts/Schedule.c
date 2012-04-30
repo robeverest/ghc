@@ -670,7 +670,7 @@ scheduleFindWork (Capability *cap)
 
 #if defined(THREADED_RTS)
   if (emptyRunQueue(cap) && emptyUpcallQueue (cap)) {
-    //scheduleResumeBlockedOnForeignCall(cap);
+    scheduleResumeBlockedOnForeignCall(cap);
     scheduleActivateSpark(cap);
   }
 #endif
@@ -1315,8 +1315,7 @@ static void
 scheduleHandleThreadBlocked(Capability *cap, StgTSO *t)
 {
 
-  if (t->why_blocked == BlockedOnBlackHole)
-    pushUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
+  pushUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
 
   // ASSERT(t->why_blocked != NotBlocked);
   // Not true: for example,

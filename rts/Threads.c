@@ -283,7 +283,10 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
       {
         if (tso->_link == END_TSO_QUEUE) {
           tso->block_info.closure = (StgClosure*)END_TSO_QUEUE;
-          goto unblock2;
+          if (hasHaskellScheduler (tso))
+            goto unblock1;
+          else
+            goto unblock2;
         } else {
           return;
         }
