@@ -384,6 +384,8 @@ unblockThreadRts sc = atomically $ do
   unblock
   {- stat <- getSContStatus sc
   shouldUnblock <- case stat of
+                     -- This can happen if sc hasn't finished evaluating its
+                     -- block action. TODO KC
                      Running -> error "unblockThreadRTS: thread running??"
                      otherwise-> do {
                        setSContStatus sc Yielded; -- Unblock it
