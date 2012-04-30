@@ -1,0 +1,49 @@
+* -----------------------------------------------------------------------------
+* Unblock actions must be evaluated before block actions -- HIGH
+* -----------------------------------------------------------------------------
+
+This is necessary since the completion of block action might depend on the
+completion of unblock action.
+
+* -----------------------------------------------------------------------------
+* Implementing sleep/wakeup capabilities -- HIGH
+* -----------------------------------------------------------------------------
+
+* -----------------------------------------------------------------------------
+* Block action blocking on a blackhole -- MED
+* -----------------------------------------------------------------------------
+
+Must implement block action blocking on a blackhole. For blocking on a different
+capability, we must create block and unblock actions using sleepCapability and
+wakeupCapability. For blocking on current capability, we need to build AP_STACK.
+
+* -----------------------------------------------------------------------------
+* Vanilla GHC threads blocking on blackholes -- MED
+* -----------------------------------------------------------------------------
+
+Vanilla GHC threads (created through GHC.Conc.forkIO) can also block on
+blackholes. Since these vanilla GHC threads do not have scheduler actions, how
+do we block them on black holes?
+
+We may choose to have the following in MessageBlackHole structure instead of
+either one:
+
+union {
+  StgTSO* tso;
+  StgClosure* closure;
+}
+
+and distinguish them using a flag.
+
+
+* -----------------------------------------------------------------------------
+* Upcall threads blocking on RTS MVars -- LOW
+* -----------------------------------------------------------------------------
+
+What is the behavior of upcall threads blocking on RTS MVars? Should it also
+have:
+
+union {
+  StgTSO* tso;
+  StgClosure* closure;
+}

@@ -1315,7 +1315,8 @@ static void
 scheduleHandleThreadBlocked(Capability *cap, StgTSO *t)
 {
 
-  pushUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
+  if (hasHaskellScheduler (t))
+    pushUpcall (cap, getSwitchToNextThreadUpcall (cap, t));
 
   // ASSERT(t->why_blocked != NotBlocked);
   // Not true: for example,

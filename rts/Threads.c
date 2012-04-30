@@ -547,7 +547,12 @@ isThreadBound(StgTSO* tso USED_IF_THREADS)
 
 rtsBool
 hasHaskellScheduler (StgTSO* tso) {
-  return (tso->switch_to_next != (StgClosure*)defaultUpcall_closure);
+  return (//Not upcall thread
+          tso->is_upcall_thread == rtsFalse &&
+          //has switch to next action
+          tso->switch_to_next != (StgClosure*)defaultUpcall_closure &&
+          //has unblock thread actions
+          tso->resume_thread != (StgClosure*)defaultUpcall_closure);
 }
 
 /* -----------------------------------------------------------------------------
