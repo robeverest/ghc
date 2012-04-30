@@ -47,3 +47,27 @@ union {
   StgTSO* tso;
   StgClosure* closure;
 }
+
+
+* -----------------------------------------------------------------------------
+* Work initiation on other capabilities -- LOW
+* -----------------------------------------------------------------------------
+
+Currently, the substrate primitive scheduleSContOnFreeCap :: SCont -> IO () is
+used to initiate task execution on other capabilities. But this method is not
+robust. If there are no free capabilities, the call does not return!! Need to
+implement something like
+
+thread_main :: IO ()
+
+in the same vein as
+
+main :: IO (). thread_main is the entry point for capabilities with cap->no >=
+1. But how do we share work between cap 0 and cap 1+? May be we need to change
+main and thread_main to have a type
+
+main :: PVar -> IO ()
+thread_main :: PVar -> IO ()
+
+with the main and thread_main applied to the same PVar. This PVar can be used as
+the conduit for sharing work between the capabilities.
