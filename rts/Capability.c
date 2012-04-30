@@ -272,7 +272,6 @@ initCapability( Capability *cap, nat i )
   cap->context_switch = 0;
   cap->pinned_object_block = NULL;
   cap->upcall_thread = (StgTSO*)END_TSO_QUEUE;
-  cap->saved_thread = (StgTSO*)END_TSO_QUEUE;
   cap->upcall_queue = allocUpcallQueue();
 
 #ifdef PROFILING
@@ -1030,7 +1029,6 @@ markCapability (evac_fn evac, void *user, Capability *cap,
   }
 #endif
 
-  evac (user, (StgClosure **)(void*)&cap->saved_thread);
   evac (user, (StgClosure **)(void*)&cap->upcall_thread);
   traverseUpcallQueue (evac, user, cap);
 

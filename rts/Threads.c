@@ -327,7 +327,7 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
 unblock1:
   // just run the thread now, if the BH is not really available,
   // we'll block again.
-  tso->why_blocked = NotBlocked;
+  tso->why_blocked = Yielded;
   pushUpcall (cap, getResumeThreadUpcall (cap, tso));
   return;
 

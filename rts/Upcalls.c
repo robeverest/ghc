@@ -86,7 +86,7 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
   if (current_thread == (StgTSO*)END_TSO_QUEUE ||
       !isUpcallThread(current_thread)) {
 
-    //Upcall thread is running, create a new upcall thread
+    //if Upcall thread is running, create a new upcall thread
     if (cap->upcall_thread->what_next != ThreadComplete)
       initUpcallThreadOnCapability (cap);
 
@@ -94,9 +94,10 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
     debugTrace (DEBUG_sched, "Switching to upcall_thread %d. Saving current "
                 "thread %d.", cap->upcall_thread->id,
                 (current_thread == (StgTSO*)END_TSO_QUEUE)?-1:(int)current_thread->id);
+
     //Save current thread
-    ASSERT (cap->saved_thread == (StgTSO*)END_TSO_QUEUE);
-    cap->saved_thread = current_thread;
+    if (current_thread != (StgTSO*)END_TSO_QUEUE)
+      pushOnRunQueue (cap, current_thread);
   }
   else {
     upcall_thread = current_thread;
@@ -145,15 +146,17 @@ restoreCurrentThreadIfNecessary (Capability* cap, StgTSO* current_thread) {
   if (isUpcallThread (current_thread) &&
       current_thread->what_next == ThreadComplete) {
 
-    return_thread = cap->saved_thread;
-    cap->saved_thread = (StgTSO*)END_TSO_QUEUE;
+    if (emptyRunQueue (cap))
+      return_thread = (StgTSO*)END_TSO_QUEUE;
+    else
+      return_thread = popRunQueue (cap);
+
+    //Save the upcall thread
+    cap->upcall_thread = current_thread;
 
     debugTrace (DEBUG_sched, "Saving upcall thread %d and restoring original"
                 " thread %d", current_thread->id,
                 (return_thread == (StgTSO*)END_TSO_QUEUE)?-1:(int)return_thread->id);
-
-    //Save the upcall thread
-    cap->upcall_thread = current_thread;
   }
   else {
     return_thread = current_thread;
@@ -195,12 +198,9 @@ traverseUpcallQueue (evac_fn evac, void* user, Capability *cap)
              upcallQueueSize(queue), queue->bottom, queue->top);
 }
 
-//upcallQueueSize == 0 && cap->saved_thread == END_TSO_QUEUE. Second condition
-//necessary since restoring the saved thread can be necessary for the program to
-//run to completion.
+//upcallQueueSize == 0
 rtsBool emptyUpcallQueue (Capability* cap)
 {
   UpcallQueue* q = cap->upcall_queue;
-  return (upcallQueueSize (q) == 0 &&
-          cap->saved_thread == END_TSO_QUEUE);
+  return (upcallQueueSize (q) == 0);
 }

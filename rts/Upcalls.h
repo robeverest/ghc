@@ -22,7 +22,7 @@ typedef StgClosure* Upcall;
 UpcallQueue *allocUpcallQueue (void);
 
 // Add a new upcall
-void pushUpcall                     (Capability* cap, Upcall uc);
+void pushUpcall                    (Capability* cap, Upcall uc);
 
 Upcall getResumeThreadUpcall       (Capability* cap, StgTSO* tso);
 Upcall getSwitchToNextThreadUpcall (Capability* cap, StgTSO* tso);
@@ -35,9 +35,7 @@ INLINE_HEADER StgClosure* popUpcallQueue (UpcallQueue* q);
 
 INLINE_HEADER long upcallQueueSize (UpcallQueue *q);
 
-//upcallQueueSize == 0 && cap->saved_thread == END_TSO_QUEUE. Second condition
-//necessary since restoring the saved thread can be necessary for the program to
-//run to completion.
+//upcallQueueSize == 0
 rtsBool emptyUpcallQueue (Capability* cap);
 
 //If there are pending upcalls prepare the upcall thread with the first upcall.

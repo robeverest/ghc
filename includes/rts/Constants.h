@@ -233,7 +233,7 @@
 #define ThreadMigrating     13
 /* MVar is blocked on a concurrent data structure in user-land */
 #define BlockedOnConcDS     14
-#define Yielded      15
+#define Yielded             15
 
 /*
  * These constants are returned to the scheduler by a thread that has

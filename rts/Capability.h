@@ -101,10 +101,6 @@ struct Capability_ {
     //resume_thread == switch_to_next == scont_state == END_TSO_QUEUE.
     StgTSO* upcall_thread;
 
-    //When the upcall thread is running, the current thread on the capability is
-    //stashed here, so that the GC can find it. Otherwise, it is END_TSO_QUEUE.
-    StgTSO* saved_thread;
-
     UpcallQueue* upcall_queue;
 
 #if defined(THREADED_RTS)

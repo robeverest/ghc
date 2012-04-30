@@ -305,7 +305,8 @@ retry:
         if (uc == 0) {
           buct = TO_W_(StgTSO_is_upcall_thread(CurrentTSO));
           if (buct == 1) {
-            uc = StgTSO_finalizer (CurrentTSO);
+            foreign "C" barf ("Upcall thread entered blackhole!");
+            //uc = StgTSO_finalizer (CurrentTSO);
           }
           else {
             ("ptr" uc) = foreign "C" getResumeThreadUpcall (MyCapability() "ptr",
