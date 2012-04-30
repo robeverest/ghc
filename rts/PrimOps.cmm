@@ -602,7 +602,7 @@ stg_decodeDoublezu2Intzh
 
 STRING(stg_switch_msg,"Switching from thread %d (%s) to thread %d [%d]\n")
 STRING(stg_switch_reason_1, "Yielded")
-STRING(stg_switch_reason_2, "BlockedOnConcDS")
+STRING(stg_switch_reason_2, "BlockedInHaskell")
 STRING(stg_switch_reason_4, "ThreadComplete")
 
 stg_scheduleThreadOnFreeCapzh
@@ -771,7 +771,7 @@ stg_atomicSwitchzh
         }
         else {
           if (switch_reason == 2) {
-            StgTSO_why_blocked(CurrentTSO) = BlockedOnConcDS::I16;
+            StgTSO_why_blocked(CurrentTSO) = BlockedInHaskell::I16;
           }
           else {
             if (switch_reason == 4) {

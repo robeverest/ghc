@@ -159,7 +159,7 @@ typedef struct StgTSO_ {
 
     /*
      * A reference to this threads finalizer. If the thread becomes unreachable
-     * with why_blocked == BlockedOnConcDS, finalizer will be invoked on the
+     * with why_blocked == BlockedInHaskell, finalizer will be invoked on the
      * sandbox thread.
      */
     StgClosure* finalizer;

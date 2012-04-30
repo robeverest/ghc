@@ -317,7 +317,7 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
     case ThreadMigrating:
       goto unblock2;
 
-    case BlockedOnConcDS:
+    case BlockedInHaskell:
     case Yielded:
     default:
       // otherwise, do nothing
@@ -821,7 +821,7 @@ printThreadBlockage(StgTSO *tso)
     case BlockedOnSTM:
       debugBelch("is blocked on an STM operation");
       break;
-    case BlockedOnConcDS:
+    case BlockedInHaskell:
       debugBelch("is blocked on a user-level concurrent data structure");
       break;
     case Yielded:

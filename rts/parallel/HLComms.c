@@ -1523,7 +1523,7 @@ blockThread(StgTSO *tso)
       }
       break;
 
-    case BlockedOnConcDS:
+    case BlockedInHaskell:
     case Yielded:
       IF_PAR_DEBUG(verbose,
                    belch("##++ blockedThread: TSO %d blocked in user-land",

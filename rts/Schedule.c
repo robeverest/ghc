@@ -1038,7 +1038,7 @@ scheduleDetectDeadlock (Capability *cap, Task *task)
                                 (StgClosure *)nonTermination_closure);
           return;
         case Yielded:
-        case BlockedOnConcDS:
+        case BlockedInHaskell:
         default:
           barf("deadlock: main thread blocked in a strange way");
       }
@@ -2858,7 +2858,7 @@ resurrectThreads (StgTSO *threads)
         if (tso->finalizer != (StgClosure*)defaultUpcall_closure)
           pushUpcallReturning (cap, getFinalizerUpcall (cap, tso));
         break;
-      case BlockedOnConcDS:
+      case BlockedInHaskell:
         tso = throwToSingleThreaded (cap, tso,
                                      (StgClosure*)blockedIndefinitelyOnConcDS_closure);
         if (tso->what_next == ThreadRunGHC)

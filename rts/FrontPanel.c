@@ -555,7 +555,7 @@ updateThreadsPanel( void )
 	    case BlockedOnBlackHole:  b_bh++;      break;
 	    case NotBlocked:          running++;   break;
       case Yielded:
-      case BlockedOnConcDS:     break;
+      case BlockedInHaskell:     break;
 	    }
 	}
     }

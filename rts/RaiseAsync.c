@@ -437,7 +437,7 @@ check_target:
       // and now retry, the thread should be runnable.
       goto retry;
 
-    case BlockedOnConcDS:
+    case BlockedInHaskell:
     case Yielded:
     default:
       barf("throwTo: unrecognised why_blocked (%d)", target->why_blocked);
@@ -639,7 +639,7 @@ removeFromQueues(Capability *cap, StgTSO *tso)
       // nothing to do
       goto done;
 
-    case BlockedOnConcDS:
+    case BlockedInHaskell:
     case Yielded:
       return;
 

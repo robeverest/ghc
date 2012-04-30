@@ -60,7 +60,7 @@ interruptible(StgTSO *t)
       // NB. Threaded blocked on foreign calls (BlockedOnCCall) are
       // *not* interruptible.  We can't send these threads an exception.
     case Yielded:
-    case BlockedOnConcDS:
+    case BlockedInHaskell:
     default:
       return 0;
   }

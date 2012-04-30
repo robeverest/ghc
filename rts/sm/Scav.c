@@ -79,7 +79,7 @@ scavengeTSO (StgTSO *tso)
       	|| tso->why_blocked == BlockedOnMsgThrowTo
         || tso->why_blocked == NotBlocked
         || tso->why_blocked == Yielded
-        || tso->why_blocked == BlockedOnConcDS
+        || tso->why_blocked == BlockedInHaskell
 	) {
 	evacuate(&tso->block_info.closure);
     }

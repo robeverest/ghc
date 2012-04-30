@@ -186,7 +186,7 @@ static char *thread_stop_reasons[] = {
     [STOP_EVENT_OFFSET + BlockedOnCCall_Interruptible] = "blocked on a foreign call (interruptible)",
     [STOP_EVENT_OFFSET + BlockedOnMsgThrowTo]   = "blocked on throwTo",
     [STOP_EVENT_OFFSET + ThreadMigrating]       = "migrating",
-    [STOP_EVENT_OFFSET + BlockedOnConcDS]       = "blocked on a user-level concurrent data structure",
+    [STOP_EVENT_OFFSET + BlockedInHaskell]       = "blocked on a user-level concurrent data structure",
     [STOP_EVENT_OFFSET + Yielded]               = "blocked on a user-level scheduler (Yielded)"
 };
 #endif

@@ -245,8 +245,8 @@ writePVar (PVar tvar#) val = PTM $ \s1# ->
 
 data ThreadStatus = Running |
                     Yielded |
-                    BlockedOnConcDS |
-                    BlockedOnBlackHole |
+                    BlockedInHaskell |
+                    BlockedInRTS |
                     Completed
 
 data SCont = SCont SCont#
@@ -255,15 +255,15 @@ data SCont = SCont SCont#
 
 getStatusFromInt x | x == 0 = Running
                    | x == 1 = Yielded
-                   | x == 2 = BlockedOnConcDS
-                   | x == 3 = BlockedOnBlackHole
+                   | x == 2 = BlockedInHaskell
+                   | x == 3 = BlockedInRTS
                    | x == 4 = Completed
 
 getIntFromStatus x = case x of
                           Running -> 0#
                           Yielded -> 1#
-                          BlockedOnConcDS -> 2#
-                          BlockedOnBlackHole -> 3#
+                          BlockedInHaskell -> 2#
+                          BlockedInRTS -> 3#
                           Completed -> 4#
 
 {-# INLINE getSContStatus #-}
@@ -364,7 +364,7 @@ switchToNextThreadRts sc = atomically $ do
   setCurrentSContStatus Completed
   stat <- getSContStatus sc
   case stat of
-      Running -> setSContStatus sc BlockedOnBlackHole -- Hasn't been unblocked yet
+      Running -> setSContStatus sc BlockedInRTS -- Hasn't been unblocked yet
       Yielded -> return () -- Has been unblocked and put on the run queue
       otherwise -> error "switchToNextThread: Impossible status"
   stat <- getSContStatus sc

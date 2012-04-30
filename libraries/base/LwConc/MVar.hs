@@ -65,7 +65,7 @@ putMVar (MVar ref) x = atomically $ do
          unblockAct <- getUnblockThread
          blockAct <- getSwitchToNextThread
          writePVar ref $ Full x' $ ts++[(x, unblockAct)]
-         setCurrentSContStatus BlockedOnConcDS
+         setCurrentSContStatus BlockedInHaskell
          blockAct
 
 {-# INLINE takeMVar #-}
@@ -79,7 +79,7 @@ takeMVar (MVar ref) = do
            blockAct <- getSwitchToNextThread
            unblockAct <- getUnblockThread
            writePVar ref $ Empty $ ts++[(hole, unblockAct)]
-           setCurrentSContStatus BlockedOnConcDS
+           setCurrentSContStatus BlockedInHaskell
            blockAct
          Full x [] -> do
            writePVar ref $ Empty []
