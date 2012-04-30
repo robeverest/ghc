@@ -307,6 +307,9 @@ retry:
           if (buct == 1) {
             foreign "C" barf ("Upcall thread entered blackhole!");
             //uc = StgTSO_finalizer (CurrentTSO);
+
+            //(1) Am I in the middle of unblock_action or block_action??
+            //(2) Should I additionally abort transaction here?? -- KC
           }
           else {
             ("ptr" uc) = foreign "C" getResumeThreadUpcall (MyCapability() "ptr",

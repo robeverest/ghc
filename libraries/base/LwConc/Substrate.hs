@@ -516,9 +516,10 @@ newBoundSCont action0
 
 
 ----------------------------------------------------------------------------
--- Spinning up more schedulers (Unstable)
+-- Spinning up more schedulers (Experimental)
 
--- Given a bound thread, assigns it a free capability
+-- Given a bound thread, assigns it a free capability. If there are no free
+-- capabilities, this call will never return!
 ----------------------------------------------------------------------------
 
 scheduleSContOnFreeCap :: SCont -> IO ()
@@ -531,11 +532,18 @@ scheduleSContOnFreeCap (SCont s) = do
     else
       IO $ \st -> case scheduleThreadOnFreeCap# s st of st -> (# st, () #)
 
+------------------------------------------------------------------------------
+-- Capability Management
+------------------------------------------------------------------------------
+
+-- returns true if the given SCont is bound to the current capability
 iCanRunSCont :: SCont -> PTM Bool
 iCanRunSCont (SCont sc) =
    PTM $ \s -> case iCanRunSCont# sc s of
                    (# s, flg #) -> (# s, not (flg ==# 0#) #)
 
+-- We must own the capability (i.e, scont->cap == MyCapability ()). Otherwise,
+-- will throw a runtime error. TODO: check and throw exception. -- KC
 setOC :: SCont -> Int -> IO ()
 setOC (SCont sc) (I# i) = IO $
   \s -> case setOC# sc i s of s -> (# s, () #)
@@ -545,12 +553,12 @@ getCurrentCapability = IO $
   \s -> case getCurrentCapability# s of
              (# s, n #) -> (# s, (I# n) #)
 
-
 getCurrentCapabilityPTM :: PTM Int
 getCurrentCapabilityPTM = PTM $
   \s -> case getCurrentCapability# s of
              (# s, n #) -> (# s, (I# n) #)
 
+-- Returns the capability the given scont is bound to
 getSContCapability :: SCont -> PTM Int
 getSContCapability (SCont sc) = PTM $
   \s -> case getSContCapability# sc s of
