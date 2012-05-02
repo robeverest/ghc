@@ -64,3 +64,25 @@ thread_main :: PVar -> IO ()
 
 with the main and thread_main applied to the same PVar. This PVar can be used as
 the conduit for sharing work between the capabilities.
+
+
+* -----------------------------------------------------------------------------
+* SwitchTO return value
+* -----------------------------------------------------------------------------
+
+Since switchTo eagerly returns from a transaction with the value (), it might
+not be the same type as the value expected by the continuation of the atomic
+section. Hence, switchTo should return a value (error "eager return"). This will
+make sure that any attempt to use the return value will throw a runtime error.
+
+
+* -----------------------------------------------------------------------------
+* SCont status
+* -----------------------------------------------------------------------------
+
+data SContStatus = SContRunning | SContKilled | SContCompleted
+                 | SContBlocked BlockReason
+data BlockReason = Yielded | BlockedInRTS | BlockedInHaskell
+
+getSContStatus :: SCont -> SContStatus
+setBlockReason :: BlockReason -> PTM ()
