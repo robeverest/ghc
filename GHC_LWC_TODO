@@ -3,7 +3,7 @@
 * -----------------------------------------------------------------------------
 
 * -----------------------------------------------------------------------------
-* Block action blocking on a blackhole -- MED
+* Block action blocking on a blackhole within a PTM -- HIGH
 * -----------------------------------------------------------------------------
 
 Must implement block action blocking on a blackhole. For blocking on a different
@@ -11,60 +11,16 @@ capability, we must create block and unblock actions using sleepCapability and
 wakeupCapability. For blocking on current capability, we need to build AP_STACK.
 
 * -----------------------------------------------------------------------------
-* Vanilla GHC threads blocking on blackholes -- MED
-* -----------------------------------------------------------------------------
-
-Vanilla GHC threads (created through GHC.Conc.forkIO) can also block on
-blackholes. Since these vanilla GHC threads do not have scheduler actions, how
-do we block them on black holes?
-
-We may choose to have the following in MessageBlackHole structure instead of
-either one:
-
-union {
-  StgTSO* tso;
-  StgClosure* closure;
-}
-
-and distinguish them using a flag.
-
-
-* -----------------------------------------------------------------------------
-* Upcall threads blocking on RTS MVars -- LOW
-* -----------------------------------------------------------------------------
-
-What is the behavior of upcall threads blocking on RTS MVars? Should it also
-have:
-
-union {
-  StgTSO* tso;
-  StgClosure* closure;
-}
-
-
-* -----------------------------------------------------------------------------
 * Work initiation on other capabilities -- LOW
 * -----------------------------------------------------------------------------
 
 Currently, the substrate primitive scheduleSContOnFreeCap :: SCont -> IO () is
 used to initiate task execution on other capabilities. But this method is not
-robust. If there are no free capabilities, the call does not return!! Need to
-implement something like
+robust. If there are no free capabilities, the call does not return!! Need
 
-thread_main :: IO ()
+newCap :: SCont -> IO ()
 
-in the same vein as
-
-main :: IO (). thread_main is the entry point for capabilities with cap->no >=
-1. But how do we share work between cap 0 and cap 1+? May be we need to change
-main and thread_main to have a type
-
-main :: PVar -> IO ()
-thread_main :: PVar -> IO ()
-
-with the main and thread_main applied to the same PVar. This PVar can be used as
-the conduit for sharing work between the capabilities.
-
+which spins up a new capability..
 
 * -----------------------------------------------------------------------------
 * SwitchTO return value
@@ -74,6 +30,10 @@ Since switchTo eagerly returns from a transaction with the value (), it might
 not be the same type as the value expected by the continuation of the atomic
 section. Hence, switchTo should return a value (error "eager return"). This will
 make sure that any attempt to use the return value will throw a runtime error.
+
+Soln: Make switchTo return a (error "Eagerly returned transaction. Result must
+be ignored"). This needs to be a default closure that can be found from the C--
+code.
 
 
 * -----------------------------------------------------------------------------
@@ -86,3 +46,11 @@ data BlockReason = Yielded | BlockedInRTS | BlockedInHaskell
 
 getSContStatus :: SCont -> SContStatus
 setBlockReason :: BlockReason -> PTM ()
+
+
+* -----------------------------------------------------------------------------
+* Default Scheduler
+* -----------------------------------------------------------------------------
+
+How do we implement default scheduler? How can we build pluggable schedulers?
+The latter is a problem of dynamic linking.

@@ -16,7 +16,7 @@
 
 module ConcRRSched
 (ConcRRSched
-, ThreadStatus
+, SContStatus
 , newConcRRSched      -- IO (ConcRRSched)
 , forkIO              -- ConcRRSched -> IO () -> IO ()
 , forkOS              -- ConcRRSched -> IO () -> IO ()

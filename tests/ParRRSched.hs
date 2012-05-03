@@ -16,7 +16,7 @@
 
 module ParRRSched
 (ParRRSched
-, ThreadStatus
+, SContStatus
 , newParRRSched      -- IO (ParRRSched)
 , forkIO              -- ParRRSched -> IO () -> IO ()
 , forkOS              -- ParRRSched -> IO () -> IO ()

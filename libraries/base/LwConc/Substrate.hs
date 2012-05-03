@@ -60,11 +60,11 @@ PTM
 , switchTo                -- SCont -> PTM ()
 
 ------------------------------------------------------------------------------
--- ThreadStatus
+-- SContStatus
 ------------------------------------------------------------------------------
 
-, ThreadStatus (..)
-, setCurrentSContStatus   -- ThreadStatus -> PTM ()
+, SContStatus (..)
+, setCurrentSContStatus   -- SContStatus -> PTM ()
 
 ------------------------------------------------------------------------------
 -- Bound SConts
@@ -243,11 +243,11 @@ writePVar (PVar tvar#) val = PTM $ \s1# ->
 -- One-shot continuations (SCont)
 ---------------------------------------------------------------------------------
 
-data ThreadStatus = Running |
-                    Yielded |
-                    BlockedInHaskell |
-                    BlockedInRTS |
-                    Completed
+data SContStatus = Running |
+                   Yielded |
+                   BlockedInHaskell |
+                   BlockedInRTS |
+                   Completed
 
 data SCont = SCont SCont#
 
@@ -267,19 +267,19 @@ getIntFromStatus x = case x of
                           Completed -> 4#
 
 {-# INLINE getSContStatus #-}
-getSContStatus :: SCont -> PTM ThreadStatus
+getSContStatus :: SCont -> PTM SContStatus
 getSContStatus (SCont sc) = do
   st <- PTM $ \s -> case getStatusTVar# sc s of (# s, st #) -> (# s, PVar st #)
   readPVar st
 
 {-# INLINE setSContStatus #-}
-setSContStatus :: SCont -> ThreadStatus -> PTM ()
+setSContStatus :: SCont -> SContStatus -> PTM ()
 setSContStatus (SCont sc) status = do
   st <- PTM $ \s -> case getStatusTVar# sc s of (# s, st #) -> (# s, PVar st #)
   writePVar st status
 
 {-# INLINE setCurrentSContStatus #-}
-setCurrentSContStatus :: ThreadStatus -> PTM ()
+setCurrentSContStatus :: SContStatus -> PTM ()
 setCurrentSContStatus status = do
   s <- getSCont
   setSContStatus s status
