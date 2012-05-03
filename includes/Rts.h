@@ -112,7 +112,7 @@ void _assertFail(const char *filename, unsigned int linenum)
 #define ASSERTM(predicate,msg,...) CHECKM(predicate,msg,##__VA_ARGS__)
 #endif /* DEBUG */
 
-/* 
+/*
  * Use this on the RHS of macros which expand to nothing
  * to make sure that the macro can be used in a context which
  * demands a non-empty statement.
@@ -166,7 +166,7 @@ typedef StgInt64 Time;
 
 #if TIME_RESOLUTION == 1000000000
 // I'm being lazy, but it's awkward to define fully general versions of these
-#define TimeToUS(t)      (t / 1000)
+#define TimeToUS(t)      ((t) / 1000)
 #define TimeToNS(t)      (t)
 #define USToTime(t)      ((Time)(t) * 1000)
 #define NSToTime(t)      ((Time)(t))
