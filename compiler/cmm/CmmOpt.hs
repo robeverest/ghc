@@ -61,12 +61,13 @@ cmmEliminateDeadBlocks blocks@(BasicBlock base_id _:_) =
                 stmt m (CmmStore e1 e2) = expr (expr m e1) e2
                 stmt m (CmmCall c _ as _) = f (actuals m as) c
                     where f m (CmmCallee e _) = expr m e
-                          f m (CmmPrim _) = m
+                          f m (CmmPrim _ Nothing) = m
+                          f m (CmmPrim _ (Just stmts)) = foldl' stmt m stmts
                 stmt m (CmmBranch b) = b:m
                 stmt m (CmmCondBranch e b) = b:(expr m e)
                 stmt m (CmmSwitch e bs) = catMaybes bs ++ expr m e
-                stmt m (CmmJump e as) = expr (actuals m as) e
-                stmt m (CmmReturn as) = actuals m as
+                stmt m (CmmJump e _) = expr m e
+                stmt m (CmmReturn) = m
                 actuals m as = foldl' (\m h -> expr m (hintlessCmm h)) m as
                 -- We have to do a deep fold into CmmExpr because
                 -- there may be a BlockId in the CmmBlock literal.
@@ -269,11 +270,11 @@ inlineStmt u a (CmmStore e1 e2) = CmmStore (inlineExpr u a e1) (inlineExpr u a e
 inlineStmt u a (CmmCall target regs es ret)
    = CmmCall (infn target) regs es' ret
    where infn (CmmCallee fn cconv) = CmmCallee (inlineExpr u a fn) cconv
-         infn (CmmPrim p) = CmmPrim p
+         infn (CmmPrim p mStmts) = CmmPrim p (fmap (map (inlineStmt u a)) mStmts)
          es' = [ (CmmHinted (inlineExpr u a e) hint) | (CmmHinted e hint) <- es ]
 inlineStmt u a (CmmCondBranch e d) = CmmCondBranch (inlineExpr u a e) d
 inlineStmt u a (CmmSwitch e d) = CmmSwitch (inlineExpr u a e) d
-inlineStmt u a (CmmJump e d) = CmmJump (inlineExpr u a e) d
+inlineStmt u a (CmmJump e live) = CmmJump (inlineExpr u a e) live
 inlineStmt _ _ other_stmt = other_stmt
 
 inlineExpr :: Unique -> CmmExpr -> CmmExpr -> CmmExpr

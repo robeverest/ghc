@@ -66,7 +66,7 @@ matchCheck ::  DsMatchContext
             -> DsM MatchResult  -- Desugared result!
 
 matchCheck ctx vars ty qs
-  = do { dflags <- getDOptsDs
+  = do { dflags <- getDynFlags
        ; matchCheck_really dflags ctx vars ty qs }
 
 matchCheck_really :: DynFlags
@@ -356,7 +356,7 @@ matchCoercion (var:vars) ty (eqns@(eqn1:_))
 	; var' <- newUniqueId var (hsPatType pat)
 	; match_result <- match (var':vars) ty $
                           map (decomposeFirstPat getCoPat) eqns
-        ; let rhs' = dsHsWrapper co (Var var)
+        ; rhs' <- dsHsWrapper co (Var var)
 	; return (mkCoLetMatchResult (NonRec var' rhs') match_result) }
 matchCoercion _ _ _ = panic "matchCoercion"
 

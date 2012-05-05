@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="iso-8859-1"?>
-  <sect1 id="flag-reference">
+<sect1 id="flag-reference">
     <title>Flag reference</title>
 
     <para>This section is a quick-reference for GHC's command-line
@@ -494,8 +494,8 @@
 	    </row>
 	    <row>
 	      <entry><option>-ghci-script</option></entry>
-	      <entry>Load the given additional <filename>.ghci</filename> file</entry>
-	      <entry>static</entry>
+            <entry>Read additional <filename>.ghci</filename> files</entry>
+            <entry>dynamic</entry>
 	      <entry>-</entry>
 	    </row>
 	    <row>
@@ -981,6 +981,12 @@
 	      <entry><option>-XNoTypeOperators</option></entry>
 	    </row>
 	    <row>
+            <entry><option>-XExplicitNamespaces</option></entry>
+            <entry>Enable using the keyword <literal>type</literal> to specify the namespace of entries in imports and exports.</entry>
+            <entry>dynamic</entry>
+            <entry><option>-XNoExplicitNamespaces</option></entry>
+          </row>
+          <row>
 	      <entry><option>-XDoRec</option></entry>
 	      <entry>Enable <link linkend="recursive-do-notation">recursive do notation</link>.</entry>
 	      <entry>dynamic</entry>
@@ -1172,17 +1178,17 @@
 	  </row>
 
 	  <row>
-	    <entry><option>-fwarn-unrecognised-pragmas</option></entry>
-	    <entry>warn about uses of pragmas that GHC doesn't recognise</entry>
+            <entry><option>-fdefer-type-errors</option></entry>
+            <entry>Defer as many type errors as possible until runtime.</entry>
 	    <entry>dynamic</entry>
-	    <entry><option>-fno-warn-unrecognised-pragmas</option></entry>
+            <entry><option>-fno-defer-type-errors</option></entry>
 	  </row>
 
 	  <row>
-	    <entry><option>-fwarn-warnings-deprecations</option></entry>
-	    <entry>warn about uses of functions &amp; types that have warnings or deprecated pragmas</entry>
+            <entry><option>-fhelpful-errors</option></entry>
+            <entry>Make suggestions for mis-spelled names.</entry>
 	    <entry>dynamic</entry>
-	    <entry><option>-fno-warn-warnings-deprecations</option></entry>
+            <entry><option>-fno-helpful-errors</option></entry>
 	  </row>
 
 	  <row>
@@ -1287,6 +1293,13 @@
 	  </row>
 
 	  <row>
+            <entry><option>-fwarn-monomorphism-restriction</option></entry>
+            <entry>warn when the Monomorphism Restriction is applied</entry>
+            <entry>dynamic</entry>
+            <entry><option>-fno-warn-monomorphism-restriction</option></entry>
+          </row>
+
+          <row>
 	    <entry><option>-fwarn-name-shadowing</option></entry>
 	    <entry>warn when names are shadowed</entry>
 	    <entry>dynamic</entry>
@@ -1294,11 +1307,11 @@
 	  </row>
 
 	  <row>
-	    <entry><option>-fwarn-orphans</option></entry>
+            <entry><option>-fwarn-orphans, -fwarn-auto-orphans</option></entry>
 	    <entry>warn when the module contains <link linkend="orphan-modules">orphan instance declarations
 	    or rewrite rules</link></entry>
 	    <entry>dynamic</entry>
-	    <entry><option>-fno-warn-orphans</option></entry>
+            <entry><option>-fno-warn-orphans, -fno-warn-auto-orphans</option></entry>
 	  </row>
 
 	  <row>
@@ -1323,10 +1336,10 @@
 	  </row>
 
 	  <row>
-	    <entry><option>-fwarn-monomorphism-restriction</option></entry>
-	    <entry>warn when the Monomorphism Restriction is applied</entry>
+            <entry><option>-fwarn-unrecognised-pragmas</option></entry>
+            <entry>warn about uses of pragmas that GHC doesn't recognise</entry>
 	    <entry>dynamic</entry>
-	    <entry><option>-fno-warn-monomorphism-restriction</option></entry>
+            <entry><option>-fno-warn-unrecognised-pragmas</option></entry>
 	  </row>
 
 	  <row>
@@ -1381,6 +1394,13 @@
 	    <entry>dynamic</entry>
 	    <entry><option>-fno-warn-safe</option></entry>
 	  </row>
+
+          <row>
+            <entry><option>-fwarn-warnings-deprecations</option></entry>
+            <entry>warn about uses of functions &amp; types that have warnings or deprecated pragmas</entry>
+            <entry>dynamic</entry>
+            <entry><option>-fno-warn-warnings-deprecations</option></entry>
+          </row>
 
 	  </tbody>
 	</tgroup>
@@ -1488,6 +1508,20 @@
 	    </row>
 
 	    <row>
+            <entry><option>-fvectorise</option></entry>
+            <entry>Enable vectorisation of nested data parallelism</entry>
+            <entry>dynamic</entry>
+            <entry><option>-fno-vectorise</option></entry>
+          </row>
+
+          <row>
+            <entry><option>-favoid-vect</option></entry>
+            <entry>Enable vectorisation avoidance (EXPERIMENTAL)</entry>
+            <entry>dynamic</entry>
+            <entry><option>-fno-avoid-vect</option></entry>
+          </row>
+
+          <row>
 	      <entry><option>-fexcess-precision</option></entry>
 	      <entry>Enable excess intermediate precision</entry>
 	      <entry>dynamic</entry>
@@ -1644,7 +1678,7 @@
             <row>
               <entry><option>-fstrictness=before</option>=<replaceable>n</replaceable></entry>
               <entry>Run an additional strictness analysis before simplifier
-phase <replaceable>n</replaceable></entry>
+              phase <replaceable>n</replaceable></entry>
               <entry>dynamic</entry>
               <entry>-</entry>
             </row>
@@ -2823,7 +2857,7 @@ phase <replaceable>n</replaceable></entry>
 	</tgroup>
       </informaltable>
     </sect2>
-  </sect1>
+</sect1>
 
 
 <!--

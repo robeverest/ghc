@@ -28,7 +28,7 @@ all_rts : $(ALL_RTS_LIBS)
 
 ALL_DIRS = hooks parallel sm eventlog
 
-ifeq "$(HOSTPLATFORM)" "i386-unknown-mingw32"
+ifeq "$(HostOS_CPP)" "mingw32"
 ALL_DIRS += win32
 else
 ALL_DIRS += posix
@@ -62,7 +62,7 @@ rts/dist/build/sm/Evac_thr.c : rts/sm/Evac.c | $$(dir $$@)/.
 rts/dist/build/sm/Scav_thr.c : rts/sm/Scav.c | $$(dir $$@)/.
 	cp $< $@
 
-rts_H_FILES := $(wildcard rts/*.h)
+rts_H_FILES := $(wildcard rts/*.h rts/*/*.h)
 
 ifeq "$(USE_DTRACE)" "YES"
 DTRACEPROBES_H = rts/dist/build/RtsProbes.h
@@ -162,7 +162,7 @@ ifeq "$(TargetOS_CPP)" "solaris2"
 rts_$1_DTRACE_OBJS = rts/dist/build/RtsProbes.$$($1_osuf)
 
 rts/dist/build/RtsProbes.$$($1_osuf) : $$(rts_$1_OBJS)
-	$(DTRACE) -G -C -Iincludes -DDTRACE -s rts/RtsProbes.d -o \
+	$(DTRACE) -G -C $$(addprefix -I,$$(GHC_INCLUDE_DIRS)) -DDTRACE -s rts/RtsProbes.d -o \
 		$$@ $$(rts_$1_OBJS)
 endif
 endif
@@ -236,7 +236,7 @@ WARNING_OPTS += -Wredundant-decls
 # support for registerised builds on this arch. -- BL 2010/02/03
 # WARNING_OPTS += -Wcast-align
 
-STANDARD_OPTS += -Iincludes -Irts -Irts/dist/build
+STANDARD_OPTS += $(addprefix -I,$(GHC_INCLUDE_DIRS)) -Irts -Irts/dist/build
 # COMPILING_RTS is only used when building Win32 DLL support.
 STANDARD_OPTS += -DCOMPILING_RTS
 
@@ -310,6 +310,11 @@ rts/RtsUtils_CC_OPTS += -DTargetVendor=\"$(TargetVendor_CPP)\"
 #
 rts/RtsUtils_CC_OPTS += -DGhcUnregisterised=\"$(GhcUnregisterised)\"
 rts/RtsUtils_CC_OPTS += -DGhcEnableTablesNextToCode=\"$(GhcEnableTablesNextToCode)\"
+
+ifeq "$(GhcUnregisterised)" "YES"
+rts/PrimOps_HC_OPTS += -DGhcUnregisterised=1
+rts/Schedule_CC_OPTS += -DGhcUnregisterised=1
+endif
 
 # Compile various performance-critical pieces *without* -fPIC -dynamic
 # even when building a shared library.  If we don't do this, then the

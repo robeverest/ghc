@@ -4,13 +4,6 @@
 \section{Code output phase}
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
-
 module CodeOutput( codeOutput, outputForeignStubs ) where
 
 #include "HsVersions.h"
@@ -59,12 +52,6 @@ codeOutput :: DynFlags
 
 codeOutput dflags this_mod location foreign_stubs pkg_deps flat_abstractC
   = 
-    -- You can have C (c_output) or assembly-language (ncg_output),
-    -- but not both.  [Allowing for both gives a space leak on
-    -- flat_abstractC.  WDP 94/10]
-
-    -- Dunno if the above comment is still meaningful now.  JRS 001024.
-
     do	{ when (dopt Opt_DoCmmLinting dflags) $ do
 		{ showPass dflags "CmmLint"
 		; let lints = map (cmmLint (targetPlatform dflags)) flat_abstractC

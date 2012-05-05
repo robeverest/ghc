@@ -196,6 +196,7 @@ void initRtsFlagsDefaults(void)
     RtsFlags.ParFlags.parGcGen          = 0;
     RtsFlags.ParFlags.parGcLoadBalancingEnabled = rtsTrue;
     RtsFlags.ParFlags.parGcLoadBalancingGen = 1;
+    RtsFlags.ParFlags.parGcNoSyncWithIdle   = 0;
     RtsFlags.ParFlags.setAffinity       = 0;
 #endif
 
@@ -304,7 +305,7 @@ usage_text[] = {
 #  endif
 "             where [flags] can contain:",
 "                s    scheduler events",
-"                g    GC events",
+"                g    GC and heap events",
 "                p    par spark events (sampled)",
 "                f    par spark events (full detail)",
 "                u    user events (emitted from Haskell code)",
@@ -368,6 +369,9 @@ usage_text[] = {
 "            (default: 1, -qb alone turns off load-balancing)",
 "  -qa       Use the OS to set thread affinity (experimental)",
 "  -qm       Don't automatically migrate threads between CPUs",
+"  -qi<n>    If a processor has been idle for the last <n> GCs, do not",
+"            wake it up for a non-load-balancing parallel GC.",
+"            (0 disables,  default: 0)",
 #endif
 "  --install-signal-handlers=<yes|no>",
 "            Install signal handlers (default: yes)",
@@ -1209,6 +1213,10 @@ error = rtsTrue;
                                 = strtol(rts_argv[arg]+3, (char **) NULL, 10);
                         }
                         break;
+                    case 'i':
+                        RtsFlags.ParFlags.parGcNoSyncWithIdle
+                            = strtol(rts_argv[arg]+3, (char **) NULL, 10);
+                        break;
 		    case 'a':
 			RtsFlags.ParFlags.setAffinity = rtsTrue;
 			break;
@@ -1534,7 +1542,7 @@ decodeSize(const char *flag, nat offset, StgWord64 min, StgWord64 max)
     if (m < 0 || val < min || val > max) {
         // printf doesn't like 64-bit format specs on Windows
         // apparently, so fall back to unsigned long.
-        errorBelch("error in RTS option %s: size outside allowed range (%lu - %lu)", flag, (lnat)min, (lnat)max);
+        errorBelch("error in RTS option %s: size outside allowed range (%" FMT_SizeT " - %" FMT_SizeT ")", flag, (lnat)min, (lnat)max);
         stg_exit(EXIT_FAILURE);
     }
 

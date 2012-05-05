@@ -43,7 +43,7 @@ module ClosureInfo (
         closureFunInfo, isKnownFun,
         funTag, funTagLFInfo, tagForArity, clHasCafRefs,
 
-	enterIdLabel, enterLocalIdLabel, enterReturnPtLabel,
+        enterIdLabel, enterReturnPtLabel,
 
 	nodeMustPointToIt, 
 	CallMethod(..), getCallMethod,
@@ -1035,11 +1035,6 @@ enterIdLabel id
   | tablesNextToCode = mkInfoTableLabel id
   | otherwise        = mkEntryLabel id
 
-enterLocalIdLabel :: Name -> CafInfo -> CLabel
-enterLocalIdLabel id
-  | tablesNextToCode = mkLocalInfoTableLabel id
-  | otherwise        = mkLocalEntryLabel id
-
 enterReturnPtLabel :: Unique -> CLabel
 enterReturnPtLabel name
   | tablesNextToCode = mkReturnInfoLabel name
@@ -1102,8 +1097,16 @@ getTyDescription ty
       FunTy _ res      	     -> '-' : '>' : fun_result res
       TyConApp tycon _ 	     -> getOccString tycon
       ForAllTy _ ty          -> getTyDescription ty
+      LitTy n                -> getTyLitDescription n
     }
   where
     fun_result (FunTy _ res) = '>' : fun_result res
     fun_result other	     = getTyDescription other
+
+
+getTyLitDescription :: TyLit -> String
+getTyLitDescription l =
+  case l of
+    NumTyLit n -> show n
+    StrTyLit n -> show n
 \end{code}

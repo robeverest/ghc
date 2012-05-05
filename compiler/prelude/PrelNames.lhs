@@ -273,6 +273,15 @@ basicKnownKeyNames
         -- Other classes
         randomClassName, randomGenClassName, monadPlusClassName,
 
+        -- Type-level naturals
+        typeNatKindConName,
+        typeStringKindConName,
+        singIClassName,
+        typeNatLeqClassName,
+        typeNatAddTyFamName,
+        typeNatMulTyFamName,
+        typeNatExpTyFamName,
+
         -- Annotation type checking
         toAnnotationWrapperName
 
@@ -297,6 +306,9 @@ basicKnownKeyNames
         , guardMName
         , liftMName
         , mzipName
+
+        -- GHCi Sandbox
+        , ghciIoClassName, ghciStepIoMName
     ]
 
 genericTyConNames :: [Name]
@@ -325,7 +337,7 @@ pRELUDE         = mkBaseModule_ pRELUDE_NAME
 
 gHC_PRIM, gHC_TYPES, gHC_GENERICS,
     gHC_MAGIC,
-    gHC_CLASSES, gHC_BASE, gHC_ENUM, gHC_CSTRING,
+    gHC_CLASSES, gHC_BASE, gHC_ENUM, gHC_GHCI, gHC_CSTRING,
     gHC_SHOW, gHC_READ, gHC_NUM, gHC_INTEGER_TYPE, gHC_LIST,
     gHC_TUPLE, dATA_TUPLE, dATA_EITHER, dATA_STRING, dATA_FOLDABLE, dATA_TRAVERSABLE,
     gHC_CONC, gHC_IO, gHC_IO_Exception,
@@ -333,7 +345,7 @@ gHC_PRIM, gHC_TYPES, gHC_GENERICS,
     gHC_FLOAT, gHC_TOP_HANDLER, sYSTEM_IO, dYNAMIC, tYPEABLE, tYPEABLE_INTERNAL, gENERICS,
     dOTNET, rEAD_PREC, lEX, gHC_INT, gHC_WORD, mONAD, mONAD_FIX, mONAD_ZIP,
     aRROW, cONTROL_APPLICATIVE, gHC_DESUGAR, rANDOM, gHC_EXTS,
-    cONTROL_EXCEPTION_BASE :: Module
+    cONTROL_EXCEPTION_BASE, gHC_TYPELITS :: Module
 
 gHC_PRIM        = mkPrimModule (fsLit "GHC.Prim")   -- Primitive types and values
 gHC_TYPES       = mkPrimModule (fsLit "GHC.Types")
@@ -344,6 +356,7 @@ gHC_CLASSES     = mkPrimModule (fsLit "GHC.Classes")
 
 gHC_BASE        = mkBaseModule (fsLit "GHC.Base")
 gHC_ENUM        = mkBaseModule (fsLit "GHC.Enum")
+gHC_GHCI        = mkBaseModule (fsLit "GHC.GHCi")
 gHC_SHOW        = mkBaseModule (fsLit "GHC.Show")
 gHC_READ        = mkBaseModule (fsLit "GHC.Read")
 gHC_NUM         = mkBaseModule (fsLit "GHC.Num")
@@ -385,6 +398,7 @@ gHC_DESUGAR = mkBaseModule (fsLit "GHC.Desugar")
 rANDOM          = mkBaseModule (fsLit "System.Random")
 gHC_EXTS        = mkBaseModule (fsLit "GHC.Exts")
 cONTROL_EXCEPTION_BASE = mkBaseModule (fsLit "Control.Exception.Base")
+gHC_TYPELITS    = mkBaseModule (fsLit "GHC.TypeLits")
 
 gHC_PARR' :: Module
 gHC_PARR' = mkBaseModule (fsLit "GHC.PArr")
@@ -961,6 +975,11 @@ datatypeClassName = clsQual gHC_GENERICS (fsLit "Datatype") datatypeClassKey
 constructorClassName = clsQual gHC_GENERICS (fsLit "Constructor") constructorClassKey
 selectorClassName = clsQual gHC_GENERICS (fsLit "Selector") selectorClassKey
 
+-- GHCi things
+ghciIoClassName, ghciStepIoMName :: Name
+ghciIoClassName = clsQual gHC_GHCI (fsLit "GHCiSandboxIO") ghciIoClassKey
+ghciStepIoMName = methName gHC_GHCI (fsLit "ghciStepIO") ghciStepIoMClassOpKey
+
 -- IO things
 ioTyConName, ioDataConName, thenIOName, bindIOName, returnIOName,
     failIOName :: Name
@@ -1038,6 +1057,19 @@ monadPlusClassName  = clsQual mONAD (fsLit "MonadPlus")  monadPlusClassKey
 randomClassName     = clsQual rANDOM (fsLit "Random")    randomClassKey
 randomGenClassName  = clsQual rANDOM (fsLit "RandomGen") randomGenClassKey
 isStringClassName   = clsQual dATA_STRING (fsLit "IsString") isStringClassKey
+
+-- Type-level naturals
+typeNatKindConName, typeStringKindConName,
+  singIClassName, typeNatLeqClassName,
+  typeNatAddTyFamName, typeNatMulTyFamName, typeNatExpTyFamName :: Name
+typeNatKindConName    = tcQual gHC_TYPELITS (fsLit "Nat")  typeNatKindConNameKey
+typeStringKindConName = tcQual gHC_TYPELITS (fsLit "Symbol")
+                                                        typeStringKindConNameKey
+singIClassName      = clsQual gHC_TYPELITS (fsLit "SingI") singIClassNameKey
+typeNatLeqClassName = clsQual gHC_TYPELITS (fsLit "<=")  typeNatLeqClassNameKey
+typeNatAddTyFamName = tcQual  gHC_TYPELITS (fsLit "+")   typeNatAddTyFamNameKey
+typeNatMulTyFamName = tcQual  gHC_TYPELITS (fsLit "*")   typeNatMulTyFamNameKey
+typeNatExpTyFamName = tcQual  gHC_TYPELITS (fsLit "^")   typeNatExpTyFamNameKey
 
 -- dotnet interop
 objectTyConName :: Name
@@ -1152,6 +1184,13 @@ gen1ClassKey  = mkPreludeClassUnique 38
 datatypeClassKey    = mkPreludeClassUnique 39
 constructorClassKey = mkPreludeClassUnique 40
 selectorClassKey    = mkPreludeClassUnique 41
+
+singIClassNameKey, typeNatLeqClassNameKey :: Unique
+singIClassNameKey       = mkPreludeClassUnique 42
+typeNatLeqClassNameKey  = mkPreludeClassUnique 43
+
+ghciIoClassKey :: Unique
+ghciIoClassKey = mkPreludeClassUnique 44
 \end{code}
 
 %************************************************************************
@@ -1255,8 +1294,8 @@ eitherTyConKey :: Unique
 eitherTyConKey                          = mkPreludeTyConUnique 84
 
 -- Super Kinds constructors
-tySuperKindTyConKey :: Unique
-tySuperKindTyConKey                     = mkPreludeTyConUnique 85
+superKindTyConKey :: Unique
+superKindTyConKey                     = mkPreludeTyConUnique 85
 
 -- Kind constructors
 liftedTypeKindTyConKey, anyKindTyConKey, openTypeKindTyConKey,
@@ -1334,8 +1373,16 @@ noSelTyConKey = mkPreludeTyConUnique 154
 repTyConKey  = mkPreludeTyConUnique 155
 rep1TyConKey = mkPreludeTyConUnique 156
 
-
 sContPrimTyConKey = mkPreludeTyConUnique 157
+-- Type-level naturals
+typeNatKindConNameKey, typeStringKindConNameKey,
+  typeNatAddTyFamNameKey, typeNatMulTyFamNameKey, typeNatExpTyFamNameKey
+  :: Unique
+typeNatKindConNameKey     = mkPreludeTyConUnique 160
+typeStringKindConNameKey  = mkPreludeTyConUnique 161
+typeNatAddTyFamNameKey    = mkPreludeTyConUnique 162
+typeNatMulTyFamNameKey    = mkPreludeTyConUnique 163
+typeNatExpTyFamNameKey    = mkPreludeTyConUnique 164
 
 ---------------- Template Haskell -------------------
 --      USES TyConUniques 200-299
@@ -1613,30 +1660,15 @@ guardMIdKey     = mkPreludeMiscIdUnique 194
 liftMIdKey      = mkPreludeMiscIdUnique 195
 mzipIdKey       = mkPreludeMiscIdUnique 196
 
+-- GHCi
+ghciStepIoMClassOpKey :: Unique
+ghciStepIoMClassOpKey = mkPreludeMiscIdUnique 197
+
 
 ---------------- Template Haskell -------------------
 --      USES IdUniques 200-499
 -----------------------------------------------------
 \end{code}
-
-
-%************************************************************************
-%*                                                                      *
-\subsection{Standard groups of types}
-%*                                                                      *
-%************************************************************************
-
-\begin{code}
-kindKeys :: [Unique]
-kindKeys = [ anyKindTyConKey
-           , liftedTypeKindTyConKey
-           , openTypeKindTyConKey
-           , unliftedTypeKindTyConKey
-           , ubxTupleKindTyConKey
-           , argTypeKindTyConKey
-           , constraintKindTyConKey ]
-\end{code}
-
 
 %************************************************************************
 %*                                                                      *

@@ -35,7 +35,7 @@ import base_ControlziExceptionziBase_nestedAtomically_closure;
 import EnterCriticalSection;
 import LeaveCriticalSection;
 import ghczmprim_GHCziTypes_False_closure;
-#if !defined(mingw32_HOST_OS)
+#if defined(GhcUnregisterised) || !defined(mingw32_HOST_OS)
 import sm_mutex;
 #endif
 
@@ -384,13 +384,9 @@ stg_mkWeakzh
 {
   /* R1 = key
      R2 = value
-     R3 = finalizer (or NULL)
+     R3 = finalizer (or stg_NO_FINALIZER_closure)
   */
   W_ w;
-
-  if (R3 == NULL) {
-    R3 = stg_NO_FINALIZER_closure;
-  }
 
   ALLOC_PRIM( SIZEOF_StgWeak, R1_PTR & R2_PTR & R3_PTR, stg_mkWeakzh );
 
@@ -414,6 +410,16 @@ stg_mkWeakzh
   IF_DEBUG(weak, foreign "C" debugBelch(stg_weak_msg,w) []);
 
   RET_P(w);
+}
+
+stg_mkWeakNoFinalizzerzh
+{
+  /* R1 = key
+     R2 = value
+   */
+  R3 = stg_NO_FINALIZER_closure;
+
+  jump stg_mkWeakzh;
 }
 
 stg_mkWeakForeignEnvzh
@@ -1326,6 +1332,16 @@ stg_atomicallyzh
 
   /* Apply R1 to the realworld token */
   jump stg_ap_v_fast;
+}
+
+// A closure representing "atomically x".  This is used when a thread
+// inside a transaction receives an asynchronous exception; see #5866.
+// It is somewhat similar to the stg_raise closure.
+//
+INFO_TABLE(stg_atomically,1,0,THUNK_1_0,"atomically","atomically")
+{
+  R1 = StgThunk_payload(R1,0);
+  jump stg_atomicallyzh;
 }
 
 

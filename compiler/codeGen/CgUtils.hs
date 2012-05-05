@@ -1011,7 +1011,8 @@ fixStgRegStmt stmt
         CmmCall target regs args returns ->
             let target' = case target of
                     CmmCallee e conv -> CmmCallee (fixStgRegExpr e) conv
-                    other            -> other
+                    CmmPrim op mStmts ->
+                        CmmPrim op (fmap (map fixStgRegStmt) mStmts)
                 args' = map (\(CmmHinted arg hint) ->
                                 (CmmHinted (fixStgRegExpr arg) hint)) args
             in CmmCall target' regs args' returns
@@ -1020,7 +1021,7 @@ fixStgRegStmt stmt
 
         CmmSwitch expr ids -> CmmSwitch (fixStgRegExpr expr) ids
 
-        CmmJump addr regs -> CmmJump (fixStgRegExpr addr) regs
+        CmmJump addr live -> CmmJump (fixStgRegExpr addr) live
 
         -- CmmNop, CmmComment, CmmBranch, CmmReturn
         _other -> stmt

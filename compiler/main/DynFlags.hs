@@ -16,7 +16,8 @@ module DynFlags (
         DynFlag(..),
         WarningFlag(..),
         ExtensionFlag(..),
-        LogAction,
+        Language(..),
+        LogAction, FlushOut(..), FlushErr(..),
         ProfAuto(..),
         glasgowExtsFlags,
         dopt,
@@ -28,7 +29,9 @@ module DynFlags (
         xopt,
         xopt_set,
         xopt_unset,
+        lang_set,
         DynFlags(..),
+        HasDynFlags(..), ContainsDynFlags(..),
         RtsOptsEnabled(..),
         HscTarget(..), isObjectTarget, defaultObjectTarget,
         targetRetainsAllBindings,
@@ -62,6 +65,8 @@ module DynFlags (
         defaultDynFlags,                -- Settings -> DynFlags
         initDynFlags,                   -- DynFlags -> IO DynFlags
         defaultLogAction,
+        defaultFlushOut,
+        defaultFlushErr,
 
         getOpts,                        -- DynFlags -> (DynFlags -> [a]) -> [a]
         getVerbFlags,
@@ -114,7 +119,7 @@ import Outputable
 #ifdef GHCI
 import Foreign.C        ( CInt(..) )
 #endif
-import {-# SOURCE #-} ErrUtils ( Severity(..), Message, mkLocMessage )
+import {-# SOURCE #-} ErrUtils ( Severity(..), MsgDoc, mkLocMessage )
 
 #ifdef GHCI
 import System.IO.Unsafe ( unsafePerformIO )
@@ -129,7 +134,7 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import System.FilePath
-import System.IO        ( stderr, hPutChar )
+import System.IO
 
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
@@ -208,6 +213,7 @@ data DynFlag
    | Opt_D_dump_splices
    | Opt_D_dump_BCOs
    | Opt_D_dump_vect
+   | Opt_D_dump_avoid_vect
    | Opt_D_dump_ticked
    | Opt_D_dump_rtti
    | Opt_D_source_stats
@@ -225,7 +231,7 @@ data DynFlag
    | Opt_DoStgLinting
    | Opt_DoCmmLinting
    | Opt_DoAsmLinting
-   | Opt_NoLlvmMangler
+   | Opt_NoLlvmMangler                 -- hidden flag
 
    | Opt_WarnIsError                    -- -Werror; makes warnings fatal
 
@@ -248,9 +254,12 @@ data DynFlag
    | Opt_DictsCheap
    | Opt_EnableRewriteRules             -- Apply rewrite rules during simplification
    | Opt_Vectorise
+   | Opt_AvoidVect
    | Opt_RegsGraph                      -- do graph coloring register allocation
    | Opt_RegsIterative                  -- do iterative coalescing graph coloring register allocation
    | Opt_PedanticBottoms                -- Be picky about how we treat bottom
+   | Opt_LlvmTBAA                       -- Use LLVM TBAA infastructure for improving AA (hidden flag)
+   | Opt_RegLiveness                    -- Use the STG Reg liveness information (hidden flag)
 
    -- Interface files
    | Opt_IgnoreInterfacePragmas
@@ -289,6 +298,7 @@ data DynFlag
    | Opt_GhciSandbox
    | Opt_GhciHistory
    | Opt_HelpfulErrors
+   | Opt_DeferTypeErrors
 
    -- temporary flags
    | Opt_RunCPS
@@ -346,6 +356,8 @@ data WarningFlag =
    | Opt_WarnAlternativeLayoutRuleTransitional
    | Opt_WarnUnsafe
    | Opt_WarnSafe
+   | Opt_WarnPointlessPragmas
+   | Opt_WarnUnsupportedCallingConventions
    deriving (Eq, Show, Enum)
 
 data Language = Haskell98 | Haskell2010
@@ -405,7 +417,8 @@ data ExtensionFlag
    | Opt_ConstraintKinds
    | Opt_PolyKinds                -- Kind polymorphism
    | Opt_DataKinds                -- Datatype promotion
-
+   | Opt_InstanceSigs
+ 
    | Opt_StandaloneDeriving
    | Opt_DeriveDataTypeable
    | Opt_DeriveFunctor
@@ -440,6 +453,7 @@ data ExtensionFlag
    | Opt_RankNTypes
    | Opt_ImpredicativeTypes
    | Opt_TypeOperators
+   | Opt_ExplicitNamespaces
    | Opt_PackageImports
    | Opt_ExplicitForAll
    | Opt_AlternativeLayoutRule
@@ -579,14 +593,25 @@ data DynFlags = DynFlags {
   --     flattenExtensionFlags language extensions
   extensionFlags        :: IntSet,
 
-  -- | Message output action: use "ErrUtils" instead of this if you can
+  -- | MsgDoc output action: use "ErrUtils" instead of this if you can
   log_action            :: LogAction,
+  flushOut              :: FlushOut,
+  flushErr              :: FlushErr,
 
   haddockOptions        :: Maybe String,
+  ghciScripts           :: [String],
 
   -- | what kind of {-# SCC #-} to add automatically
-  profAuto              :: ProfAuto
+  profAuto              :: ProfAuto,
+
+  llvmVersion           :: IORef (Int)
  }
+
+class HasDynFlags m where
+    getDynFlags :: m DynFlags
+
+class ContainsDynFlags t where
+    extractDynFlags :: t -> DynFlags
 
 data ProfAuto
   = NoProfAuto         -- ^ no SCC annotations added
@@ -716,7 +741,7 @@ wayNames = map wayName . ways
 --    from an imported module.  This will fail if no code has been generated
 --    for this module.  You can use 'GHC.needsTemplateHaskell' to detect
 --    whether this might be the case and choose to either switch to a
---    different target or avoid typechecking such modules.  (The latter may
+--    different target or avoid typechecking such modules.  (The latter may be
 --    preferable for security reasons.)
 --
 data HscTarget
@@ -829,13 +854,15 @@ initDynFlags dflags = do
  refFilesToClean <- newIORef []
  refDirsToClean <- newIORef Map.empty
  refGeneratedDumps <- newIORef Set.empty
+ refLlvmVersion <- newIORef 28
  return dflags{
-        ways            = ways,
-        buildTag        = mkBuildTag (filter (not . wayRTSOnly) ways),
-        rtsBuildTag     = mkBuildTag ways,
-        filesToClean    = refFilesToClean,
-        dirsToClean     = refDirsToClean,
-        generatedDumps   = refGeneratedDumps
+        ways           = ways,
+        buildTag       = mkBuildTag (filter (not . wayRTSOnly) ways),
+        rtsBuildTag    = mkBuildTag ways,
+        filesToClean   = refFilesToClean,
+        dirsToClean    = refDirsToClean,
+        generatedDumps = refGeneratedDumps,
+        llvmVersion    = refLlvmVersion
         }
 
 -- | The normal 'DynFlags'. Note that they is not suitable for use in this form
@@ -917,6 +944,7 @@ defaultDynFlags mySettings =
         haddockOptions = Nothing,
         flags = IntSet.fromList (map fromEnum defaultFlags),
         warningFlags = IntSet.fromList (map fromEnum standardWarnings),
+        ghciScripts = [],
         language = Nothing,
         safeHaskell = Sf_SafeInfered,
         thOnLoc = noSrcSpan,
@@ -927,10 +955,13 @@ defaultDynFlags mySettings =
         extensions = [],
         extensionFlags = flattenExtensionFlags Nothing [],
         log_action = defaultLogAction,
-        profAuto = NoProfAuto
+        flushOut = defaultFlushOut,
+        flushErr = defaultFlushErr,
+        profAuto = NoProfAuto,
+        llvmVersion = panic "defaultDynFlags: No llvmVersion"
       }
 
-type LogAction = Severity -> SrcSpan -> PprStyle -> Message -> IO ()
+type LogAction = Severity -> SrcSpan -> PprStyle -> MsgDoc -> IO ()
 
 defaultLogAction :: LogAction
 defaultLogAction severity srcSpan style msg
@@ -939,10 +970,20 @@ defaultLogAction severity srcSpan style msg
    SevInfo   -> printErrs msg style
    SevFatal  -> printErrs msg style
    _         -> do hPutChar stderr '\n'
-                   printErrs (mkLocMessage srcSpan msg) style
+                   printErrs (mkLocMessage severity srcSpan msg) style
                    -- careful (#2302): printErrs prints in UTF-8, whereas
                    -- converting to string first and using hPutStr would
                    -- just emit the low 8 bits of each unicode char.
+
+newtype FlushOut = FlushOut (IO ())
+
+defaultFlushOut :: FlushOut
+defaultFlushOut = FlushOut $ hFlush stdout
+
+newtype FlushErr = FlushErr (IO ())
+
+defaultFlushErr :: FlushErr
+defaultFlushErr = FlushErr $ hFlush stderr
 
 {-
 Note [Verbosity levels]
@@ -1046,15 +1087,16 @@ xopt_unset dfs f
       in dfs { extensions = onoffs,
                extensionFlags = flattenExtensionFlags (language dfs) onoffs }
 
+lang_set :: DynFlags -> Maybe Language -> DynFlags
+lang_set dflags lang =
+   dflags {
+            language = lang,
+            extensionFlags = flattenExtensionFlags lang (extensions dflags)
+          }
+
 -- | Set the Haskell language standard to use
 setLanguage :: Language -> DynP ()
-setLanguage l = upd f
-    where f dfs = let mLang = Just l
-                      oneoffs = extensions dfs
-                  in dfs {
-                         language = mLang,
-                         extensionFlags = flattenExtensionFlags mLang oneoffs
-                     }
+setLanguage l = upd (`lang_set` Just l)
 
 -- | Some modules have dependencies on others through the DynFlags rather than textual imports
 dynFlagDependencies :: DynFlags -> [ModuleName]
@@ -1145,7 +1187,7 @@ setObjectDir, setHiDir, setStubDir, setDumpDir, setOutputDir,
          setDylibInstallName,
          setObjectSuf, setHiSuf, setHcSuf, parseDynLibLoaderMode,
          setPgmP, addOptl, addOptP,
-         addCmdlineFramework, addHaddockOpts
+         addCmdlineFramework, addHaddockOpts, addGhciScript
    :: String -> DynFlags -> DynFlags
 setOutputFile, setOutputHi, setDumpPrefixForce
    :: Maybe String -> DynFlags -> DynFlags
@@ -1216,6 +1258,8 @@ deOptDep x = case stripPrefix "-optdep" x of
 addCmdlineFramework f d = d{ cmdlineFrameworks = f : cmdlineFrameworks d}
 
 addHaddockOpts f d = d{ haddockOptions = Just f}
+
+addGhciScript f d = d{ ghciScripts = f : ghciScripts d}
 
 -- -----------------------------------------------------------------------------
 -- Command-line options
@@ -1340,15 +1384,16 @@ safeFlagCheck :: Bool -> DynFlags -> (DynFlags, [Located String])
 safeFlagCheck _  dflags | not (safeLanguageOn dflags || safeInferOn dflags)
                         = (dflags, [])
 
+-- safe or safe-infer ON
 safeFlagCheck cmdl dflags =
     case safeLanguageOn dflags of
         True -> (dflags', warns)
 
         -- throw error if -fpackage-trust by itself with no safe haskell flag
-        False | not cmdl && safeInferOn dflags && packageTrustOn dflags
+        False | not cmdl && packageTrustOn dflags
               -> (dopt_unset dflags' Opt_PackageTrust,
                   [L (pkgTrustOnLoc dflags') $
-                      "Warning: -fpackage-trust ignored;" ++
+                      "-fpackage-trust ignored;" ++
                       " must be specified with a Safe Haskell flag"]
                   )
 
@@ -1371,8 +1416,8 @@ safeFlagCheck cmdl dflags =
 
         apFix f = if safeInferOn dflags then id else f
 
-        safeFailure loc str = [L loc $ "Warning: " ++ str ++ " is not allowed in"
-                                      ++ " Safe Haskell; ignoring " ++ str]
+        safeFailure loc str 
+           = [L loc $ str ++ " is not allowed in Safe Haskell; ignoring " ++ str]
 
 {- **********************************************************************
 %*                                                                      *
@@ -1506,6 +1551,7 @@ dynamic_flags = [
   , Flag "haddock"        (NoArg (setDynFlag Opt_Haddock))
   , Flag "haddock-opts"   (hasArg addHaddockOpts)
   , Flag "hpcdir"         (SepArg setOptHpcDir)
+  , Flag "ghci-script"    (hasArg addGhciScript)
 
         ------- recompilation checker --------------------------------------
   , Flag "recomp"         (NoArg (do unSetDynFlag Opt_ForceRecomp
@@ -1595,6 +1641,7 @@ dynamic_flags = [
   , Flag "ddump-hi"                (setDumpFlag Opt_D_dump_hi)
   , Flag "ddump-minimal-imports"   (setDumpFlag Opt_D_dump_minimal_imports)
   , Flag "ddump-vect"              (setDumpFlag Opt_D_dump_vect)
+  , Flag "ddump-avoid-vect"        (setDumpFlag Opt_D_dump_avoid_vect)
   , Flag "ddump-hpc"               (setDumpFlag Opt_D_dump_ticked) -- back compat
   , Flag "ddump-ticked"            (setDumpFlag Opt_D_dump_ticked)
   , Flag "ddump-mod-cycles"        (setDumpFlag Opt_D_dump_mod_cycles)
@@ -1609,7 +1656,7 @@ dynamic_flags = [
   , Flag "dshow-passes"            (NoArg (do forceRecompile
                                               setVerbosity $ Just 2))
   , Flag "dfaststring-stats"       (NoArg (setDynFlag Opt_D_faststring_stats))
-  , Flag "dno-llvm-mangler"        (NoArg (setDynFlag Opt_NoLlvmMangler))
+  , Flag "dno-llvm-mangler"        (NoArg (setDynFlag Opt_NoLlvmMangler)) -- hidden flag
 
         ------ Machine dependant (-m<blah>) stuff ---------------------------
 
@@ -1718,9 +1765,9 @@ package_flags = [
   , Flag "ignore-package"        (HasArg ignorePackage)
   , Flag "syslib"                (HasArg (\s -> do exposePackage s
                                                    deprecate "Use -package instead"))
+  , Flag "distrust-all-packages" (NoArg (setDynFlag Opt_DistrustAllPackages))
   , Flag "trust"                 (HasArg trustPackage)
   , Flag "distrust"              (HasArg distrustPackage)
-  , Flag "distrust-all-packages" (NoArg (setDynFlag Opt_DistrustAllPackages))
   ]
 
 type TurnOnFlag = Bool   -- True  <=> we are turning the flag on
@@ -1795,7 +1842,9 @@ fWarningFlags = [
   ( "warn-wrong-do-bind",               Opt_WarnWrongDoBind, nop ),
   ( "warn-alternative-layout-rule-transitional", Opt_WarnAlternativeLayoutRuleTransitional, nop ),
   ( "warn-unsafe",                      Opt_WarnUnsafe, setWarnUnsafe ),
-  ( "warn-safe",                        Opt_WarnSafe, setWarnSafe ) ]
+  ( "warn-safe",                        Opt_WarnSafe, setWarnSafe ),
+  ( "warn-pointless-pragmas",           Opt_WarnPointlessPragmas, nop ),
+  ( "warn-unsupported-calling-conventions", Opt_WarnUnsupportedCallingConventions, nop ) ]
 
 -- | These @-f\<blah\>@ flags can all be reversed with @-fno-\<blah\>@
 fFlags :: [FlagSpec DynFlag]
@@ -1834,8 +1883,11 @@ fFlags = [
   ( "run-cpsz",                         Opt_RunCPSZ, nop ),
   ( "new-codegen",                      Opt_TryNewCodeGen, nop ),
   ( "vectorise",                        Opt_Vectorise, nop ),
+  ( "avoid-vect",                       Opt_AvoidVect, nop ),
   ( "regs-graph",                       Opt_RegsGraph, nop ),
   ( "regs-iterative",                   Opt_RegsIterative, nop ),
+  ( "llvm-tbaa",                        Opt_LlvmTBAA, nop), -- hidden flag
+  ( "regs-liveness",                    Opt_RegLiveness, nop), -- hidden flag
   ( "gen-manifest",                     Opt_GenManifest, nop ),
   ( "embed-manifest",                   Opt_EmbedManifest, nop ),
   ( "ext-core",                         Opt_EmitExternalCore, nop ),
@@ -1843,6 +1895,7 @@ fFlags = [
   ( "ghci-sandbox",                     Opt_GhciSandbox, nop ),
   ( "ghci-history",                     Opt_GhciHistory, nop ),
   ( "helpful-errors",                   Opt_HelpfulErrors, nop ),
+  ( "defer-type-errors",                Opt_DeferTypeErrors, nop ),
   ( "building-cabal-package",           Opt_BuildingCabalPackage, nop ),
   ( "implicit-import-qualified",        Opt_ImplicitImportQualified, nop ),
   ( "prof-count-entries",               Opt_ProfCountEntries, nop ),
@@ -1939,6 +1992,7 @@ xFlags = [
   ( "RankNTypes",                       Opt_RankNTypes, nop ),
   ( "ImpredicativeTypes",               Opt_ImpredicativeTypes, nop),
   ( "TypeOperators",                    Opt_TypeOperators, nop ),
+  ( "ExplicitNamespaces",               Opt_ExplicitNamespaces, nop ),
   ( "RecursiveDo",                      Opt_RecursiveDo,     -- Enables 'mdo'
     deprecatedForExtension "DoRec"),
   ( "DoRec",                            Opt_DoRec, nop ),    -- Enables 'rec' keyword
@@ -1965,6 +2019,7 @@ xFlags = [
   ( "ConstraintKinds",                  Opt_ConstraintKinds, nop ),
   ( "PolyKinds",                        Opt_PolyKinds, nop ),
   ( "DataKinds",                        Opt_DataKinds, nop ),
+  ( "InstanceSigs",                     Opt_InstanceSigs, nop ),
   ( "MonoPatBinds",                     Opt_MonoPatBinds,
     \ turn_on -> when turn_on $ deprecate "Experimental feature now removed; has no effect" ),
   ( "ExplicitForAll",                   Opt_ExplicitForAll, nop ),
@@ -2049,7 +2104,11 @@ impliedFlags
     , (Opt_TypeFamilies,     turnOn, Opt_MonoLocalBinds)
 
     , (Opt_TypeFamilies,     turnOn, Opt_KindSignatures)  -- Type families use kind signatures
-                                                          -- all over the place
+
+    -- We turn this on so that we can export associated type
+    -- type synonyms in subordinates (e.g. MyClass(type AssocType))
+    , (Opt_TypeFamilies,     turnOn, Opt_ExplicitNamespaces)
+    , (Opt_TypeOperators, turnOn, Opt_ExplicitNamespaces)
 
     , (Opt_ImpredicativeTypes,  turnOn, Opt_RankNTypes)
 
@@ -2081,6 +2140,8 @@ optLevelFlags
     , ([2],     Opt_LiberateCase)
     , ([2],     Opt_SpecConstr)
     , ([2],     Opt_RegsGraph)
+    , ([0,1,2], Opt_LlvmTBAA)
+    , ([0,1,2], Opt_RegLiveness)
 
 --     , ([2],     Opt_StaticArgumentTransformation)
 -- Max writes: I think it's probably best not to enable SAT with -O2 for the
@@ -2114,7 +2175,9 @@ standardWarnings
         Opt_WarnLazyUnliftedBindings,
         Opt_WarnDodgyForeignImports,
         Opt_WarnWrongDoBind,
-        Opt_WarnAlternativeLayoutRuleTransitional
+        Opt_WarnAlternativeLayoutRuleTransitional,
+        Opt_WarnPointlessPragmas,
+        Opt_WarnUnsupportedCallingConventions
       ]
 
 minusWOpts :: [WarningFlag]
@@ -2177,6 +2240,7 @@ glasgowExtsFlags = [
            , Opt_LiberalTypeSynonyms
            , Opt_RankNTypes
            , Opt_TypeOperators
+           , Opt_ExplicitNamespaces
            , Opt_DoRec
            , Opt_ParallelListComp
            , Opt_EmptyDataDecls

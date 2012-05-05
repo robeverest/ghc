@@ -24,9 +24,10 @@ import TcType
 import TcGenDeriv
 import DataCon
 import TyCon
-import Name hiding (varName)
-import Module (Module, moduleName, moduleNameString)
-import IfaceEnv (newGlobalBinder)
+import FamInstEnv       ( FamInst, mkSynFamInst )
+import Module           ( Module, moduleName, moduleNameString )
+import IfaceEnv         ( newGlobalBinder )
+import Name      hiding ( varName )
 import RdrName
 import BasicTypes
 import TysWiredIn
@@ -70,7 +71,7 @@ gen_Generic_binds tc mod = do
                    `consBag` ((mapBag DerivTyCon (metaTyCons2TyCons metaTyCons))
                    `unionBags` metaInsts)) }
 
-genGenericRepExtras :: TyCon -> Module -> TcM (MetaTyCons, TyCon)
+genGenericRepExtras :: TyCon -> Module -> TcM (MetaTyCons, FamInst)
 genGenericRepExtras tc mod =
   do  uniqS <- newUniqueSupply
       let
@@ -98,16 +99,15 @@ genGenericRepExtras tc mod =
                         | (u,n) <- zip us [0..] ] | (us,m) <- zip uniqsS [0..] ]
         
         mkTyCon name = ASSERT( isExternalName name )
-                       buildAlgTyCon name [] [] distinctAbstractTyConRhs
-                           NonRecursive False NoParentTyCon Nothing
+                       buildAlgTyCon name [] Nothing [] distinctAbstractTyConRhs
+                                          NonRecursive False NoParentTyCon
 
-      metaDTyCon  <- mkTyCon d_name
-      metaCTyCons <- sequence [ mkTyCon c_name | c_name <- c_names ]
-      metaSTyCons <- mapM sequence 
-                       [ [ mkTyCon s_name 
-                         | s_name <- s_namesC ] | s_namesC <- s_names ]
+      let metaDTyCon  = mkTyCon d_name
+          metaCTyCons = map mkTyCon c_names
+          metaSTyCons =  [ [ mkTyCon s_name | s_name <- s_namesC ] 
+                         | s_namesC <- s_names ]
 
-      let metaDts = MetaTyCons metaDTyCon metaCTyCons metaSTyCons
+          metaDts = MetaTyCons metaDTyCon metaCTyCons metaSTyCons
   
       rep0_tycon <- tc_mkRepTyCon tc metaDts mod
       
@@ -117,7 +117,7 @@ genGenericRepExtras tc mod =
 genDtMeta :: (TyCon, MetaTyCons) -> TcM BagDerivStuff
 genDtMeta (tc,metaDts) =
   do  loc <- getSrcSpanM
-      dflags <- getDOpts
+      dflags <- getDynFlags
       dClas <- tcLookupClass datatypeClassName
       let new_dfun_name clas tycon = newDFunName clas [mkTyConApp tycon []] loc
       d_dfun_name <- new_dfun_name dClas tc
@@ -257,29 +257,28 @@ mkBindsRep tycon =
 tc_mkRepTyCon :: TyCon            -- The type to generate representation for
                -> MetaTyCons      -- Metadata datatypes to refer to
                -> Module          -- Used as the location of the new RepTy
-               -> TcM TyCon       -- Generated representation0 type
+               -> TcM FamInst     -- Generated representation0 coercion
 tc_mkRepTyCon tycon metaDts mod = 
 -- Consider the example input tycon `D`, where data D a b = D_ a
   do { -- `rep0` = GHC.Generics.Rep (type family)
        rep0 <- tcLookupTyCon repTyConName
 
+     ; let -- `tyvars` = [a,b]
+           tyvars     = tyConTyVars tycon
+           tyvar_args = mkTyVarTys tyvars
+
+           -- `appT` = D a b
+           appT = [mkTyConApp tycon tyvar_args]
+
        -- `rep0Ty` = D1 ... (C1 ... (S1 ... (Rec0 a))) :: * -> *
-     ; rep0Ty <- tc_mkRepTy tycon metaDts
+     ; rep0Ty <- tc_mkRepTy tycon tyvar_args metaDts
     
        -- `rep_name` is a name we generate for the synonym
      ; rep_name <- newGlobalBinder mod (mkGenR (nameOccName (tyConName tycon)))
                      (nameSrcSpan (tyConName tycon))
-     ; let -- `tyvars` = [a,b]
-           tyvars  = tyConTyVars tycon
 
-           -- rep0Ty has kind * -> *
-           rep_kind = liftedTypeKind `mkArrowKind` liftedTypeKind
-
-           -- `appT` = D a b
-           appT = [mkTyConApp tycon (mkTyVarTys tyvars)]
-
-     ; buildSynTyCon rep_name tyvars (SynonymTyCon rep0Ty) rep_kind
-                     NoParentTyCon (Just (rep0, appT)) }
+     ; return $ mkSynFamInst rep_name tyvars rep0 appT rep0Ty
+     }
 
 
 
@@ -287,13 +286,13 @@ tc_mkRepTyCon tycon metaDts mod =
 -- Type representation
 --------------------------------------------------------------------------------
 
-tc_mkRepTy :: -- The type to generate representation for
-               TyCon 
+tc_mkRepTy :: -- The type to generate representation for, and instantiating types
+               TyCon -> [Type]    
                -- Metadata datatypes to refer to
             -> MetaTyCons 
                -- Generated representation0 type
             -> TcM Type
-tc_mkRepTy tycon metaDts = 
+tc_mkRepTy tycon ty_args metaDts = 
   do
     d1    <- tcLookupTyCon d1TyConName
     c1    <- tcLookupTyCon c1TyConName
@@ -311,7 +310,7 @@ tc_mkRepTy tycon metaDts =
         mkRec0 a   = mkTyConApp rec0  [a]
         mkPar0 a   = mkTyConApp par0  [a]
         mkD    a   = mkTyConApp d1    [metaDTyCon, sumP (tyConDataCons a)]
-        mkC  i d a = mkTyConApp c1    [d, prod i (dataConOrigArgTys a) 
+        mkC  i d a = mkTyConApp c1    [d, prod i (dataConInstOrigArgTys a ty_args) 
                                                  (null (dataConFieldLabels a))]
         -- This field has no label
         mkS True  _ a = mkTyConApp s1 [mkTyConTy nS1, a]

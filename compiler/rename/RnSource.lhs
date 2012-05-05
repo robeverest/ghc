@@ -24,8 +24,6 @@ import {-# SOURCE #-} TcSplice ( runQuasiQuoteDecl )
 
 import HsSyn
 import RdrName	
-import RdrHsSyn		( extractHsRhoRdrTyVars )
-import RnHsSyn
 import RnTypes
 import RnBinds
 import RnEnv
@@ -43,6 +41,7 @@ import NameEnv
 import Avail
 import Outputable
 import Bag
+import BasicTypes       ( RuleName )
 import FastString
 import Util		( filterOut )
 import SrcLoc
@@ -52,9 +51,8 @@ import ListSetOps       ( findDupsEq )
 import Digraph		( SCC, flattenSCC, stronglyConnCompFromEdgedVertices )
 
 import Control.Monad
-import Maybes( orElse )
 import Data.List( partition )
-import Data.Maybe( isNothing )
+import Maybes( orElse )
 \end{code}
 
 @rnSourceDecl@ `renames' declarations.
@@ -271,7 +269,7 @@ rnSrcFixityDecls bndr_set fix_decls
     rn_decl (L loc (FixitySig (L name_loc rdr_name) fixity))
       = setSrcSpan name_loc $
                     -- this lookup will fail if the definition isn't local
-        do names <- lookupLocalDataTcNames bndr_set what rdr_name
+        do names <- lookupLocalTcNames bndr_set what rdr_name
            return [ L loc (FixitySig (L name_loc name) fixity)
                   | name <- names ]
     what = ptext (sLit "fixity signature")
@@ -306,7 +304,7 @@ rnSrcWarnDecls bndr_set decls
  where
    rn_deprec (Warning rdr_name txt)
        -- ensures that the names are defined locally
-     = do { names <- lookupLocalDataTcNames bndr_set what rdr_name
+     = do { names <- lookupLocalTcNames bndr_set what rdr_name
           ; return [(nameOccName name, txt) | name <- names] }
    
    what = ptext (sLit "deprecation")
@@ -356,7 +354,7 @@ rnAnnProvenance provenance = do
 \begin{code}
 rnDefaultDecl :: DefaultDecl RdrName -> RnM (DefaultDecl Name, FreeVars)
 rnDefaultDecl (DefaultDecl tys)
-  = do { (tys', fvs) <- mapFvRn (rnHsTypeFVs doc_str) tys
+  = do { (tys', fvs) <- rnLHsTypes doc_str tys
        ; return (DefaultDecl tys', fvs) }
   where
     doc_str = DefaultDeclCtx
@@ -373,7 +371,7 @@ rnHsForeignDecl :: ForeignDecl RdrName -> RnM (ForeignDecl Name, FreeVars)
 rnHsForeignDecl (ForeignImport name ty _ spec)
   = do { topEnv :: HscEnv <- getTopEnv
        ; name' <- lookupLocatedTopBndrRn name
-       ; (ty', fvs) <- rnHsTypeFVs (ForeignDeclCtx name) ty
+       ; (ty', fvs) <- rnLHsType (ForeignDeclCtx name) ty
 
         -- Mark any PackageTarget style imports as coming from the current package
        ; let packageId = thisPackage $ hsc_dflags topEnv
@@ -383,7 +381,7 @@ rnHsForeignDecl (ForeignImport name ty _ spec)
 
 rnHsForeignDecl (ForeignExport name ty _ spec)
   = do { name' <- lookupLocatedOccRn name
-       ; (ty', fvs) <- rnHsTypeFVs (ForeignDeclCtx name) ty
+       ; (ty', fvs) <- rnLHsType (ForeignDeclCtx name) ty
        ; return (ForeignExport name' ty' noForeignExportCoercionYet spec, fvs `addOneFV` unLoc name') }
 	-- NB: a foreign export is an *occurrence site* for name, so 
 	--     we add it to the free-variable list.  It might, for example,
@@ -407,8 +405,8 @@ patchCImportSpec packageId spec
 patchCCallTarget :: PackageId -> CCallTarget -> CCallTarget
 patchCCallTarget packageId callTarget
  = case callTarget of
- 	StaticTarget label Nothing
-	 -> StaticTarget label (Just packageId)
+ 	StaticTarget label Nothing isFun
+	 -> StaticTarget label (Just packageId) isFun
 
 	_			-> callTarget	
 
@@ -424,10 +422,31 @@ patchCCallTarget packageId callTarget
 
 \begin{code}
 rnSrcInstDecl :: InstDecl RdrName -> RnM (InstDecl Name, FreeVars)
-rnSrcInstDecl (InstDecl inst_ty mbinds uprags ats)
+rnSrcInstDecl (FamInstD { lid_inst = fi }) 
+  = do { (fi', fvs) <- rnFamInstDecl Nothing fi
+       ; return (FamInstD { lid_inst = fi' }, fvs) }
+
+rnSrcInstDecl (ClsInstD { cid_poly_ty = inst_ty, cid_binds = mbinds
+                        , cid_sigs = uprags, cid_fam_insts = ats })
 	-- Used for both source and interface file decls
-  = do { inst_ty' <- rnLHsInstType (text "In an instance declaration") inst_ty
-       ; let Just (inst_tyvars, _, L _ cls,_) = splitLHsInstDeclTy_maybe inst_ty'
+  = do { (inst_ty', inst_fvs) <- rnLHsInstType (text "In an instance declaration") inst_ty
+       ; case splitLHsInstDeclTy_maybe inst_ty' of {
+           Nothing -> return (ClsInstD { cid_poly_ty = inst_ty', cid_binds = emptyLHsBinds
+                                       , cid_sigs = [], cid_fam_insts = [] }
+                             , inst_fvs) ;
+           Just (inst_tyvars, _, L _ cls,_) ->
+
+    do { let (spec_inst_prags, other_sigs) = partition isSpecInstLSig uprags
+             tv_names = hsLTyVarNames inst_tyvars
+
+       -- Rename the associated types, and type signatures
+       -- Both need to have the instance type variables in scope
+       ; ((ats', other_sigs'), more_fvs) 
+             <- extendTyVarEnvFVRn tv_names $
+                do { (ats', at_fvs) <- rnATInstDecls cls tv_names ats
+                   ; (other_sigs', sig_fvs) <- renameSigs (InstDeclCtxt cls) other_sigs
+                   ; return ( (ats', other_sigs')
+                            , at_fvs `plusFV` sig_fvs) }
 
 	-- Rename the bindings
 	-- The typechecker (not the renamer) checks that all 
@@ -435,30 +454,25 @@ rnSrcInstDecl (InstDecl inst_ty mbinds uprags ats)
 	-- (Slightly strangely) when scoped type variables are on, the 
         -- forall-d tyvars scope over the method bindings too
        ; (mbinds', meth_fvs) <- extendTyVarEnvForMethodBinds inst_tyvars $
-                                rnMethodBinds cls (\_ -> [])	-- No scoped tyvars
+                                rnMethodBinds cls (mkSigTvFn other_sigs')
 					          mbinds    
 
-       -- Rename the associated types
-       -- NB: We allow duplicate associated-type decls; 
-       --     See Note [Associated type instances] in TcInstDcls
-       ; (ats', at_fvs) <- extendTyVarEnvFVRn (map hsLTyVarName inst_tyvars) $
-                           rnATInsts cls ats
-
-	-- Rename the prags and signatures.
-	-- Note that the type variables are not in scope here,
+	-- Rename the SPECIALISE instance pramas
+	-- Annoyingly the type variables are not in scope here,
 	-- so that	instance Eq a => Eq (T a) where
 	--			{-# SPECIALISE instance Eq a => Eq (T [a]) #-}
-	-- works OK. 
+	-- works OK. That's why we did the partition game above
 	--
-	-- But the (unqualified) method names are in scope
-       ; let binders = collectHsBindsBinders mbinds'
-       ; uprags' <- bindLocalNames binders $
-	            renameSigs (InstDeclCtxt cls) uprags
+       ; (spec_inst_prags', spec_inst_fvs)
+	     <- renameSigs (InstDeclCtxt cls) spec_inst_prags
 
-       ; return (InstDecl inst_ty' mbinds' uprags' ats',
-	         meth_fvs `plusFV` at_fvs
-                          `plusFV` hsSigsFVs uprags'
-		      	  `plusFV` extractHsTyNames inst_ty') }
+       ; let uprags' = spec_inst_prags' ++ other_sigs'
+             all_fvs = meth_fvs `plusFV` more_fvs
+                          `plusFV` spec_inst_fvs
+		      	  `plusFV` inst_fvs
+       ; return (ClsInstD { cid_poly_ty = inst_ty', cid_binds = mbinds'
+                          , cid_sigs = uprags', cid_fam_insts = ats' },
+	         all_fvs) } } }
              -- We return the renamed associated data type declarations so
              -- that they can be entered into the list of type declarations
              -- for the binding group, but we also keep a copy in the instance.
@@ -469,18 +483,60 @@ rnSrcInstDecl (InstDecl inst_ty mbinds uprags ats)
 	     --     the instance context after renaming.  This is a bit
 	     --     strange, but should not matter (and it would be more work
 	     --     to remove the context).
+
+rnFamInstDecl :: Maybe (Name, [Name]) -> FamInstDecl RdrName -> RnM (FamInstDecl Name, FreeVars)
+rnFamInstDecl mb_cls (FamInstDecl { fid_tycon = tycon, fid_pats = HsBSig pats _, fid_defn = defn })
+  = do { tycon'   <- lookupFamInstName (fmap fst mb_cls) tycon
+       ; let loc = case pats of
+                     []             -> pprPanic "rnFamInstDecl" (ppr tycon)
+                     (L loc _ : []) -> loc
+                     (L loc _ : ps) -> combineSrcSpans loc (getLoc (last ps))
+             (kv_rdr_names, tv_rdr_names) = extractHsTysRdrTyVars pats
+
+
+       ; kv_names <- mkTyVarBndrNames mb_cls (map (L loc) kv_rdr_names)
+       ; tv_names <- mkTyVarBndrNames mb_cls (map (L loc) tv_rdr_names)
+       	     -- All the free vars of the family patterns
+             -- with a sensible binding location
+       ; ((pats', defn'), fvs) 
+              <- bindLocalNamesFV kv_names $ 
+                 bindLocalNamesFV tv_names $ 
+    	 	 do { (pats', pat_fvs) <- rnLHsTypes (TyDataCtx tycon) pats
+    		    ; (defn', rhs_fvs) <- rnTyDefn tycon defn
+
+                         -- See Note [Renaming associated types] 
+                    ; let bad_tvs = case mb_cls of
+                                      Nothing          -> []
+                                      Just (_,cls_tvs) -> filter is_bad cls_tvs
+                          is_bad tv = not (tv `elem` tv_names) && tv `elemNameSet` rhs_fvs
+
+                    ; unless (null bad_tvs) (badAssocRhs bad_tvs)
+                    ; return ((pats', defn'), rhs_fvs `plusFV` pat_fvs) }
+                              
+
+       ; let all_fvs = fvs `addOneFV` unLoc tycon'
+       ; return ( FamInstDecl { fid_tycon = tycon'
+                              , fid_pats = HsBSig pats' (kv_names, tv_names)
+                              , fid_defn = defn', fid_fvs = all_fvs }
+                , all_fvs ) }
+       	     -- type instance => use, hence addOneFV
 \end{code}
 
 Renaming of the associated types in instances.  
 
 \begin{code}
-rnATInsts :: Name -> [LTyClDecl RdrName] -> RnM ([LTyClDecl Name], FreeVars)
-rnATInsts cls atDecls = rnList rnATInst atDecls
-  where
-    rnATInst tydecl@TyData     {} = rnTyClDecl (Just cls) tydecl
-    rnATInst tydecl@TySynonym  {} = rnTyClDecl (Just cls) tydecl
-    rnATInst tydecl               = pprPanic "RnSource.rnATInsts: invalid AT instance" 
-                                             (ppr (tcdName tydecl))
+rnATInstDecls :: Name        -- Class
+              -> [Name]      -- Type variable binders (but NOT kind variables)
+                         -- See Note [Renaming associated types] in RnTypes
+              -> [LFamInstDecl RdrName] 
+              -> RnM ([LFamInstDecl Name], FreeVars)
+-- Used for the family declarations and defaults in a class decl
+-- and the family instance declarations in an instance
+-- 
+-- NB: We allow duplicate associated-type decls; 
+--     See Note [Associated type instances] in TcInstDcls
+rnATInstDecls cls tvs atDecls 
+  = rnList (rnFamInstDecl (Just (cls, tvs))) atDecls
 \end{code}
 
 For the method bindings in class and instance decls, we extend the 
@@ -509,8 +565,7 @@ rnSrcDerivDecl :: DerivDecl RdrName -> RnM (DerivDecl Name, FreeVars)
 rnSrcDerivDecl (DerivDecl ty)
   = do { standalone_deriv_ok <- xoptM Opt_StandaloneDeriving
        ; unless standalone_deriv_ok (addErr standaloneDerivErr)
-       ; ty' <- rnLHsInstType (text "In a deriving declaration") ty
-       ; let fvs = extractHsTyNames ty'
+       ; (ty', fvs) <- rnLHsInstType (text "In a deriving declaration") ty
        ; return (DerivDecl ty', fvs) }
 
 standaloneDerivErr :: SDoc
@@ -528,36 +583,39 @@ standaloneDerivErr
 \begin{code}
 rnHsRuleDecl :: RuleDecl RdrName -> RnM (RuleDecl Name, FreeVars)
 rnHsRuleDecl (HsRule rule_name act vars lhs _fv_lhs rhs _fv_rhs)
-  = bindPatSigTyVarsFV (collectRuleBndrSigTys vars)	$
-    bindLocatedLocalsFV (map get_var vars)		$ \ ids ->
-    do	{ (vars', fv_vars) <- mapFvRn rn_var (vars `zip` ids)
-		-- NB: The binders in a rule are always Ids
-		--     We don't (yet) support type variables
+  = do { let rdr_names_w_loc = map get_var vars
+       ; checkDupAndShadowedRdrNames rdr_names_w_loc
+       ; names <- newLocalBndrsRn rdr_names_w_loc
+       ; bindHsRuleVars rule_name vars names $ \ vars' -> 
+    do { (lhs', fv_lhs') <- rnLExpr lhs
+       ; (rhs', fv_rhs') <- rnLExpr rhs
+       ; checkValidRule rule_name names lhs' fv_lhs'
+       ; return (HsRule rule_name act vars' lhs' fv_lhs' rhs' fv_rhs',
+		 fv_lhs' `plusFV` fv_rhs') } }
+  where
+    get_var (RuleBndrSig v _) = v
+    get_var (RuleBndr v) = v
 
-	; (lhs', fv_lhs') <- rnLExpr lhs
-	; (rhs', fv_rhs') <- rnLExpr rhs
-
-	; checkValidRule rule_name ids lhs' fv_lhs'
-
-	; return (HsRule rule_name act vars' lhs' fv_lhs' rhs' fv_rhs',
-		  fv_vars `plusFV` fv_lhs' `plusFV` fv_rhs') }
+bindHsRuleVars :: RuleName -> [RuleBndr RdrName] -> [Name]
+               -> ([RuleBndr Name] -> RnM (a, FreeVars))
+               -> RnM (a, FreeVars)
+bindHsRuleVars rule_name vars names thing_inside
+  = go vars names $ \ vars' ->
+    bindLocalNamesFV names (thing_inside vars')
   where
     doc = RuleCtx rule_name
-  
-    get_var (RuleBndr v)      = v
-    get_var (RuleBndrSig v _) = v
 
-    rn_var (RuleBndr (L loc _), id)
-	= return (RuleBndr (L loc id), emptyFVs)
-    rn_var (RuleBndrSig (L loc _) t, id)
-	= do { (t', fvs) <- rnHsTypeFVs doc t
-	     ; return (RuleBndrSig (L loc id) t', fvs) }
+    go (RuleBndr (L loc _) : vars) (n : ns) thing_inside
+      = go vars ns $ \ vars' ->
+        thing_inside (RuleBndr (L loc n) : vars')
 
-badRuleVar :: FastString -> Name -> SDoc
-badRuleVar name var
-  = sep [ptext (sLit "Rule") <+> doubleQuotes (ftext name) <> colon,
-	 ptext (sLit "Forall'd variable") <+> quotes (ppr var) <+> 
-		ptext (sLit "does not appear on left hand side")]
+    go (RuleBndrSig (L loc _) bsig : vars) (n : ns) thing_inside
+      = rnHsBndrSig True doc bsig $ \ bsig' ->
+        go vars ns $ \ vars' ->
+        thing_inside (RuleBndrSig (L loc n) bsig' : vars')
+
+    go [] [] thing_inside = thing_inside []
+    go vars names _ = pprPanic "bindRuleVars" (ppr vars $$ ppr names)
 \end{code}
 
 Note [Rule LHS validity checking]
@@ -617,6 +675,12 @@ validRuleLhs foralls lhs
     checkl_es es = foldr (mplus . checkl_e) Nothing es
 -}
 
+badRuleVar :: FastString -> Name -> SDoc
+badRuleVar name var
+  = sep [ptext (sLit "Rule") <+> doubleQuotes (ftext name) <> colon,
+	 ptext (sLit "Forall'd variable") <+> quotes (ppr var) <+> 
+		ptext (sLit "does not appear on left hand side")]
+
 badRuleLhsErr :: FastString -> LHsExpr Name -> HsExpr Name -> SDoc
 badRuleLhsErr name lhs bad_e
   = sep [ptext (sLit "Rule") <+> ftext name <> colon,
@@ -674,8 +738,8 @@ rnHsVectDecl (HsVectClassIn cls)
 rnHsVectDecl (HsVectClassOut _)
   = panic "RnSource.rnHsVectDecl: Unexpected 'HsVectClassOut'"
 rnHsVectDecl (HsVectInstIn instTy)
-  = do { instTy' <- rnLHsInstType (text "In a VECTORISE pragma") instTy
-       ; return (HsVectInstIn instTy', extractHsTyNames instTy')
+  = do { (instTy', fvs) <- rnLHsInstType (text "In a VECTORISE pragma") instTy
+       ; return (HsVectInstIn instTy', fvs)
        }
 rnHsVectDecl (HsVectInstOut _)
   = panic "RnSource.rnHsVectDecl: Unexpected 'HsVectInstOut'"
@@ -742,34 +806,29 @@ rnTyClDecls :: [Name] -> [[LTyClDecl RdrName]]
 -- Rename the declarations and do depedency analysis on them
 rnTyClDecls extra_deps tycl_ds
   = do { ds_w_fvs <- mapM (wrapLocFstM (rnTyClDecl Nothing)) (concat tycl_ds)
-       ; thisPkg  <- fmap thisPackage getDOpts
-       ; let (fam_insts, non_fam_insts) = partition (isFamInstDecl . unLoc . fst) ds_w_fvs
-                  -- Ignore family instances when doing this dependency analysis
-                  -- because they don't have a binder
-
-             add_boot_deps :: FreeVars -> FreeVars
+       ; thisPkg  <- fmap thisPackage getDynFlags
+       ; let add_boot_deps :: FreeVars -> FreeVars
              -- See Note [Extra dependencies from .hs-boot files]
              add_boot_deps fvs | any (isInPackage thisPkg) (nameSetToList fvs)
                                = fvs `plusFV` mkFVs extra_deps
                                | otherwise
                                = fvs
 
-             ds_w_fvs' = map (\(ds, fvs) -> (ds, add_boot_deps fvs)) non_fam_insts
+             ds_w_fvs' = map (\(ds, fvs) -> (ds, add_boot_deps fvs)) ds_w_fvs
 
              sccs :: [SCC (LTyClDecl Name)]
              sccs = depAnalTyClDecls ds_w_fvs'
 
-             all_fvs = foldr (plusFV . snd) emptyFVs ds_w_fvs
+             all_fvs = foldr (plusFV . snd) emptyFVs ds_w_fvs'
+
+       ; traceRn (text "rnTycl"  <+> (ppr ds_w_fvs $$ ppr sccs))
+       ; return (map flattenSCC sccs, all_fvs) }
 
 
-       ; return (map fst fam_insts : map flattenSCC sccs, all_fvs) }
-            -- Just put the family-instance group first;
-            -- it is treated separately anyway
-
-
-rnTyClDecl :: Maybe Name  -- Just cls => this TyClDecl is nested 
-	      	    	  --             inside an *instance decl* for cls
-			  --             used for associated types
+rnTyClDecl :: Maybe (Name, [Name])  
+                    -- Just (cls,tvs) => this TyClDecl is nested 
+                    --             inside an *instance decl* for cls
+                    --             used for associated types
            -> TyClDecl RdrName 
            -> RnM (TyClDecl Name, FreeVars)
 rnTyClDecl _ (ForeignType {tcdLName = name, tcdExtName = ext_name})
@@ -781,81 +840,28 @@ rnTyClDecl _ (ForeignType {tcdLName = name, tcdExtName = ext_name})
 -- and "data family"), both top level and (for an associated type) 
 -- in a class decl
 rnTyClDecl mb_cls (TyFamily { tcdLName = tycon, tcdTyVars = tyvars
-                            , tcdFlavour = flav, tcdKind = kind })
-  = bindQTvs fmly_doc mb_cls tyvars $ \tyvars' ->
+                            , tcdFlavour = flav, tcdKindSig = kind })
+  = do { let tv_rdr_names = hsLTyVarLocNames tyvars
+       ; checkDupRdrNames tv_rdr_names     -- Check for duplicated bindings
+       ; tv_names <- mkTyVarBndrNames mb_cls tv_rdr_names
+       ; bindTyVarsRn fmly_doc tyvars tv_names $ \tyvars' ->
     do { tycon' <- lookupLocatedTopBndrRn tycon
-       ; kind' <- rnLHsMaybeKind fmly_doc kind
-       ; let fv_kind = maybe emptyFVs extractHsTyNames kind'
-             fvs = extractHsTyVarBndrNames_s tyvars' fv_kind
+       ; (kind', fv_kind) <- rnLHsMaybeKind fmly_doc kind
        ; return ( TyFamily { tcdLName = tycon', tcdTyVars = tyvars'
-                           , tcdFlavour = flav, tcdKind = kind' }
-                , fvs) }
-  where fmly_doc = TyFamilyCtx tycon
+                           , tcdFlavour = flav, tcdKindSig = kind' }
+                , fv_kind) } }
+  where 
+     fmly_doc = TyFamilyCtx tycon
 
--- "data", "newtype", "data instance, and "newtype instance" declarations
+-- "data", "newtype" declarations
 -- both top level and (for an associated type) in an instance decl
-rnTyClDecl mb_cls tydecl@TyData {tcdND = new_or_data, tcdCtxt = context, 
-			   	 tcdLName = tycon, tcdTyVars = tyvars, 
-			   	 tcdTyPats = typats, tcdCons = condecls, 
-			   	 tcdKindSig = sig, tcdDerivs = derivs}
-  = do	{ tycon' <- lookupTcdName mb_cls tydecl
-        ; sig' <- rnLHsMaybeKind data_doc sig
-	; checkTc (h98_style || null (unLoc context)) 
-                  (badGadtStupidTheta tycon)
-
-    	; ((tyvars', context', typats', derivs'), stuff_fvs)
-		<- bindQTvs data_doc mb_cls tyvars $ \ tyvars' -> do
-		         	 -- Checks for distinct tyvars
-		   { context' <- rnContext data_doc context
-                   ; (typats', fvs1) <- rnTyPats data_doc tycon' typats
-                   ; (derivs', fvs2) <- rn_derivs derivs
-                   ; let fvs = fvs1 `plusFV` fvs2 `plusFV` 
-                               extractHsCtxtTyNames context'
-                               `plusFV` maybe emptyFVs extractHsTyNames sig'
-		   ; return ((tyvars', context', typats', derivs'), fvs) }
-
-	-- For the constructor declarations, bring into scope the tyvars 
-	-- bound by the header, but *only* in the H98 case
-	-- Reason: for GADTs, the type variables in the declaration 
-	--   do not scope over the constructor signatures
-	--   data T a where { T1 :: forall b. b-> b }
-        ; let tc_tvs_in_scope | h98_style = hsLTyVarNames tyvars'
-                              | otherwise = []
-	; (condecls', con_fvs) <- bindLocalNamesFV tc_tvs_in_scope $
-                                  rnConDecls condecls
-		-- No need to check for duplicate constructor decls
-		-- since that is done by RnNames.extendGlobalRdrEnvRn
-
-	; return (TyData {tcdND = new_or_data, tcdCtxt = context', 
-			   tcdLName = tycon', tcdTyVars = tyvars', 
-			   tcdTyPats = typats', tcdKindSig = sig',
-			   tcdCons = condecls', tcdDerivs = derivs'}, 
-	     	   con_fvs `plusFV` stuff_fvs)
-        }
-  where
-    h98_style = case condecls of	 -- Note [Stupid theta]
-		     L _ (ConDecl { con_res = ResTyGADT {} }) : _  -> False
-		     _    		                           -> True
-
-    data_doc = TyDataCtx tycon
-
-    rn_derivs Nothing   = return (Nothing, emptyFVs)
-    rn_derivs (Just ds) = do { ds' <- rnLHsTypes data_doc ds
-			     ; return (Just ds', extractHsTyNames_s ds') }
-
--- "type" and "type instance" declarations
-rnTyClDecl mb_cls tydecl@(TySynonym { tcdTyVars = tyvars, tcdLName = name,
-		  	              tcdTyPats = typats, tcdSynRhs = ty})
-  = bindQTvs syn_doc mb_cls tyvars $ \ tyvars' -> do
-    {    	 -- Checks for distinct tyvars
-      name' <- lookupTcdName mb_cls tydecl
-    ; (typats',fvs1) <- rnTyPats syn_doc name' typats
-    ; (ty', fvs2)    <- rnHsTypeFVs syn_doc ty
-    ; return (TySynonym { tcdLName = name', tcdTyVars = tyvars'
-    			, tcdTyPats = typats', tcdSynRhs = ty'}
-             , extractHsTyVarBndrNames_s tyvars' (fvs1 `plusFV` fvs2)) }
-  where
-    syn_doc = TySynCtx name
+rnTyClDecl _ (TyDecl { tcdLName = tycon, tcdTyVars = tyvars, tcdTyDefn = defn })
+  = do { tycon' <- lookupLocatedTopBndrRn tycon
+       ; ((tyvars', defn'), fvs) <- bindHsTyVars (TyDataCtx tycon) tyvars $ \ tyvars' ->
+                                    do { (defn', fvs) <- rnTyDefn tycon defn
+                                       ; return ((tyvars', defn'), fvs) }
+       ; return (TyDecl { tcdLName = tycon', tcdTyVars = tyvars'
+                        , tcdTyDefn = defn', tcdFVs = fvs }, fvs) }
 
 rnTyClDecl _ (ClassDecl {tcdCtxt = context, tcdLName = lcls, 
 		         tcdTyVars = tyvars, tcdFDs = fds, tcdSigs = sigs, 
@@ -866,19 +872,19 @@ rnTyClDecl _ (ClassDecl {tcdCtxt = context, tcdLName = lcls,
 
 	-- Tyvars scope over superclass context and method signatures
 	; ((tyvars', context', fds', ats', at_defs', sigs'), stuff_fvs)
-	    <- bindTyVarsFV cls_doc tyvars $ \ tyvars' -> do
+	    <- bindHsTyVars cls_doc tyvars $ \ tyvars' -> do
          	 -- Checks for distinct tyvars
-	     { context' <- rnContext cls_doc context
+	     { (context', cxt_fvs) <- rnContext cls_doc context
 	     ; fds'  <- rnFds (docOfHsDocContext cls_doc) fds
-             ; let rn_at = rnTyClDecl (Just cls')
-             ; (ats', fv_ats) <- mapAndUnzipM (wrapLocFstM rn_at) ats
-	     ; sigs' <- renameSigs (ClsDeclCtxt cls') sigs
-             ; (at_defs', fv_at_defs) <- mapAndUnzipM (wrapLocFstM rn_at) at_defs
-	     ; let fvs = extractHsCtxtTyNames context'	`plusFV`
-	                 hsSigsFVs sigs'                `plusFV`
-                         plusFVs fv_ats                 `plusFV`
-                         plusFVs fv_at_defs
 			 -- The fundeps have no free variables
+             ; let tv_ns = hsLTyVarNames tyvars'
+             ; (ats',     fv_ats)     <- rnList (rnTyClDecl (Just (cls', tv_ns))) ats
+             ; (at_defs', fv_at_defs) <- rnATInstDecls cls' tv_ns at_defs
+	     ; (sigs', sig_fvs) <- renameSigs (ClsDeclCtxt cls') sigs
+	     ; let fvs = cxt_fvs     `plusFV`
+	                 sig_fvs     `plusFV`
+                         fv_ats      `plusFV`
+                         fv_at_defs
 	     ; return ((tyvars', context', fds', ats', at_defs', sigs'), fvs) }
 
 	-- No need to check for duplicate associated type decls
@@ -911,67 +917,63 @@ rnTyClDecl _ (ClassDecl {tcdCtxt = context, tcdLName = lcls,
   -- Haddock docs 
 	; docs' <- mapM (wrapLocM rnDocDecl) docs
 
+        ; let all_fvs = meth_fvs `plusFV` stuff_fvs
 	; return (ClassDecl { tcdCtxt = context', tcdLName = lcls', 
 			      tcdTyVars = tyvars', tcdFDs = fds', tcdSigs = sigs',
 			      tcdMeths = mbinds', tcdATs = ats', tcdATDefs = at_defs',
-                              tcdDocs = docs'},
-	     	  extractHsTyVarBndrNames_s tyvars' (meth_fvs `plusFV` stuff_fvs)) }
+                              tcdDocs = docs', tcdFVs = all_fvs },
+	     	  all_fvs ) }
   where
     cls_doc  = ClassDeclCtx lcls
 
 
-bindQTvs :: HsDocContext -> Maybe Name -> [LHsTyVarBndr RdrName]
-         -> ([LHsTyVarBndr Name] -> RnM (a, FreeVars))
-         -> RnM (a, FreeVars)
-bindQTvs doc mb_cls tyvars thing_inside
-  | isNothing mb_cls    -- Not associated
-  = bindTyVarsFV doc tyvars thing_inside
-  | otherwise 	 	-- Associated
-  = do { let tv_rdr_names = map hsLTyVarLocName tyvars
-       	     -- *All* the free vars of the family patterns
+rnTyDefn :: Located RdrName -> HsTyDefn RdrName -> RnM (HsTyDefn Name, FreeVars)
+rnTyDefn tycon (TyData { td_ND = new_or_data, td_cType = cType
+               , td_ctxt = context, td_cons = condecls 
+	       , td_kindSig = sig, td_derivs = derivs })
+  = do	{ checkTc (h98_style || null (unLoc context)) 
+                  (badGadtStupidTheta tycon)
 
-       -- Check for duplicated bindings
-       -- This test is irrelevant for data/type *instances*, where the tyvars
-       -- are the free tyvars of the patterns, and hence have no duplicates
-       -- But it's needed for data/type *family* decls
-       ; mapM_ dupBoundTyVar (findDupRdrNames tv_rdr_names)
+        ; (sig', sig_fvs)  <- rnLHsMaybeKind data_doc sig
+        ; (context', fvs1) <- rnContext data_doc context
+        ; (derivs',  fvs3) <- rn_derivs derivs
 
-       ; rdr_env <- getLocalRdrEnv
+	-- For the constructor declarations, drop the LocalRdrEnv
+        -- in the GADT case, where the type variables in the declaration 
+	-- do not scope over the constructor signatures
+	-- data T a where { T1 :: forall b. b-> b }
+        ; let { zap_lcl_env | h98_style = \ thing -> thing
+                            | otherwise = setLocalRdrEnv emptyLocalRdrEnv }
+	; (condecls', con_fvs) <- zap_lcl_env $
+                                  rnConDecls condecls
+           -- No need to check for duplicate constructor decls
+	   -- since that is done by RnNames.extendGlobalRdrEnvRn
 
-       ; tv_ns <- mapM (mk_tv_name rdr_env) tv_rdr_names
-       ; tyvars' <- zipWithM (\old new -> replaceLTyVarName old new (rnLHsKind doc)) tyvars tv_ns
-       ; (thing, fvs) <- bindLocalNamesFV tv_ns $ thing_inside tyvars'
-
-	-- Check that the RHS of the decl mentions only type variables
-	-- bound on the LHS.  For example, this is not ok
-	-- 	 class C a b where
-	--         type F a x :: *
-	--	 instance C (p,q) r where
-        --	   type F (p,q) x = (x, r)	-- BAD: mentions 'r'
-	-- c.f. Trac #5515
-       ; let bad_tvs = filterNameSet (isTvOcc . nameOccName) fvs
-       ; unless (isEmptyNameSet bad_tvs) (badAssocRhs (nameSetToList bad_tvs))
-
-       ; return (thing, fvs) }
+        ; let all_fvs = fvs1 `plusFV` fvs3 `plusFV`
+                        con_fvs `plusFV` sig_fvs
+	; return ( TyData { td_ND = new_or_data, td_cType = cType
+                          , td_ctxt = context', td_kindSig = sig'
+			  , td_cons = condecls', td_derivs = derivs' }
+                 , all_fvs )
+        }
   where
-    mk_tv_name :: LocalRdrEnv -> Located RdrName -> RnM Name
-    mk_tv_name rdr_env (L l tv_rdr)
-      = case lookupLocalRdrEnv rdr_env tv_rdr of 
-          Just n  -> return n
-          Nothing -> newLocalBndrRn (L l tv_rdr)
+    h98_style = case condecls of	 -- Note [Stupid theta]
+		     L _ (ConDecl { con_res = ResTyGADT {} }) : _  -> False
+		     _    		                           -> True
 
-badAssocRhs :: [Name] -> RnM ()
-badAssocRhs ns
-  = addErr (hang (ptext (sLit "The RHS of an associated type declaration mentions type variable") 
-                  <> plural ns 
-                  <+> pprWithCommas (quotes . ppr) ns)
-               2 (ptext (sLit "All such variables must be bound on the LHS")))
+    data_doc = TyDataCtx tycon
 
-dupBoundTyVar :: [Located RdrName] -> RnM ()
-dupBoundTyVar (L loc tv : _) 
-  = setSrcSpan loc $
-    addErr (ptext (sLit "Illegal repeated type variable") <+> quotes (ppr tv))
-dupBoundTyVar [] = panic "dupBoundTyVar"
+    rn_derivs Nothing   = return (Nothing, emptyFVs)
+    rn_derivs (Just ds) = do { (ds', fvs) <- rnLHsTypes data_doc ds
+			     ; return (Just ds', fvs) }
+
+-- "type" and "type instance" declarations
+rnTyDefn tycon (TySynonym { td_synRhs = ty })
+  = do { (ty', rhs_fvs) <- rnLHsType syn_doc ty
+       ; return ( TySynonym { td_synRhs = ty' }
+                , rhs_fvs) }
+  where
+    syn_doc = TySynCtx tycon
 
 badGadtStupidTheta :: Located RdrName -> SDoc
 badGadtStupidTheta _
@@ -995,23 +997,27 @@ depAnalTyClDecls :: [(LTyClDecl Name, FreeVars)] -> [SCC (LTyClDecl Name)]
 depAnalTyClDecls ds_w_fvs
   = stronglyConnCompFromEdgedVertices edges
   where
-    edges = [ (d, tcdName (unLoc d), map get_assoc (nameSetToList fvs))
+    edges = [ (d, tcdName (unLoc d), map get_parent (nameSetToList fvs))
             | (d, fvs) <- ds_w_fvs ]
-    get_assoc n = lookupNameEnv assoc_env n `orElse` n
+
+    -- We also need to consider data constructor names since 
+    -- they may appear in types because of promotion.
+    get_parent n = lookupNameEnv assoc_env n `orElse` n
+
+    assoc_env :: NameEnv Name   -- Maps a data constructor back 
+                                -- to its parent type constructor
     assoc_env = mkNameEnv assoc_env_list
-    -- We also need to consider data constructor names since they may
-    -- appear in types because of promotion.
     assoc_env_list = do
       (L _ d, _) <- ds_w_fvs
       case d of
         ClassDecl { tcdLName = L _ cls_name
-                  , tcdATs = ats } -> do
-                       L _ assoc_decl <- ats
-                       return (tcdName assoc_decl, cls_name)
-        TyData { tcdLName = L _ data_name
-               , tcdCons = cons } -> do
-                       L _ dc <- cons
-                       return (unLoc (con_name dc), data_name)
+                  , tcdATs = ats } 
+          -> do L _ assoc_decl <- ats
+                return (tcdName assoc_decl, cls_name)
+        TyDecl { tcdLName = L _ data_name
+               , tcdTyDefn = TyData { td_cons = cons } } 
+          -> do L _ dc <- cons
+                return (unLoc (con_name dc), data_name)
         _ -> []
 \end{code}
 
@@ -1036,28 +1042,38 @@ is jolly confusing.  See Trac #4875
 %*********************************************************
 
 \begin{code}
-rnTyPats :: HsDocContext -> Located Name -> Maybe [LHsType RdrName] -> RnM (Maybe [LHsType Name], FreeVars)
--- Although, we are processing type patterns here, all type variables will
--- already be in scope (they are the same as in the 'tcdTyVars' field of the
--- type declaration to which these patterns belong)
-rnTyPats _   _  Nothing
-  = return (Nothing, emptyFVs)
-rnTyPats doc tc (Just typats) 
-  = do { typats' <- rnLHsTypes doc typats
-       ; let fvs = addOneFV (extractHsTyNames_s typats') (unLoc tc)
-       	     -- type instance => use, hence addOneFV
-       ; return (Just typats', fvs) }
+---------------
+mkTyVarBndrNames :: Maybe a -> [Located RdrName] -> RnM [Name]
+mkTyVarBndrNames Nothing tv_rdr_names
+  = newLocalBndrsRn tv_rdr_names
+mkTyVarBndrNames (Just _) tv_rdr_names
+  = do { rdr_env <- getLocalRdrEnv
+       ; let mk_tv_name :: Located RdrName -> RnM Name
+              -- Use the same Name as the parent class decl
+             mk_tv_name (L l tv_rdr)
+               = case lookupLocalRdrEnv rdr_env tv_rdr of 
+                    Just n  -> return n
+                    Nothing -> newLocalBndrRn (L l tv_rdr)
 
+       ; mapM mk_tv_name tv_rdr_names }
+
+---------------
+badAssocRhs :: [Name] -> RnM ()
+badAssocRhs ns
+  = addErr (hang (ptext (sLit "The RHS of an associated type declaration mentions type variable") 
+                  <> plural ns 
+                  <+> pprWithCommas (quotes . ppr) ns)
+               2 (ptext (sLit "All such variables must be bound on the LHS")))
+
+-----------------
 rnConDecls :: [LConDecl RdrName] -> RnM ([LConDecl Name], FreeVars)
-rnConDecls condecls
-  = do { condecls' <- mapM (wrapLocM rnConDecl) condecls
-       ; return (condecls', plusFVs (map conDeclFVs condecls')) }
+rnConDecls = mapFvRn (wrapLocFstM rnConDecl)
 
-rnConDecl :: ConDecl RdrName -> RnM (ConDecl Name)
+rnConDecl :: ConDecl RdrName -> RnM (ConDecl Name, FreeVars)
 rnConDecl decl@(ConDecl { con_name = name, con_qvars = tvs
-                   	       , con_cxt = cxt, con_details = details
-                   	       , con_res = res_ty, con_doc = mb_doc
-                   	       , con_old_rec = old_rec, con_explicit = expl })
+                   	, con_cxt = lcxt@(L loc cxt), con_details = details
+                   	, con_res = res_ty, con_doc = mb_doc
+                   	, con_old_rec = old_rec, con_explicit = expl })
   = do	{ addLocM checkConName name
     	; when old_rec (addWarn (deprecRecSyntax decl))
 	; new_name <- lookupLocatedTopBndrRn name
@@ -1066,7 +1082,7 @@ rnConDecl decl@(ConDecl { con_name = name, con_qvars = tvs
 	   -- For GADT syntax, the tvs are all the quantified tyvars
 	   -- Hence the 'filter' in the ResTyH98 case only
         ; rdr_env <- getLocalRdrEnv
-        ; let in_scope     = (`elemLocalRdrEnv` rdr_env) . unLoc
+        ; let in_scope tv  = tv `elemLocalRdrEnv` rdr_env
 	      arg_tys      = hsConDeclArgTys details
 	      mentioned_tvs = case res_ty of
 	      	    	       ResTyH98 -> filterOut in_scope (get_rdr_tvs arg_tys)
@@ -1075,62 +1091,71 @@ rnConDecl decl@(ConDecl { con_name = name, con_qvars = tvs
          -- With an Explicit forall, check for unused binders
 	 -- With Implicit, find the mentioned ones, and use them as binders
 	; new_tvs <- case expl of
-	    	       Implicit -> return (userHsTyVarBndrs mentioned_tvs)
+	    	       Implicit -> return (userHsTyVarBndrs loc mentioned_tvs)
             	       Explicit -> do { warnUnusedForAlls (docOfHsDocContext doc) tvs mentioned_tvs
                                       ; return tvs }
 
         ; mb_doc' <- rnMbLHsDoc mb_doc 
 
-        ; bindTyVarsRn doc new_tvs $ \new_tyvars -> do
-	{ new_context <- rnContext doc cxt
-	; new_details <- rnConDeclDetails doc details
-        ; (new_details', new_res_ty)  <- rnConResult doc new_details res_ty
+        ; bindHsTyVars doc new_tvs $ \new_tyvars -> do
+	{ (new_context, fvs1) <- rnContext doc lcxt
+	; (new_details, fvs2) <- rnConDeclDetails doc details
+        ; (new_details', new_res_ty, fvs3) <- rnConResult doc (unLoc new_name) new_details res_ty
         ; return (decl { con_name = new_name, con_qvars = new_tyvars, con_cxt = new_context 
-                       , con_details = new_details', con_res = new_res_ty, con_doc = mb_doc' }) }}
+                       , con_details = new_details', con_res = new_res_ty, con_doc = mb_doc' },
+                  fvs1 `plusFV` fvs2 `plusFV` fvs3) }}
  where
     doc = ConDeclCtx name
-    get_rdr_tvs tys  = extractHsRhoRdrTyVars cxt (noLoc (HsTupleTy HsBoxedTuple tys))
+    get_rdr_tvs tys = snd (extractHsTysRdrTyVars (cxt ++ tys))
 
-rnConResult :: HsDocContext
+rnConResult :: HsDocContext -> Name
             -> HsConDetails (LHsType Name) [ConDeclField Name]
-            -> ResType RdrName
+            -> ResType (LHsType RdrName)
             -> RnM (HsConDetails (LHsType Name) [ConDeclField Name],
-                    ResType Name)
-rnConResult _ details ResTyH98 = return (details, ResTyH98)
-rnConResult doc details (ResTyGADT ty)
-  = do { ty' <- rnLHsType doc ty
+                    ResType (LHsType Name), FreeVars)
+rnConResult _   _   details ResTyH98 = return (details, ResTyH98, emptyFVs)
+rnConResult doc con details (ResTyGADT ty)
+  = do { (ty', fvs) <- rnLHsType doc ty
        ; let (arg_tys, res_ty) = splitHsFunType ty'
           	-- We can finally split it up, 
 		-- now the renamer has dealt with fixities
 	        -- See Note [Sorting out the result type] in RdrHsSyn
 
-             details' = case details of
-       	     	           RecCon {}    -> details
-			   PrefixCon {} -> PrefixCon arg_tys
-			   InfixCon {}  -> pprPanic "rnConResult" (ppr ty)
-			  -- See Note [Sorting out the result type] in RdrHsSyn
-		
-       ; when (not (null arg_tys) && case details of { RecCon {} -> True; _ -> False })
-              (addErr (badRecResTy (docOfHsDocContext doc)))
-       ; return (details', ResTyGADT res_ty) }
+       ; case details of
+	   InfixCon {}  -> pprPanic "rnConResult" (ppr ty)
+	   -- See Note [Sorting out the result type] in RdrHsSyn
+
+       	   RecCon {}    -> do { unless (null arg_tys) 
+                                       (addErr (badRecResTy (docOfHsDocContext doc)))
+                              ; return (details, ResTyGADT res_ty, fvs) }
+
+	   PrefixCon {} | isSymOcc (getOccName con)  -- See Note [Infix GADT cons]
+                        , [ty1,ty2] <- arg_tys
+                        -> do { fix_env <- getFixityEnv
+                              ; return (if   con `elemNameEnv` fix_env 
+                                        then InfixCon ty1 ty2
+                                        else PrefixCon arg_tys
+                                       , ResTyGADT res_ty, fvs) }
+                        | otherwise
+                        -> return (PrefixCon arg_tys, ResTyGADT res_ty, fvs) }
 
 rnConDeclDetails :: HsDocContext
                  -> HsConDetails (LHsType RdrName) [ConDeclField RdrName]
-                 -> RnM (HsConDetails (LHsType Name) [ConDeclField Name])
+                 -> RnM (HsConDetails (LHsType Name) [ConDeclField Name], FreeVars)
 rnConDeclDetails doc (PrefixCon tys)
-  = do { new_tys <- mapM (rnLHsType doc) tys
-       ; return (PrefixCon new_tys) }
+  = do { (new_tys, fvs) <- rnLHsTypes doc tys
+       ; return (PrefixCon new_tys, fvs) }
 
 rnConDeclDetails doc (InfixCon ty1 ty2)
-  = do { new_ty1 <- rnLHsType doc ty1
-       ; new_ty2 <- rnLHsType doc ty2
-       ; return (InfixCon new_ty1 new_ty2) }
+  = do { (new_ty1, fvs1) <- rnLHsType doc ty1
+       ; (new_ty2, fvs2) <- rnLHsType doc ty2
+       ; return (InfixCon new_ty1 new_ty2, fvs1 `plusFV` fvs2) }
 
 rnConDeclDetails doc (RecCon fields)
-  = do	{ new_fields <- rnConDeclFields doc fields
+  = do	{ (new_fields, fvs) <- rnConDeclFields doc fields
 		-- No need to check for duplicate fields
 		-- since that is done by RnNames.extendGlobalRdrEnvRn
-	; return (RecCon new_fields) }
+	; return (RecCon new_fields, fvs) }
 
 -------------------------------------------------
 deprecRecSyntax :: ConDecl RdrName -> SDoc
@@ -1161,6 +1186,18 @@ badDataCon name
    = hsep [ptext (sLit "Illegal data constructor name"), quotes (ppr name)]
 \end{code}
 
+Note [Infix GADT constructors]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We do not currently have syntax to declare an infix constructor in GADT syntax,
+but it makes a (small) difference to the Show instance.  So as a slightly
+ad-hoc solution, we regard a GADT data constructor as infix if
+  a) it is an operator symbol
+  b) it has two arguments
+  c) there is a fixity declaration for it
+For example:
+   infix 6 (:--:) 
+   data T a where
+     (:--:) :: t1 -> t2 -> T Int
 
 %*********************************************************
 %*							*
@@ -1187,10 +1224,10 @@ extendRecordFieldEnv tycl_decls inst_decls
                     ; return $ unLoc x'}
 
     all_data_cons :: [ConDecl RdrName]
-    all_data_cons = [con | L _ (TyData { tcdCons = cons }) <- all_tycl_decls
+    all_data_cons = [con | TyData { td_cons = cons } <- all_ty_defs
     		         , L _ con <- cons ]
-    all_tycl_decls = at_tycl_decls ++ concat tycl_decls
-    at_tycl_decls = instDeclATs inst_decls  -- Do not forget associated types!
+    all_ty_defs = [ defn | L _ (TyDecl { tcdTyDefn = defn }) <- concat tycl_decls ]
+               ++ map fid_defn (instDeclFamInsts inst_decls)  -- Do not forget associated types!
 
     get_con (ConDecl { con_name = con, con_details = RecCon flds })
 	    (RecFields env fld_set)

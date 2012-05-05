@@ -1,17 +1,11 @@
 %
 % (c) The University of Glasgow 2006
-% (c) The University of Glasgow 1992-2002
 %
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
 
 -- | Highly random utility functions
+--
 module Util (
         -- * Flags dependent on the compiler build
         ghciSupported, debugIsOn, ncgDebugIsOn,
@@ -81,6 +75,7 @@ module Util (
 
         -- * IO-ish utilities
         doesDirNameExist,
+        getModificationUTCTime,
         modificationTimeIfExists,
 
         global, consIORef, globalM,
@@ -117,7 +112,6 @@ import Control.Monad    ( liftM )
 import System.IO.Error as IO ( isDoesNotExistError )
 import System.Directory ( doesDirectoryExist, getModificationTime )
 import System.FilePath
-import System.Time      ( ClockTime )
 
 import Data.Char        ( isUpper, isAlphaNum, isSpace, chr, ord, isDigit )
 import Data.Ratio       ( (%) )
@@ -125,6 +119,12 @@ import Data.Ord         ( comparing )
 import Data.Bits
 import Data.Word
 import qualified Data.IntMap as IM
+
+import Data.Time
+#if __GLASGOW_HASKELL__ < 705
+import Data.Time.Clock.POSIX
+import System.Time
+#endif
 
 infixr 9 `thenCmp`
 \end{code}
@@ -757,7 +757,7 @@ restrictedDamerauLevenshteinDistanceWithLengths m n str1 str2
     else restrictedDamerauLevenshteinDistance' (undefined :: Integer) n m str2 str1
 
 restrictedDamerauLevenshteinDistance'
-  :: (Bits bv) => bv -> Int -> Int -> String -> String -> Int
+  :: (Bits bv, Num bv) => bv -> Int -> Int -> String -> String -> Int
 restrictedDamerauLevenshteinDistance' _bv_dummy m n str1 str2 
   | [] <- str1 = n
   | otherwise  = extractAnswer $
@@ -770,7 +770,7 @@ restrictedDamerauLevenshteinDistance' _bv_dummy m n str1 str2
     extractAnswer (_, _, _, _, distance) = distance
 
 restrictedDamerauLevenshteinDistanceWorker
-      :: (Bits bv) => IM.IntMap bv -> bv -> bv
+      :: (Bits bv, Num bv) => IM.IntMap bv -> bv -> bv
       -> (bv, bv, bv, bv, Int) -> Char -> (bv, bv, bv, bv, Int)
 restrictedDamerauLevenshteinDistanceWorker str1_mvs top_bit_mask vector_mask
                                            (pm, d0, vp, vn, distance) char2
@@ -799,7 +799,7 @@ restrictedDamerauLevenshteinDistanceWorker str1_mvs top_bit_mask vector_mask
 sizedComplement :: Bits bv => bv -> bv -> bv
 sizedComplement vector_mask vect = vector_mask `xor` vect
 
-matchVectors :: Bits bv => String -> IM.IntMap bv
+matchVectors :: (Bits bv, Num bv) => String -> IM.IntMap bv
 matchVectors = snd . foldl' go (0 :: Int, IM.empty)
   where
     go (ix, im) char = let ix' = ix + 1
@@ -1023,12 +1023,24 @@ doesDirNameExist fpath = case takeDirectory fpath of
                          "" -> return True -- XXX Hack
                          _  -> doesDirectoryExist (takeDirectory fpath)
 
+-----------------------------------------------------------------------------
+-- Backwards compatibility definition of getModificationTime
+
+getModificationUTCTime :: FilePath -> IO UTCTime
+#if __GLASGOW_HASKELL__ < 705
+getModificationUTCTime f = do
+    TOD secs _ <- getModificationTime f
+    return $ posixSecondsToUTCTime (realToFrac secs)
+#else
+getModificationUTCTime = getModificationTime
+#endif
+
 -- --------------------------------------------------------------
 -- check existence & modification time at the same time
 
-modificationTimeIfExists :: FilePath -> IO (Maybe ClockTime)
+modificationTimeIfExists :: FilePath -> IO (Maybe UTCTime)
 modificationTimeIfExists f = do
-  (do t <- getModificationTime f; return (Just t))
+  (do t <- getModificationUTCTime f; return (Just t))
         `catchIO` \e -> if isDoesNotExistError e
                         then return Nothing
                         else ioError e
@@ -1128,3 +1140,4 @@ charToC w =
                          chr (ord '0' + ord c `div` 8 `mod` 8),
                          chr (ord '0' + ord c         `mod` 8)]
 \end{code}
+

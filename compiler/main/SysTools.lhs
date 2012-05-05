@@ -194,6 +194,7 @@ initSysTools mbMinusB
         ; targetOS <- readSetting "target os"
         ; targetWordSize <- readSetting "target word size"
         ; targetHasGnuNonexecStack <- readSetting "target has GNU nonexec stack"
+        ; targetHasIdentDirective <- readSetting "target has .ident directive"
         ; targetHasSubsectionsViaSymbols <- readSetting "target has subsections via symbols"
         ; myExtraGccViaCFlags <- getSetting "GCC extra via C opts"
         -- On Windows, mingw is distributed with GHC,
@@ -250,8 +251,8 @@ initSysTools mbMinusB
                 ld_args  = gcc_args
 
         -- We just assume on command line
-        ; let lc_prog = "llc"
-              lo_prog = "opt"
+        ; lc_prog <- getSetting "LLVM llc command"
+        ; lo_prog <- getSetting "LLVM opt command"
 
         ; return $ Settings {
                         sTargetPlatform = Platform {
@@ -259,6 +260,7 @@ initSysTools mbMinusB
                                               platformOS   = targetOS,
                                               platformWordSize = targetWordSize,
                                               platformHasGnuNonexecStack = targetHasGnuNonexecStack,
+                                              platformHasIdentDirective = targetHasIdentDirective,
                                               platformHasSubsectionsViaSymbols = targetHasSubsectionsViaSymbols
                                           },
                         sTmpDir = normalise tmpdir,
@@ -920,7 +922,8 @@ traceCmd dflags phase_name cmd_line action
  = do   { let verb = verbosity dflags
         ; showPass dflags phase_name
         ; debugTraceMsg dflags 3 (text cmd_line)
-        ; hFlush stderr
+        ; case flushErr dflags of
+              FlushErr io -> io
 
            -- And run it!
         ; action `catchIO` handle_exn verb

@@ -54,6 +54,7 @@ module OccName (
 	mkTupleOcc, 
 	setOccNameSpace,
         demoteOccName,
+        HasOccName(..),
 
 	-- ** Derived 'OccName's
         isDerivedOccName,
@@ -209,31 +210,13 @@ pprNameSpaceBrief TcClsName = ptext (sLit "tc")
 
 -- demoteNameSpace lowers the NameSpace if possible.  We can not know
 -- in advance, since a TvName can appear in an HsTyVar.
--- see Note [Demotion]
+-- See Note [Demotion] in RnEnv
 demoteNameSpace :: NameSpace -> Maybe NameSpace
 demoteNameSpace VarName = Nothing
 demoteNameSpace DataName = Nothing
 demoteNameSpace TvName = Nothing
 demoteNameSpace TcClsName = Just DataName
 \end{code}
-
-Note [Demotion]
-~~~~~~~~~~~~~~~
-
-When the user writes:
-  data Nat = Zero | Succ Nat
-  foo :: f Zero -> Int
-
-'Zero' in the type signature of 'foo' is parsed as:
-  HsTyVar ("Zero", TcClsName)
-
-When the renamer hits this occurence of 'Zero' it's going to realise
-that it's not in scope. But because it is renaming a type, it knows
-that 'Zero' might be a promoted data constructor, so it will demote
-its namespace to DataName and do a second lookup.
-
-The final result (after the renamer) will be:
-  HsTyVar ("Zero", DataName)
 
 
 %************************************************************************
@@ -352,6 +335,11 @@ demoteOccName :: OccName -> Maybe OccName
 demoteOccName (OccName space name) = do
   space' <- demoteNameSpace space
   return $ OccName space' name
+
+{- | Other names in the compiler add aditional information to an OccName.
+This class provides a consistent way to access the underlying OccName. -}
+class HasOccName name where
+  occName :: name -> OccName
 \end{code}
 
 
@@ -371,7 +359,7 @@ sequentially starting at 0.
 
 So we can make a Unique using
 	mkUnique ns key  :: Unique
-where 'ns' is a Char reprsenting the name space.  This in turn makes it
+where 'ns' is a Char representing the name space.  This in turn makes it
 easy to build an OccEnv.
 
 \begin{code}
@@ -510,7 +498,7 @@ isDataSymOcc _                    = False
 -- it is a data constructor or variable or whatever)
 isSymOcc :: OccName -> Bool
 isSymOcc (OccName DataName s)  = isLexConSym s
-isSymOcc (OccName TcClsName s) = isLexConSym s
+isSymOcc (OccName TcClsName s) = isLexConSym s || isLexVarSym s
 isSymOcc (OccName VarName s)   = isLexSym s
 isSymOcc (OccName TvName s)    = isLexSym s
 -- Pretty inefficient!

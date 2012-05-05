@@ -5,13 +5,6 @@
 \section[TcMovectle]{Typechecking a whole module}
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
-
 module TcRnDriver (
 #ifdef GHCI
 	tcRnStmt, tcRnExpr, tcRnType,
@@ -19,6 +12,7 @@ module TcRnDriver (
 	tcRnLookupRdrName,
 	getModuleInterface,
 	tcRnDeclsi,
+        isGHCiMonad,
 #endif
 	tcRnLookupName,
 	tcRnGetInfo,
@@ -31,6 +25,7 @@ module TcRnDriver (
 import {-# SOURCE #-} TcSplice ( tcSpliceDecls )
 #endif
 
+import TypeRep
 import DynFlags
 import StaticFlags
 import HsSyn
@@ -157,7 +152,16 @@ tcRnModule hsc_env hsc_src save_rn_syntax
 
 	tcg_env <- {-# SCC "tcRnImports" #-}
                    tcRnImports hsc_env this_mod (prel_imports ++ import_decls) ;
-	setGblEnv tcg_env		$ do {
+
+          -- If the whole module is warned about or deprecated 
+          -- (via mod_deprec) record that in tcg_warns. If we do thereby add
+          -- a WarnAll, it will override any subseqent depracations added to tcg_warns
+        let { tcg_env1 = case mod_deprec of 
+                         Just txt -> tcg_env { tcg_warns = WarnAll txt } 
+                         Nothing  -> tcg_env 
+            } ;
+ 
+        setGblEnv tcg_env1 $ do {
 
 		-- Load the hi-boot interface for this module, if any
 		-- We do this now so that the boot_names can be passed
@@ -178,20 +182,10 @@ tcRnModule hsc_env hsc_src save_rn_syntax
                         tcRnSrcDecls boot_iface local_decls ;
 	setGblEnv tcg_env		$ do {
 
-		-- Report the use of any deprecated things
-		-- We do this *before* processsing the export list so
-		-- that we don't bleat about re-exporting a deprecated
-		-- thing (especially via 'module Foo' export item)
-		-- That is, only uses in the *body* of the module are complained about
-	traceRn (text "rn3") ;
-	failIfErrsM ;	-- finishWarnings crashes sometimes 
-			-- as a result of typechecker repairs (e.g. unboundNames)
-	tcg_env <- finishWarnings (hsc_dflags hsc_env) mod_deprec tcg_env ;
-
 		-- Process the export list
         traceRn (text "rn4a: before exports");
 	tcg_env <- rnExports (isJust maybe_mod) export_ies tcg_env ;
-	traceRn (text "rn4b: after exportss") ;
+        traceRn (text "rn4b: after exports") ;
 
                 -- Check that main is exported (must be after rnExports)
         checkMainExported tcg_env ;
@@ -558,7 +552,7 @@ tcRnHsBootDecls decls
 	; mapM_ (badBootDecl "vect")    vect_decls
 
 		-- Typecheck type/class decls
-	; traceTc "Tc2" empty
+        ; traceTc "Tc2 (boot)" empty
 	; tcg_env <- tcTyAndClassDecls emptyModDetails tycl_decls
 	; setGblEnv tcg_env    $ do {
 
@@ -691,7 +685,7 @@ checkHiBootIface
     local_export_env :: NameEnv AvailInfo
     local_export_env = availsToNameEnv local_exports
 
-    check_inst :: Instance -> TcM (Maybe (Id, Id))
+    check_inst :: ClsInst -> TcM (Maybe (Id, Id))
 	-- Returns a pair of the boot dfun in terms of the equivalent real dfun
     check_inst boot_inst
 	= case [dfun | inst <- local_insts, 
@@ -840,7 +834,7 @@ bootMisMatch thing boot_decl real_decl
 	  ptext (sLit "Main module:") <+> ppr real_decl,
 	  ptext (sLit "Boot file:  ") <+> ppr boot_decl]
 
-instMisMatch :: Instance -> SDoc
+instMisMatch :: ClsInst -> SDoc
 instMisMatch inst
   = hang (ppr inst)
        2 (ptext (sLit "is defined in the hs-boot file, but not in the module itself"))
@@ -901,7 +895,7 @@ tcTopSrcDecls boot_details
 		   hs_valds  = val_binds })
  = do {		-- Type-check the type and class decls, and all imported decls
 		-- The latter come in via tycl_decls
-        traceTc "Tc2" empty ;
+        traceTc "Tc2 (src)" empty ;
 
 	tcg_env <- tcTyAndClassDecls boot_details tycl_decls ;
 	setGblEnv tcg_env       $ do {
@@ -985,7 +979,7 @@ checkMain :: TcM TcGblEnv
 -- If we are in module Main, check that 'main' is defined.
 checkMain 
   = do { tcg_env   <- getGblEnv ;
-	 dflags    <- getDOpts ;
+         dflags    <- getDynFlags ;
 	 check_main dflags tcg_env
     }
 
@@ -1067,7 +1061,7 @@ getMainFun dflags = case (mainFunIs dflags) of
 
 checkMainExported :: TcGblEnv -> TcM ()
 checkMainExported tcg_env = do
-  dflags    <- getDOpts
+  dflags    <- getDynFlags
   case tcg_main tcg_env of
     Nothing -> return () -- not the main module
     Just main_name -> do
@@ -1100,7 +1094,7 @@ get two defns for 'main' in the interface file!
 setInteractiveContext :: HscEnv -> InteractiveContext -> TcRn a -> TcRn a
 setInteractiveContext hsc_env icxt thing_inside 
   = let -- Initialise the tcg_inst_env with instances from all home modules.  
-        -- This mimics the more selective call to hptInstances in tcRnModule.
+        -- This mimics the more selective call to hptInstances in tcRnImports
         (home_insts, home_fam_insts) = hptInstances hsc_env (\_ -> True)
         (ic_insts, ic_finsts) = ic_instances icxt
 
@@ -1152,9 +1146,11 @@ setInteractiveContext hsc_env icxt thing_inside
                                                (map getOccName visible_tmp_ids)
                                  -- Note [delete shadowed tcg_rdr_env entries]
         , tcg_type_env     = type_env
+        , tcg_insts        = ic_insts
         , tcg_inst_env     = extendInstEnvList
                               (extendInstEnvList (tcg_inst_env env) ic_insts)
                               home_insts
+        , tcg_fam_insts    = ic_finsts
         , tcg_fam_inst_env = extendFamInstEnvList
                               (extendFamInstEnvList (tcg_fam_inst_env env)
                                                     ic_finsts)
@@ -1167,35 +1163,21 @@ setInteractiveContext hsc_env icxt thing_inside
 
         tcExtendGhciEnv visible_tmp_ids $ -- Note [GHCi temporary Ids]
           thing_inside
-\end{code}
 
-
-\begin{code}
 #ifdef GHCI
-tcRnStmt :: HscEnv
-	 -> InteractiveContext
-	 -> LStmt RdrName
+-- | The returned [Id] is the list of new Ids bound by this statement. It can
+-- be used to extend the InteractiveContext via extendInteractiveContext.
+--
+-- The returned TypecheckedHsExpr is of type IO [ () ], a list of the bound
+-- values, coerced to ().
+tcRnStmt :: HscEnv -> InteractiveContext -> LStmt RdrName
 	 -> IO (Messages, Maybe ([Id], LHsExpr Id))
-		-- The returned [Id] is the list of new Ids bound by
-                -- this statement.  It can be used to extend the
-                -- InteractiveContext via extendInteractiveContext.
-		--
-		-- The returned TypecheckedHsExpr is of type IO [ () ],
-		-- a list of the bound values, coerced to ().
-
 tcRnStmt hsc_env ictxt rdr_stmt
   = initTcPrintErrors hsc_env iNTERACTIVE $ 
     setInteractiveContext hsc_env ictxt $ do {
 
-    -- Rename; use CmdLineMode because tcRnStmt is only used interactively
-    (([rn_stmt], _), fvs) <- rnStmts GhciStmt [rdr_stmt] $ \_ ->
-                             return ((), emptyFVs) ;
-    traceRn (text "tcRnStmt" <+> vcat [ppr rdr_stmt, ppr rn_stmt, ppr fvs]) ;
-    failIfErrsM ;
-    rnDump (ppr rn_stmt) ;
-    
     -- The real work is done here
-    (bound_ids, tc_expr) <- mkPlan rn_stmt ;
+    (bound_ids, tc_expr) <- tcUserStmt rdr_stmt ;
     zonked_expr <- zonkTopLExpr tc_expr ;
     zonked_ids  <- zonkTopBndrs bound_ids ;
     
@@ -1256,7 +1238,6 @@ The Ids bound by previous Stmts in GHCi are currently
      to look at them, and :info expects the things it looks up to have
      tidy types
 	
-
 --------------------------------------------------------------------------
 		Typechecking Stmts in GHCi
 
@@ -1279,41 +1260,70 @@ Here is the grand plan, implemented in tcUserStmt
 	expr (of non-IO type, 
 	  result not showable)	==>	error
 
-
 \begin{code}
----------------------------
+
+-- | A plan is an attempt to lift some code into the IO monad.
 type PlanResult = ([Id], LHsExpr Id)
 type Plan = TcM PlanResult
 
-runPlans :: [Plan] -> TcM PlanResult
--- Try the plans in order.  If one fails (by raising an exn), try the next.
+-- | Try the plans in order. If one fails (by raising an exn), try the next.
 -- If one succeeds, take it.
+runPlans :: [Plan] -> TcM PlanResult
 runPlans []     = panic "runPlans"
 runPlans [p]    = p
 runPlans (p:ps) = tryTcLIE_ (runPlans ps) p
 
---------------------
-mkPlan :: LStmt Name -> TcM PlanResult
-mkPlan (L loc (ExprStmt expr _ _ _))	-- An expression typed at the prompt 
-  = do	{ uniq <- newUnique		-- is treated very specially
+-- | Typecheck (and 'lift') a stmt entered by the user in GHCi into the
+-- GHCi 'environemnt'.
+--
+-- By 'lift' and 'environment we mean that the code is changed to execute
+-- properly in an IO monad. See Note [Interactively-bound Ids in GHCi] above
+-- for more details. We do this lifting by trying different ways ('plans') of
+-- lifting the code into the IO monad and type checking each plan until one
+-- succeeds.
+tcUserStmt :: LStmt RdrName -> TcM PlanResult
+
+-- An expression typed at the prompt is treated very specially
+tcUserStmt (L loc (ExprStmt expr _ _ _))
+  = do  { (rn_expr, fvs) <- checkNoErrs (rnLExpr expr)
+               -- Don't try to typecheck if the renamer fails!
+        ; ghciStep <- getGhciStepIO
+        ; uniq <- newUnique
         ; let fresh_it  = itName uniq loc
-	      the_bind  = L loc $ mkTopFunBind (L loc fresh_it) matches
-	      matches   = [mkMatch [] expr emptyLocalBinds]
+              matches   = [mkMatch [] rn_expr emptyLocalBinds]
+              -- [it = expr]
+              the_bind  = L loc $ (mkTopFunBind (L loc fresh_it) matches) { bind_fvs = fvs }
+                          -- Care here!  In GHCi the expression might have
+                          -- free variables, and they in turn may have free type variables
+                          -- (if we are at a breakpoint, say).  We must put those free vars
+
+              -- [let it = expr]
 	      let_stmt  = L loc $ LetStmt $ HsValBinds $
                           ValBindsOut [(NonRecursive,unitBag the_bind)] []
-              bind_stmt = L loc $ BindStmt (L loc (VarPat fresh_it)) expr
+
+              -- [it <- e]
+              bind_stmt = L loc $ BindStmt (L loc (VarPat fresh_it))
+                                           (nlHsApp ghciStep rn_expr)
 					   (HsVar bindIOName) noSyntaxExpr 
+
+              -- [; print it]
 	      print_it  = L loc $ ExprStmt (nlHsApp (nlHsVar printName) (nlHsVar fresh_it))
 			          	   (HsVar thenIOName) noSyntaxExpr placeHolderType
 
 	-- The plans are:
-	--	[it <- e; print it]	but not if it::()
-	--	[it <- e]		
-	--	[let it = e; print it]	
-	; runPlans [	-- Plan A
+        --   A. [it <- e; print it]     but not if it::()
+        --   B. [it <- e]
+        --   C. [let it = e; print it]
+        --
+        -- Ensure that type errors don't get deferred when type checking the
+        -- naked expression. Deferring type errors here is unhelpful because the
+        -- expression gets evaluated right away anyway. It also would potentially
+        -- emit two redundant type-error warnings, one from each plan.
+        ; unsetDOptM Opt_DeferTypeErrors $ runPlans [
+                    -- Plan A
 		    do { stuff@([it_id], _) <- tcGhciStmts [bind_stmt, print_it]
 		       ; it_ty <- zonkTcType (idType it_id)
-		       ; when (isUnitTy it_ty) failM
+                       ; when (isUnitTy $ it_ty) failM
 		       ; return stuff },
 
 			-- Plan B; a naked bind statment
@@ -1329,29 +1339,43 @@ mkPlan (L loc (ExprStmt expr _ _ _))	-- An expression typed at the prompt
 		       ; tcGhciStmts [let_stmt, print_it] }
 	  ]}
 
-mkPlan stmt@(L loc (BindStmt {}))
-  | [v] <- collectLStmtBinders stmt		-- One binder, for a bind stmt 
-  = do	{ let print_v  = L loc $ ExprStmt (nlHsApp (nlHsVar printName) (nlHsVar v))
-			          	  (HsVar thenIOName) noSyntaxExpr placeHolderType
+tcUserStmt rdr_stmt@(L loc _)
+  = do { (([rn_stmt], _), fvs) <- checkNoErrs $
+                                  rnStmts GhciStmt [rdr_stmt] $ \_ ->
+                                  return ((), emptyFVs) ;
+               -- Don't try to typecheck if the renamer fails!
+       ; traceRn (text "tcRnStmt" <+> vcat [ppr rdr_stmt, ppr rn_stmt, ppr fvs])
+       ; rnDump (ppr rn_stmt) ;
 
-	; print_bind_result <- doptM Opt_PrintBindResult
-	; let print_plan = do
-		  { stuff@([v_id], _) <- tcGhciStmts [stmt, print_v]
+       ; ghciStep <- getGhciStepIO
+       ; let gi_stmt
+               | (L loc (BindStmt pat expr op1 op2)) <- rn_stmt
+                           = L loc $ BindStmt pat (nlHsApp ghciStep expr) op1 op2
+               | otherwise = rn_stmt
+
+       ; opt_pr_flag <- doptM Opt_PrintBindResult
+       ; let print_result_plan
+               | opt_pr_flag                         -- The flag says "print result"   
+               , [v] <- collectLStmtBinders gi_stmt  -- One binder
+                           =  [mk_print_result_plan gi_stmt v]
+               | otherwise = []
+
+        -- The plans are:
+        --      [stmt; print v]         if one binder and not v::()
+        --      [stmt]                  otherwise
+       ; runPlans (print_result_plan ++ [tcGhciStmts [gi_stmt]]) }
+  where
+    mk_print_result_plan stmt v
+      = do { stuff@([v_id], _) <- tcGhciStmts [stmt, print_v]
 		  ; v_ty <- zonkTcType (idType v_id)
 		  ; when (isUnitTy v_ty || not (isTauTy v_ty)) failM
 		  ; return stuff }
+      where
+        print_v  = L loc $ ExprStmt (nlHsApp (nlHsVar printName) (nlHsVar v))
+                                    (HsVar thenIOName) noSyntaxExpr placeHolderType
 
-	-- The plans are:
-	--	[stmt; print v]		but not if v::()
-	--	[stmt]
-	; runPlans ((if print_bind_result then [print_plan] else []) ++
-		    [tcGhciStmts [stmt]])
-	}
-
-mkPlan stmt
-  = tcGhciStmts [stmt]
-
----------------------------
+-- | Typecheck the statements given and then return the results of the
+-- statement in the form 'IO [()]'.
 tcGhciStmts :: [LStmt Name] -> TcM PlanResult
 tcGhciStmts stmts
  = do { ioTyCon <- tcLookupTyCon ioTyConName ;
@@ -1359,14 +1383,14 @@ tcGhciStmts stmts
 	let {
 	    ret_ty    = mkListTy unitTy ;
 	    io_ret_ty = mkTyConApp ioTyCon [ret_ty] ;
-	    tc_io_stmts stmts = tcStmtsAndThen GhciStmt tcDoStmt stmts io_ret_ty ;
+            tc_io_stmts = tcStmtsAndThen GhciStmt tcDoStmt stmts io_ret_ty ;
 	    names = collectLStmtsBinders stmts ;
 	 } ;
 
 	-- OK, we're ready to typecheck the stmts
 	traceTc "TcRnDriver.tcGhciStmts: tc stmts" empty ;
 	((tc_stmts, ids), lie) <- captureConstraints $ 
-                                  tc_io_stmts stmts  $ \ _ ->
+                                  tc_io_stmts $ \ _ ->
                            	  mapM tcLookupId names  ;
 			-- Look up the names right in the middle,
 			-- where they will all be in scope
@@ -1397,8 +1421,41 @@ tcGhciStmts stmts
 	return (ids, mkHsDictLet (EvBinds const_binds) $
 		     noLoc (HsDo GhciStmt stmts io_ret_ty))
     }
-\end{code}
 
+-- | Generate a typed ghciStepIO expression (ghciStep :: Ty a -> IO a)
+getGhciStepIO :: TcM (LHsExpr Name)
+getGhciStepIO = do
+    ghciTy <- getGHCiMonad
+    fresh_a <- newUnique
+    let a_tv   = mkTcTyVarName fresh_a (fsLit "a")
+        ghciM  = nlHsAppTy (nlHsTyVar ghciTy) (nlHsTyVar a_tv)
+        ioM    = nlHsAppTy (nlHsTyVar ioTyConName) (nlHsTyVar a_tv)
+        stepTy = noLoc $ HsForAllTy Implicit
+                      ([noLoc $ UserTyVar a_tv])
+                      (noLoc [])
+                      (nlHsFunTy ghciM ioM)
+        step   = noLoc $ ExprWithTySig (nlHsVar ghciStepIoMName) stepTy
+    return step
+
+isGHCiMonad :: HscEnv -> InteractiveContext -> String -> IO (Messages, Maybe Name)
+isGHCiMonad hsc_env ictxt ty
+  = initTcPrintErrors hsc_env iNTERACTIVE $
+    setInteractiveContext hsc_env ictxt $ do
+        rdrEnv <- getGlobalRdrEnv
+        let occIO = lookupOccEnv rdrEnv (mkOccName tcName ty)
+        case occIO of
+            Just [n] -> do
+                let name = gre_name n
+                ghciClass <- tcLookupClass ghciIoClassName 
+                userTyCon <- tcLookupTyCon name
+                let userTy = TyConApp userTyCon []
+                _ <- tcLookupInstance ghciClass [userTy]
+                return name
+
+            Just _  -> failWithTc $ text "Ambigous type!"
+            Nothing -> failWithTc $ text ("Can't find type:" ++ ty)
+
+\end{code}
 
 tcRnExpr just finds the type of an expression
 
@@ -1453,7 +1510,7 @@ tcRnType hsc_env ictxt normalise rdr_type
   = initTcPrintErrors hsc_env iNTERACTIVE $ 
     setInteractiveContext hsc_env ictxt $ do {
 
-    rn_type <- rnLHsType GHCiCtx rdr_type ;
+    (rn_type, _fvs) <- rnLHsType GHCiCtx rdr_type ;
     failIfErrsM ;
 
 	-- Now kind-check the type
@@ -1594,7 +1651,7 @@ tcRnLookupName' name = do
 
 tcRnGetInfo :: HscEnv
             -> Name
-            -> IO (Messages, Maybe (TyThing, Fixity, [Instance]))
+            -> IO (Messages, Maybe (TyThing, Fixity, [ClsInst]))
 
 -- Used to implement :info in GHCi
 --
@@ -1609,7 +1666,7 @@ tcRnGetInfo hsc_env name
 
 tcRnGetInfo' :: HscEnv
              -> Name
-             -> TcRn (TyThing, Fixity, [Instance])
+             -> TcRn (TyThing, Fixity, [ClsInst])
 tcRnGetInfo' hsc_env name
   = let ictxt = hsc_IC hsc_env in
     setInteractiveContext hsc_env ictxt $ do
@@ -1625,7 +1682,7 @@ tcRnGetInfo' hsc_env name
     ispecs <- lookupInsts thing
     return (thing, fixity, ispecs)
 
-lookupInsts :: TyThing -> TcM [Instance]
+lookupInsts :: TyThing -> TcM [ClsInst]
 lookupInsts (ATyCon tc)
   | Just cls <- tyConClass_maybe tc
   = do  { inst_envs <- tcGetInstEnvs
@@ -1679,7 +1736,7 @@ rnDump doc = do { dumpOptTcRn Opt_D_dump_rn (mkDumpDoc "Renamer" doc) }
 
 tcDump :: TcGblEnv -> TcRn ()
 tcDump env
- = do { dflags <- getDOpts ;
+ = do { dflags <- getDynFlags ;
 
 	-- Dump short output if -ddump-types or -ddump-tc
 	when (dopt Opt_D_dump_types dflags || dopt Opt_D_dump_tc dflags)
@@ -1696,7 +1753,7 @@ tcDump env
 
 tcCoreDump :: ModGuts -> TcM ()
 tcCoreDump mod_guts
- = do { dflags <- getDOpts ;
+ = do { dflags <- getDynFlags ;
 	when (dopt Opt_D_dump_types dflags || dopt Opt_D_dump_tc dflags)
  	     (dumpTcRn (pprModGuts mod_guts)) ;
 
@@ -1736,9 +1793,9 @@ pprModGuts (ModGuts { mg_tcs = tcs
   = vcat [ ppr_types [] (mkTypeEnv (map ATyCon tcs)),
 	   ppr_rules rules ]
 
-ppr_types :: [Instance] -> TypeEnv -> SDoc
+ppr_types :: [ClsInst] -> TypeEnv -> SDoc
 ppr_types insts type_env
-  = text "TYPE SIGNATURES" $$ nest 4 (ppr_sigs ids)
+  = text "TYPE SIGNATURES" $$ nest 2 (ppr_sigs ids)
   where
     dfun_ids = map instanceDFunId insts
     ids = [id | id <- typeEnvIds type_env, want_sig id]
@@ -1758,14 +1815,14 @@ ppr_tycons fam_insts type_env
          , text "COERCION AXIOMS" 
          ,   nest 2 (vcat (map pprCoAxiom (typeEnvCoAxioms type_env))) ]
   where
-    fi_tycons = map famInstTyCon fam_insts
+    fi_tycons = famInstsRepTyCons fam_insts
     tycons = [tycon | tycon <- typeEnvTyCons type_env, want_tycon tycon]
     want_tycon tycon | opt_PprStyle_Debug = True
 	             | otherwise	  = not (isImplicitTyCon tycon) &&
 					    isExternalName (tyConName tycon) &&
 				            not (tycon `elem` fi_tycons)
 
-ppr_insts :: [Instance] -> SDoc
+ppr_insts :: [ClsInst] -> SDoc
 ppr_insts []     = empty
 ppr_insts ispecs = text "INSTANCES" $$ nest 2 (pprInstances ispecs)
 
@@ -1780,7 +1837,7 @@ ppr_sigs ids
   = vcat (map ppr_sig (sortLe le_sig ids))
   where
     le_sig id1 id2 = getOccName id1 <= getOccName id2
-    ppr_sig id = ppr id <+> dcolon <+> ppr (tidyTopType (idType id))
+    ppr_sig id = hang (ppr id <+> dcolon) 2 (ppr (tidyTopType (idType id)))
 
 ppr_tydecls :: [TyCon] -> SDoc
 ppr_tydecls tycons

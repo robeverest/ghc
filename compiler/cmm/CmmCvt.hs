@@ -37,7 +37,7 @@ get_conv (PrimTarget _)       = NativeNodeCall -- JD: SUSPICIOUS
 get_conv (ForeignTarget _ fc) = Foreign fc
 
 cmm_target :: ForeignTarget -> Old.CmmCallTarget
-cmm_target (PrimTarget op) = Old.CmmPrim op
+cmm_target (PrimTarget op) = Old.CmmPrim op Nothing
 cmm_target (ForeignTarget e (ForeignConvention cc _ _)) = Old.CmmCallee e cc
 
 ofZgraph :: CmmGraph -> Old.ListGraph Old.CmmStmt
@@ -105,8 +105,10 @@ ofZgraph g = Old.ListGraph $ mapMaybe convert_block $ postorderDfs g
                               , Just expr' <- maybeInvertCmmExpr expr -> Old.CmmCondBranch expr' fid : tail_of tid
                               | otherwise -> [Old.CmmCondBranch expr tid, Old.CmmBranch fid]
                             CmmSwitch arg ids -> [Old.CmmSwitch arg ids]
-                            CmmCall e _ _ _ _ -> [Old.CmmJump e []]
+                            -- ToDo: STG Live
+                            CmmCall e _ _ _ _ -> [Old.CmmJump e Nothing]
                             CmmForeignCall {} -> panic "ofZgraph: CmmForeignCall"
                           tail_of bid = case foldBlockNodesB3 (first, middle, last) block () of
                                           Old.BasicBlock _ stmts -> stmts
                             where Just block = mapLookup bid $ toBlockMap g
+

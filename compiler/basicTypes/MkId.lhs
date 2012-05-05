@@ -26,6 +26,7 @@ module MkId (
 
         mkReboxingAlt, wrapNewTypeBody, unwrapNewTypeBody,
         wrapFamInstBody, unwrapFamInstScrut,
+        wrapTypeFamInstBody, unwrapTypeFamInstScrut,
         mkUnpackCase, mkProductBox,
 
         -- And some particular Ids; see below for why they are wired in
@@ -227,7 +228,7 @@ mkDataConIds wrap_name wkr_name data_con
   = DCIds Nothing nt_work_id                 
 
   | any isBanged all_strict_marks      -- Algebraic, needs wrapper
-    || not (null eq_spec)              -- NB: LoadIface.ifaceDeclSubBndrs
+    || not (null eq_spec)              -- NB: LoadIface.ifaceDeclImplicitBndrs
     || isFamInstTyCon tycon            --     depends on this test
   = DCIds (Just alg_wrap_id) wrk_id
 
@@ -709,12 +710,22 @@ wrapFamInstBody tycon args body
   | otherwise
   = body
 
+-- Same as `wrapFamInstBody`, but for type family instances, which are
+-- represented by a `CoAxiom`, and not a `TyCon`
+wrapTypeFamInstBody :: CoAxiom -> [Type] -> CoreExpr -> CoreExpr
+wrapTypeFamInstBody axiom args body
+  = mkCast body (mkSymCo (mkAxInstCo axiom args))
+
 unwrapFamInstScrut :: TyCon -> [Type] -> CoreExpr -> CoreExpr
 unwrapFamInstScrut tycon args scrut
   | Just co_con <- tyConFamilyCoercion_maybe tycon
   = mkCast scrut (mkAxInstCo co_con args)
   | otherwise
   = scrut
+
+unwrapTypeFamInstScrut :: CoAxiom -> [Type] -> CoreExpr -> CoreExpr
+unwrapTypeFamInstScrut axiom args scrut
+  = mkCast scrut (mkAxInstCo axiom args)
 \end{code}
 
 
@@ -870,11 +881,11 @@ unsafeCoerceId
                        `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
            
 
-    ty  = mkForAllTys [argAlphaTyVar,openBetaTyVar]
-                      (mkFunTy argAlphaTy openBetaTy)
-    [x] = mkTemplateLocals [argAlphaTy]
-    rhs = mkLams [argAlphaTyVar,openBetaTyVar,x] $
-          Cast (Var x) (mkUnsafeCo argAlphaTy openBetaTy)
+    ty  = mkForAllTys [openAlphaTyVar,openBetaTyVar]
+                      (mkFunTy openAlphaTy openBetaTy)
+    [x] = mkTemplateLocals [openAlphaTy]
+    rhs = mkLams [openAlphaTyVar,openBetaTyVar,x] $
+          Cast (Var x) (mkUnsafeCo openAlphaTy openBetaTy)
 
 ------------------------------------------------
 nullAddrId :: Id
@@ -895,10 +906,12 @@ seqId = pcMiscPrelId seqName ty info
                        `setSpecInfo`       mkSpecInfo [seq_cast_rule]
            
 
-    ty  = mkForAllTys [alphaTyVar,argBetaTyVar]
-                      (mkFunTy alphaTy (mkFunTy argBetaTy argBetaTy))
-    [x,y] = mkTemplateLocals [alphaTy, argBetaTy]
-    rhs = mkLams [alphaTyVar,argBetaTyVar,x,y] (Case (Var x) x argBetaTy [(DEFAULT, [], Var y)])
+    ty  = mkForAllTys [alphaTyVar,betaTyVar]
+                      (mkFunTy alphaTy (mkFunTy betaTy betaTy))
+              -- NB argBetaTyVar; see Note [seqId magic]
+
+    [x,y] = mkTemplateLocals [alphaTy, betaTy]
+    rhs = mkLams [alphaTyVar,betaTyVar,x,y] (Case (Var x) x betaTy [(DEFAULT, [], Var y)])
 
     -- See Note [Built-in RULES for seq]
     seq_cast_rule = BuiltinRule { ru_name  = fsLit "seq of cast"
@@ -922,12 +935,29 @@ lazyId = pcMiscPrelId lazyIdName ty info
     ty  = mkForAllTys [alphaTyVar] (mkFunTy alphaTy alphaTy)
 \end{code}
 
+Note [Unsafe coerce magic]
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+We define a *primitive*
+   GHC.Prim.unsafeCoerce#
+and then in the base library we define the ordinary function
+   Unsafe.Coerce.unsafeCoerce :: forall (a:*) (b:*). a -> b
+   unsafeCoerce x = unsafeCoerce# x
+
+Notice that unsafeCoerce has a civilized (albeit still dangerous)
+polymorphic type, whose type args have kind *.  So you can't use it on
+unboxed values (unsafeCoerce 3#).
+
+In contrast unsafeCoerce# is even more dangerous because you *can* use
+it on unboxed things, (unsafeCoerce# 3#) :: Int. Its type is
+   forall (a:OpenKind) (b:OpenKind). a -> b
+
 Note [seqId magic]
 ~~~~~~~~~~~~~~~~~~
 'GHC.Prim.seq' is special in several ways. 
 
 a) Its second arg can have an unboxed type
       x `seq` (v +# w)
+   Hence its second type variable has ArgKind
 
 b) Its fixity is set in LoadIface.ghcPrimIface
 

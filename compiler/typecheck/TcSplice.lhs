@@ -7,7 +7,7 @@ TcSplice: Template Haskell splices
 
 
 \begin{code}
-module TcSplice( kcSpliceType, tcSpliceExpr, tcSpliceDecls, tcBracket,
+module TcSplice( tcSpliceType, tcSpliceExpr, tcSpliceDecls, tcBracket,
                  lookupThName_maybe,
                  runQuasiQuoteExpr, runQuasiQuotePat,
                  runQuasiQuoteDecl, runQuasiQuoteType,
@@ -72,6 +72,7 @@ import Pair
 import Unique
 import Data.Maybe
 import BasicTypes
+import DynFlags
 import Panic
 import FastString
 import Control.Monad    ( when )
@@ -285,7 +286,7 @@ The predicate we use is TcEnv.thTopLevelId.
 tcBracket     :: HsBracket Name -> TcRhoType -> TcM (LHsExpr TcId)
 tcSpliceDecls :: LHsExpr Name -> TcM [LHsDecl RdrName]
 tcSpliceExpr  :: HsSplice Name -> TcRhoType -> TcM (HsExpr TcId)
-kcSpliceType  :: HsSplice Name -> FreeVars -> TcM (HsType Name, TcKind)
+tcSpliceType  :: HsSplice Name -> FreeVars -> TcM (TcType, TcKind)
         -- None of these functions add constraints to the LIE
 
 lookupThName_maybe :: TH.Name -> TcM (Maybe Name)
@@ -301,7 +302,7 @@ runAnnotation     :: CoreAnnTarget -> LHsExpr Name -> TcM Annotation
 tcBracket     x _ = pprPanic "Cant do tcBracket without GHCi"     (ppr x)
 tcSpliceExpr  e   = pprPanic "Cant do tcSpliceExpr without GHCi"  (ppr e)
 tcSpliceDecls x   = pprPanic "Cant do tcSpliceDecls without GHCi" (ppr x)
-kcSpliceType  x fvs = pprPanic "Cant do kcSpliceType without GHCi"  (ppr x)
+tcSpliceType  x fvs = pprPanic "Cant do kcSpliceType without GHCi"  (ppr x)
 
 lookupThName_maybe n = pprPanic "Cant do lookupThName_maybe without GHCi" (ppr n)
 
@@ -389,7 +390,9 @@ tc_bracket _ (ExpBr expr)
         -- Result type is ExpQ (= Q Exp)
 
 tc_bracket _ (TypBr typ)
-  = do  { _ <- tcHsSigTypeNC ThBrackCtxt typ
+  = do  { _ <- tcLHsType typ    -- Do not check type validity; we can have a bracket
+                                -- inside a "knot" where things are not yet settled
+                                --    eg   data T a = MkT $(foo  [t| a |])
         ; tcMetaTy typeQTyConName }
         -- Result type is Type (= Q Typ)
 
@@ -516,12 +519,12 @@ tcTopSpliceExpr tc_action
 Very like splicing an expression, but we don't yet share code.
 
 \begin{code}
-kcSpliceType splice@(HsSplice name hs_expr) fvs
+tcSpliceType (HsSplice name hs_expr) _
   = setSrcSpan (getLoc hs_expr) $ do
     { stage <- getStage
     ; case stage of {
-        Splice -> kcTopSpliceType hs_expr ;
-        Comp   -> kcTopSpliceType hs_expr ;
+        Splice -> tcTopSpliceType hs_expr ;
+        Comp   -> tcTopSpliceType hs_expr ;
 
         Brack pop_level ps_var lie_var -> do
            -- See Note [How brackets and nested splices are handled]
@@ -540,12 +543,13 @@ kcSpliceType splice@(HsSplice name hs_expr) fvs
     -- but $(h 4) :: a  i.e. any type, of any kind
 
     ; kind <- newMetaKindVar
-    ; return (HsSpliceTy splice fvs kind, kind) 
+    ; ty <- newFlexiTyVarTy kind
+    ; return (ty, kind)
     }}}
 
-kcTopSpliceType :: LHsExpr Name -> TcM (HsType Name, TcKind)
+tcTopSpliceType :: LHsExpr Name -> TcM (TcType, TcKind)
 -- Note [How top-level splices are handled]
-kcTopSpliceType expr
+tcTopSpliceType expr
   = do  { meta_ty <- tcMetaTy typeQTyConName
 
         -- Typecheck the expression
@@ -559,9 +563,8 @@ kcTopSpliceType expr
         -- otherwise the type checker just gives more spurious errors
         ; addErrCtxt (spliceResultDoc expr) $ do 
         { let doc = SpliceTypeCtx hs_ty2
-        ; hs_ty3 <- checkNoErrs (rnLHsType doc hs_ty2)
-        ; (ty4, kind) <- kcLHsType hs_ty3
-        ; return (unLoc ty4, kind) }}
+        ; (hs_ty3, _fvs) <- checkNoErrs (rnLHsType doc hs_ty2)
+        ; tcLHsType hs_ty3 }}
 \end{code}
 
 %************************************************************************
@@ -748,7 +751,7 @@ deprecatedDollar quoter
 data MetaOps th_syn hs_syn
   = MT { mt_desc :: String             -- Type of beast (expression, type etc)
        , mt_show :: th_syn -> String   -- How to show the th_syn thing
-       , mt_cvt  :: SrcSpan -> th_syn -> Either Message hs_syn
+       , mt_cvt  :: SrcSpan -> th_syn -> Either MsgDoc hs_syn
                                        -- How to convert to hs_syn
     }
 
@@ -801,7 +804,7 @@ runMetaD = runMetaQ declMetaOps
 ---------------
 runMeta :: (Outputable hs_syn)
         => Bool                 -- Whether code should be printed in the exception message
-        -> (SrcSpan -> x -> TcM (Either Message hs_syn))        -- How to run x
+        -> (SrcSpan -> x -> TcM (Either MsgDoc hs_syn))        -- How to run x
         -> LHsExpr Id           -- Of type x; typically x = Q TH.Exp, or something like that
         -> TcM hs_syn           -- Of type t
 runMeta show_code run_and_convert expr
@@ -922,7 +925,7 @@ instance TH.Quasi (IOEnv (Env TcGblEnv TcLclEnv)) where
                   ; return (TH.mkNameU s i) }
 
   qReport True msg  = addErr (text msg)
-  qReport False msg = addReport (text msg) empty
+  qReport False msg = addWarn (text msg)
 
   qLocation = do { m <- getModule
                  ; l <- getSrcSpanM
@@ -1023,9 +1026,9 @@ reifyInstances th_nm th_tys
                              <+> int tc_arity <> rparen))
            ; loc <- getSrcSpanM
            ; rdr_tys <- mapM (cvt loc) th_tys    -- Convert to HsType RdrName
-           ; rn_tys  <- rnLHsTypes doc rdr_tys   -- Rename  to HsType Name
-           ; (tys, _res_k) <- kcApps tc (tyConKind tc) rn_tys
-           ; mapM dsHsType tys }
+           ; (rn_tys, _fvs)  <- rnLHsTypes doc rdr_tys   -- Rename  to HsType Name
+           ; (tys, _res_k) <- tcInferApps tc (tyConKind tc) rn_tys
+           ; return tys }
 
     cvt :: SrcSpan -> TH.Type -> TcM (LHsType RdrName)
     cvt loc th_ty = case convertToHsType loc th_ty of
@@ -1125,7 +1128,7 @@ tcLookupTh name
 
           else do               -- It's imported
         { (eps,hpt) <- getEpsAndHpt
-        ; dflags <- getDOpts
+        ; dflags <- getDynFlags
         ; case lookupType dflags hpt (eps_PTE eps) name of
             Just thing -> return (AGlobal thing)
             Nothing    -> do { thing <- tcImportDecl name
@@ -1175,8 +1178,8 @@ reifyThing (ATcId {tct_id = id})
         ; fix <- reifyFixity (idName id)
         ; return (TH.VarI (reifyName id) ty2 Nothing fix) }
 
-reifyThing (ATyVar tv ty)
-  = do  { ty1 <- zonkTcType ty
+reifyThing (ATyVar tv tv1)
+  = do { ty1 <- zonkTcTyVar tv1
         ; ty2 <- reifyType ty1
         ; return (TH.TyVarI (reifyName tv) ty2) }
 
@@ -1287,7 +1290,7 @@ reifyClass cls
                           ; return (TH.SigD (reifyName op) ty) }
 
 ------------------------------
-reifyClassInstance :: Instance -> TcM TH.Dec
+reifyClassInstance :: ClsInst -> TcM TH.Dec
 reifyClassInstance i
   = do { cxt <- reifyCxt theta
        ; thtypes <- reifyTypes types
@@ -1299,13 +1302,14 @@ reifyClassInstance i
 ------------------------------
 reifyFamilyInstance :: FamInst -> TcM TH.Dec
 reifyFamilyInstance fi
-  | isSynTyCon rep_tc
-  = do { th_tys <- reifyTypes (fi_tys fi)
-       ; rhs_ty <- reifyType (synTyConType rep_tc)
+  = case fi_flavor fi of
+      SynFamilyInst ->
+        do { th_tys <- reifyTypes (fi_tys fi)
+           ; rhs_ty <- reifyType (coAxiomRHS rep_ax)
        ; return (TH.TySynInstD fam th_tys rhs_ty) }
 
-  | otherwise
-  = do { let tvs = tyConTyVars rep_tc
+      DataFamilyInst rep_tc ->
+        do { let tvs = tyConTyVars rep_tc
              fam = reifyName (fi_fam fi)
        ; cons <- mapM (reifyDataCon (mkTyVarTys tvs)) (tyConDataCons rep_tc)
        ; th_tys <- reifyTypes (fi_tys fi)
@@ -1313,13 +1317,14 @@ reifyFamilyInstance fi
                  then TH.NewtypeInstD [] fam th_tys (head cons) []
                  else TH.DataInstD    [] fam th_tys cons        []) }
   where
-    rep_tc = fi_tycon fi
+    rep_ax = fi_axiom fi
     fam = reifyName (fi_fam fi)
 
 ------------------------------
 reifyType :: TypeRep.Type -> TcM TH.Type
 -- Monadic only because of failure
 reifyType ty@(ForAllTy _ _)        = reify_for_all ty
+reifyType (LitTy t)         = do { r <- reifyTyLit t; return (TH.LitT r) }
 reifyType (TyVarTy tv)      = return (TH.VarT (reifyName tv))
 reifyType (TyConApp tc tys) = reify_tc_app tc tys   -- Do not expand type synonyms here
 reifyType (AppTy t1 t2)     = do { [r1,r2] <- reifyTypes [t1,t2] ; return (r1 `TH.AppT` r2) }
@@ -1335,6 +1340,10 @@ reify_for_all ty
        ; return (TH.ForallT tvs' cxt' tau') }
   where
     (tvs, cxt, tau) = tcSplitSigmaTy ty
+
+reifyTyLit :: TypeRep.TyLit -> TcM TH.TyLit
+reifyTyLit (NumTyLit n) = return (TH.NumTyLit n)
+reifyTyLit (StrTyLit s) = return (TH.StrTyLit (unpackFS s))
 
 reifyTypes :: [Type] -> TcM [TH.Type]
 reifyTypes = mapM reifyType

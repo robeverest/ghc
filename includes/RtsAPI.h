@@ -242,15 +242,15 @@ extern "C" {
      These are used by foreign export and foreign import "wrapper" stubs.
      ----------------------------------------------------------------------- */
 
-  // When producing Windows DLLs the we need to know which symbols are in the
-  //	local package/DLL vs external ones.
-  //
-  //	Note that RtsAPI.h is also included by foreign export stubs in
-  //	the base package itself.
-  //
-#if defined(mingw32_HOST_OS) && defined(__PIC__) && !defined(COMPILING_BASE_PACKAGE)
-  __declspec(dllimport) extern StgWord base_GHCziTopHandler_runIO_closure[];
-  __declspec(dllimport) extern StgWord base_GHCziTopHandler_runNonIO_closure[];
+// When producing Windows DLLs the we need to know which symbols are in the
+//	local package/DLL vs external ones.
+//
+//	Note that RtsAPI.h is also included by foreign export stubs in
+//	the base package itself.
+//
+#if defined(mingw32_HOST_OS) && defined(i386_HOST_ARCH) && defined(__PIC__) && !defined(COMPILING_BASE_PACKAGE)
+__declspec(dllimport) extern StgWord base_GHCziTopHandler_runIO_closure[];
+__declspec(dllimport) extern StgWord base_GHCziTopHandler_runNonIO_closure[];
 #else
   extern StgWord base_GHCziTopHandler_runIO_closure[];
   extern StgWord base_GHCziTopHandler_runNonIO_closure[];

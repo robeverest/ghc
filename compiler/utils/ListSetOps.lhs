@@ -5,12 +5,6 @@
 \section[ListSetOps]{Set-like operations on lists}
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
 
 module ListSetOps (
         unionLists, minusList, insertList,
@@ -24,9 +18,9 @@ module ListSetOps (
         hasNoDups, runs, removeDups, findDupsEq,
         equivClasses, equivClassesByUniq,
 
-	-- Remove redudant elts
-	removeRedundant	   -- Used in the ghc/InteractiveUI, 
-			   -- although not in the compiler itself
+        -- Remove redudant elts
+        removeRedundant    -- Used in the ghc/InteractiveUI, 
+                           -- although not in the compiler itself
    ) where
 
 #include "HsVersions.h"
@@ -220,7 +214,7 @@ findDupsEq eq (x:xs) | null eq_xs  = findDupsEq eq xs
     where (eq_xs, neq_xs) = partition (eq x) xs
 
 removeRedundant :: (a -> a -> Bool)   -- True <=> discard the *second* argument
-		-> [a] -> [a]
+                -> [a] -> [a]
 -- Remove any element y for which 
 --     another element x is in the list
 -- and (x `subsumes` y)

@@ -137,10 +137,7 @@ compile' (nothingCompiler, interactiveCompiler, batchCompiler)
   -- We add the directory in which the .hs files resides) to the import path.
   -- This is needed when we try to compile the .hc file later, if it
   -- imports a _stub.h file that we created here.
-   let current_dir = case takeDirectory basename of
-                     "" -> "." -- XXX Hack required for filepath-1.1 and earlier
-                               -- (GHC 6.12 and earlier)
-                     d -> d
+   let current_dir = takeDirectory basename
        old_paths   = includePaths dflags0
        dflags      = dflags0 { includePaths = current_dir : old_paths }
        hsc_env     = hsc_env0 {hsc_dflags = dflags}
@@ -193,7 +190,7 @@ compile' (nothingCompiler, interactiveCompiler, batchCompiler)
                                               (Just location)
                                               maybe_stub_o
                                   -- The object filename comes from the ModLocation
-                            o_time <- getModificationTime object_filename
+                            o_time <- getModificationUTCTime object_filename
                             return ([DotO object_filename], o_time)
                     
                     let linkable = LM unlinked_time this_mod hs_unlinked
@@ -356,13 +353,13 @@ linkingNeeded dflags linkables pkg_deps = do
         -- modification times on all of the objects and libraries, then omit
         -- linking (unless the -fforce-recomp flag was given).
   let exe_file = exeFileName dflags
-  e_exe_time <- tryIO $ getModificationTime exe_file
+  e_exe_time <- tryIO $ getModificationUTCTime exe_file
   case e_exe_time of
     Left _  -> return True
     Right t -> do
         -- first check object files and extra_ld_inputs
         extra_ld_inputs <- readIORef v_Ld_inputs
-        e_extra_times <- mapM (tryIO . getModificationTime) extra_ld_inputs
+        e_extra_times <- mapM (tryIO . getModificationUTCTime) extra_ld_inputs
         let (errs,extra_times) = splitEithers e_extra_times
         let obj_times =  map linkableTime linkables ++ extra_times
         if not (null errs) || any (t <) obj_times
@@ -378,7 +375,7 @@ linkingNeeded dflags linkables pkg_deps = do
 
         pkg_libfiles <- mapM (uncurry findHSLib) pkg_hslibs
         if any isNothing pkg_libfiles then return True else do
-        e_lib_times <- mapM (tryIO . getModificationTime)
+        e_lib_times <- mapM (tryIO . getModificationUTCTime)
                           (catMaybes pkg_libfiles)
         let (lib_errs,lib_times) = splitEithers e_lib_times
         if not (null lib_errs) || any (t <) lib_times
@@ -598,8 +595,8 @@ getPipeEnv = P $ \env state -> return (state, env)
 getPipeState :: CompPipeline PipeState
 getPipeState = P $ \_env state -> return (state, state)
 
-getDynFlags :: CompPipeline DynFlags
-getDynFlags = P $ \_env state -> return (state, hsc_dflags (hsc_env state))
+instance HasDynFlags CompPipeline where
+    getDynFlags = P $ \_env state -> return (state, hsc_dflags (hsc_env state))
 
 setDynFlags :: DynFlags -> CompPipeline ()
 setDynFlags dflags = P $ \_env state ->
@@ -849,11 +846,7 @@ runPhase (Hsc src_flavour) input_fn dflags0
   -- we add the current directory (i.e. the directory in which
   -- the .hs files resides) to the include path, since this is
   -- what gcc does, and it's probably what you want.
-        let current_dir = case takeDirectory basename of
-                     "" -> "." -- XXX Hack required for filepath-1.1 and earlier
-                               -- (GHC 6.12 and earlier)
-                     d -> d
-
+        let current_dir = takeDirectory basename
             paths = includePaths dflags0
             dflags = dflags0 { includePaths = current_dir : paths }
 
@@ -913,7 +906,7 @@ runPhase (Hsc src_flavour) input_fn dflags0
   -- changed (which the compiler itself figures out).
   -- Setting source_unchanged to False tells the compiler that M.o is out of
   -- date wrt M.hs (or M.o doesn't exist) so we must recompile regardless.
-        src_timestamp <- io $ getModificationTime (basename <.> suff)
+        src_timestamp <- io $ getModificationUTCTime (basename <.> suff)
 
         let hsc_lang = hscTarget dflags
         source_unchanged <- io $
@@ -926,7 +919,7 @@ runPhase (Hsc src_flavour) input_fn dflags0
              else do o_file_exists <- doesFileExist o_file
                      if not o_file_exists
                         then return SourceModified       -- Need to recompile
-                        else do t2 <- getModificationTime o_file
+                        else do t2 <- getModificationUTCTime o_file
                                 if t2 > src_timestamp
                                   then return SourceUnmodified
                                   else return SourceModified
@@ -1316,15 +1309,21 @@ runPhase SplitAs _input_fn dflags
 
 runPhase LlvmOpt input_fn dflags
   = do
+    ver <- io $ readIORef (llvmVersion dflags)
+
     let lo_opts = getOpts dflags opt_lo
-    let opt_lvl = max 0 (min 2 $ optLevel dflags)
-    -- don't specify anything if user has specified commands. We do this for
-    -- opt but not llc since opt is very specifically for optimisation passes
-    -- only, so if the user is passing us extra options we assume they know
-    -- what they are doing and don't get in the way.
-    let optFlag = if null lo_opts
+        opt_lvl  = max 0 (min 2 $ optLevel dflags)
+        -- don't specify anything if user has specified commands. We do this
+        -- for opt but not llc since opt is very specifically for optimisation
+        -- passes only, so if the user is passing us extra options we assume
+        -- they know what they are doing and don't get in the way.
+        optFlag  = if null lo_opts
                      then [SysTools.Option (llvmOpts !! opt_lvl)]
                      else []
+        tbaa | ver < 29                 = "" -- no tbaa in 2.8 and earlier
+             | dopt Opt_LlvmTBAA dflags = "--enable-tbaa=true"
+             | otherwise                = "--enable-tbaa=false"
+
 
     output_fn <- phaseOutputFilename LlvmLlc
 
@@ -1333,6 +1332,7 @@ runPhase LlvmOpt input_fn dflags
                     SysTools.Option "-o",
                     SysTools.FileOption "" output_fn]
                 ++ optFlag
+                ++ [SysTools.Option tbaa]
                 ++ map SysTools.Option lo_opts)
 
     return (LlvmLlc, output_fn)
@@ -1346,11 +1346,16 @@ runPhase LlvmOpt input_fn dflags
 
 runPhase LlvmLlc input_fn dflags
   = do
+    ver <- io $ readIORef (llvmVersion dflags)
+
     let lc_opts = getOpts dflags opt_lc
         opt_lvl = max 0 (min 2 $ optLevel dflags)
         rmodel | opt_PIC        = "pic"
                | not opt_Static = "dynamic-no-pic"
                | otherwise      = "static"
+        tbaa | ver < 29                 = "" -- no tbaa in 2.8 and earlier
+             | dopt Opt_LlvmTBAA dflags = "--enable-tbaa=true"
+             | otherwise                = "--enable-tbaa=false"
 
     -- hidden debugging flag '-dno-llvm-mangler' to skip mangling
     let next_phase = case dopt Opt_NoLlvmMangler dflags of
@@ -1366,7 +1371,9 @@ runPhase LlvmLlc input_fn dflags
                     SysTools.FileOption "" input_fn,
                     SysTools.Option "-o", SysTools.FileOption "" output_fn]
                 ++ map SysTools.Option lc_opts
-                ++ map SysTools.Option fpOpts)
+                ++ [SysTools.Option tbaa]
+                ++ map SysTools.Option fpOpts
+                ++ map SysTools.Option abiOpts)
 
     return (next_phase, output_fn)
   where
@@ -1378,12 +1385,19 @@ runPhase LlvmLlc input_fn dflags
         -- while compiling GHC source code. It's probably due to fact that it
         -- does not enable VFP by default. Let's do this manually here
         fpOpts = case platformArch (targetPlatform dflags) of 
-                   ArchARM ARMv7 ext -> if (elem VFPv3 ext)
+                   ArchARM ARMv7 ext _ -> if (elem VFPv3 ext)
                                       then ["-mattr=+v7,+vfp3"]
                                       else if (elem VFPv3D16 ext)
                                            then ["-mattr=+v7,+vfp3,+d16"]
                                            else []
                    _               -> []
+        -- On Ubuntu/Debian with ARM hard float ABI, LLVM's llc still
+        -- compiles into soft-float ABI. We need to explicitly set abi
+        -- to hard
+        abiOpts = case platformArch (targetPlatform dflags) of
+                    ArchARM ARMv7 _ HARD -> ["-float-abi=hard"]
+                    ArchARM ARMv7 _ _    -> []
+                    _                    -> []
 
 -----------------------------------------------------------------------------
 -- LlvmMangle phase
@@ -1450,9 +1464,9 @@ runPhase_MoveBinary dflags input_fn
         return True
     | otherwise = return True
 
-mkExtraCObj :: DynFlags -> String -> IO FilePath
-mkExtraCObj dflags xs
- = do cFile <- newTempName dflags "c"
+mkExtraObj :: DynFlags -> Suffix -> String -> IO FilePath
+mkExtraObj dflags extn xs
+ = do cFile <- newTempName dflags extn
       oFile <- newTempName dflags "o"
       writeFile cFile xs
       let rtsDetails = getPackageDetails (pkgState dflags) rtsPackageId
@@ -1471,10 +1485,8 @@ mkExtraCObj dflags xs
 -- so now we generate and compile a main() stub as part of every
 -- binary and pass the -rtsopts setting directly to the RTS (#5373)
 --
-mkExtraObjToLinkIntoBinary :: DynFlags -> [PackageId] -> IO FilePath
-mkExtraObjToLinkIntoBinary dflags dep_packages = do
-   link_info <- getLinkInfo dflags dep_packages
-
+mkExtraObjToLinkIntoBinary :: DynFlags -> IO FilePath
+mkExtraObjToLinkIntoBinary dflags = do
    let have_rts_opts_flags =
          isJust (rtsOpts dflags) || case rtsOptsEnabled dflags of
                                         RtsOptsSafeOnly -> False
@@ -1484,10 +1496,7 @@ mkExtraObjToLinkIntoBinary dflags dep_packages = do
       hPutStrLn stderr $ "Warning: -rtsopts and -with-rtsopts have no effect with -no-hs-main.\n" ++
                          "    Call hs_init_ghc() from your main() function to set these options."
 
-   mkExtraCObj dflags (showSDoc (vcat [main,
-                                       link_opts link_info]
-                                   <> char '\n')) -- final newline, to
-                                                  -- keep gcc happy
+   mkExtraObj dflags "c" (showSDoc main)
 
   where
     main
@@ -1505,30 +1514,39 @@ mkExtraObjToLinkIntoBinary dflags dep_packages = do
                 Just opts -> ptext (sLit "    __conf.rts_opts= ") <>
                                text (show opts) <> semi,
              ptext (sLit "    return hs_main(argc, argv, &ZCMain_main_closure,__conf);"),
-             char '}'
+             char '}',
+             char '\n' -- final newline, to keep gcc happy
            ]
 
-    link_opts info
-     | not (platformSupportsSavingLinkOpts (platformOS (targetPlatform dflags)))
-     = empty
-     | otherwise = hcat [
-          text "__asm__(\"\\t.section ", text ghcLinkInfoSectionName,
-                                    text ",\\\"\\\",",
-                                    text elfSectionNote,
-                                    text "\\n",
+-- Write out the link info section into a new assembly file. Previously
+-- this was included as inline assembly in the main.c file but this
+-- is pretty fragile. gas gets upset trying to calculate relative offsets
+-- that span the .note section (notably .text) when debug info is present
+mkNoteObjsToLinkIntoBinary :: DynFlags -> [PackageId] -> IO [FilePath]
+mkNoteObjsToLinkIntoBinary dflags dep_packages = do
+   link_info <- getLinkInfo dflags dep_packages
 
-                    text "\\t.ascii \\\"", info', text "\\\"\\n\");" ]
+   if (platformSupportsSavingLinkOpts (platformOS (targetPlatform dflags)))
+     then fmap (:[]) $ mkExtraObj dflags "s" (showSDoc (link_opts link_info))
+     else return []
+
+  where
+    link_opts info = hcat [
+          text "\t.section ", text ghcLinkInfoSectionName,
+                                   text ",\"\",",
+                                    text elfSectionNote,
+                                   text "\n",
+
+          text "\t.ascii \"", info', text "\"\n" ]
           where
-            -- we need to escape twice: once because we're inside a C string,
-            -- and again because we're inside an asm string.
-            info' = text $ (escape.escape) info
+            info' = text $ escape info
 
             escape :: String -> String
             escape = concatMap (charToC.fromIntegral.ord)
 
             elfSectionNote :: String
             elfSectionNote = case platformArch (targetPlatform dflags) of
-                               ArchARM _ _ -> "%note"
+                               ArchARM _ _ _ -> "%note"
                                _           -> "@note"
 
 -- The "link info" is a string representing the parameters of the
@@ -1658,7 +1676,8 @@ linkBinary dflags o_files dep_packages = do
     let lib_paths = libraryPaths dflags
     let lib_path_opts = map ("-L"++) lib_paths
 
-    extraLinkObj <- mkExtraObjToLinkIntoBinary dflags dep_packages
+    extraLinkObj <- mkExtraObjToLinkIntoBinary dflags
+    noteLinkObjs <- mkNoteObjsToLinkIntoBinary dflags dep_packages
 
     pkg_link_opts <- getPackageLinkOpts dflags dep_packages
 
@@ -1775,7 +1794,7 @@ linkBinary dflags o_files dep_packages = do
                       ++ framework_path_opts
                       ++ framework_opts
                       ++ pkg_lib_path_opts
-                      ++ [extraLinkObj]
+                      ++ extraLinkObj:noteLinkObjs
                       ++ pkg_link_opts
                       ++ pkg_framework_path_opts
                       ++ pkg_framework_opts

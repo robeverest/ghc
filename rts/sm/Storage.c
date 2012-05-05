@@ -1,6 +1,6 @@
 /* -----------------------------------------------------------------------------
  *
- * (c) The GHC Team, 1998-2008
+ * (c) The GHC Team, 1998-2012
  *
  * Storage manager front end
  *
@@ -92,7 +92,7 @@ initGeneration (generation *gen, int g)
 }
 
 void
-initStorage( void )
+initStorage (void)
 {
   nat g;
 
@@ -186,6 +186,13 @@ initStorage( void )
   IF_DEBUG(gc, statDescribeGens());
 
   RELEASE_SM_LOCK;
+
+  traceEventHeapInfo(CAPSET_HEAP_DEFAULT,
+                     RtsFlags.GcFlags.generations,
+                     RtsFlags.GcFlags.maxHeapSize * BLOCK_SIZE_W * sizeof(W_),
+                     RtsFlags.GcFlags.minAllocAreaSize * BLOCK_SIZE_W * sizeof(W_),
+                     MBLOCK_SIZE_W * sizeof(W_),
+                     BLOCK_SIZE_W  * sizeof(W_));
 }
 
 void storageAddCapabilities (nat from, nat to)
@@ -228,7 +235,8 @@ void storageAddCapabilities (nat from, nat to)
 void
 exitStorage (void)
 {
-    stat_exit(calcAllocated(rtsTrue));
+    lnat allocated = updateNurseriesStats();
+    stat_exit(allocated);
 }
 
 void
@@ -498,6 +506,7 @@ clearNurseries (void)
     for (i = 0; i < n_capabilities; i++) {
 	for (bd = nurseries[i].blocks; bd; bd = bd->link) {
             allocated += (lnat)(bd->free - bd->start);
+            capabilities[i].total_allocated += (lnat)(bd->free - bd->start);
             bd->free = bd->start;
 	    ASSERT(bd->gen_no == 0);
 	    ASSERT(bd->gen == g0);
@@ -527,7 +536,7 @@ countNurseryBlocks (void)
 }
 
 static void
-resizeNursery ( nursery *nursery, nat blocks )
+resizeNursery (nursery *nursery, nat blocks)
 {
   bdescr *bd;
   nat nursery_blocks;
@@ -632,8 +641,11 @@ allocate (Capability *cap, lnat n)
 
         // Attempting to allocate an object larger than maxHeapSize
         // should definitely be disallowed.  (bug #1791)
-        if (RtsFlags.GcFlags.maxHeapSize > 0 &&
-            req_blocks >= RtsFlags.GcFlags.maxHeapSize) {
+        if ((RtsFlags.GcFlags.maxHeapSize > 0 &&
+             req_blocks >= RtsFlags.GcFlags.maxHeapSize) ||
+            req_blocks >= HS_INT32_MAX)   // avoid overflow when
+                                          // calling allocGroup() below
+        {
             heapOverflow();
             // heapOverflow() doesn't exit (see #2592), but we aren't
             // in a position to do a clean shutdown here: we
@@ -653,6 +665,7 @@ allocate (Capability *cap, lnat n)
         initBdescr(bd, g0, g0);
 	bd->flags = BF_LARGE;
 	bd->free = bd->start + n;
+        cap->total_allocated += n;
 	return bd->start;
     }
 
@@ -741,8 +754,54 @@ allocatePinned (Capability *cap, lnat n)
     bd = cap->pinned_object_block;
 
     // If we don't have a block of pinned objects yet, or the current
-    // one isn't large enough to hold the new object, allocate a new one.
+    // one isn't large enough to hold the new object, get a new one.
     if (bd == NULL || (bd->free + n) > (bd->start + BLOCK_SIZE_W)) {
+
+        // stash the old block on cap->pinned_object_blocks.  On the
+        // next GC cycle these objects will be moved to
+        // g0->large_objects.
+        if (bd != NULL) {
+            dbl_link_onto(bd, &cap->pinned_object_blocks);
+        }
+
+        // We need to find another block.  We could just allocate one,
+        // but that means taking a global lock and we really want to
+        // avoid that (benchmarks that allocate a lot of pinned
+        // objects scale really badly if we do this).
+        //
+        // So first, we try taking the next block from the nursery, in
+        // the same way as allocate(), but note that we can only take
+        // an *empty* block, because we're about to mark it as
+        // BF_PINNED | BF_LARGE.
+        bd = cap->r.rCurrentNursery->link;
+        if (bd == NULL || bd->free != bd->start) { // must be empty!
+            // The nursery is empty, or the next block is non-empty:
+            // allocate a fresh block (we can't fail here).
+
+            // XXX in the case when the next nursery block is
+            // non-empty we aren't exerting any pressure to GC soon,
+            // so if this case ever happens then we could in theory
+            // keep allocating for ever without calling the GC. We
+            // can't bump g0->n_new_large_words because that will be
+            // counted towards allocation, and we're already counting
+            // our pinned obects as allocation in
+            // collect_pinned_object_blocks in the GC.
+            ACQUIRE_SM_LOCK;
+            bd = allocBlock();
+            RELEASE_SM_LOCK;
+            initBdescr(bd, g0, g0);
+        } else {
+            // we have a block in the nursery: steal it
+            cap->r.rCurrentNursery->link = bd->link;
+            if (bd->link != NULL) {
+                bd->link->u.back = cap->r.rCurrentNursery;
+            }
+            cap->r.rNursery->n_blocks -= bd->blocks;
+        }
+
+        cap->pinned_object_block = bd;
+        bd->flags  = BF_PINNED | BF_LARGE | BF_EVACUATED;
+
         // The pinned_object_block remains attached to the capability
         // until it is full, even if a GC occurs.  We want this
         // behaviour because otherwise the unallocated portion of the
@@ -756,17 +815,6 @@ allocatePinned (Capability *cap, lnat n)
         // the next GC the BF_EVACUATED flag will be cleared, and the
         // block will be promoted as usual (if anything in it is
         // live).
-        ACQUIRE_SM_LOCK;
-        if (bd != NULL) {
-            dbl_link_onto(bd, &g0->large_objects);
-            g0->n_large_blocks++;
-            g0->n_new_large_words += bd->free - bd->start;
-        }
-        cap->pinned_object_block = bd = allocBlock();
-        RELEASE_SM_LOCK;
-        initBdescr(bd, g0, g0);
-        bd->flags  = BF_PINNED | BF_LARGE | BF_EVACUATED;
-	bd->free   = bd->start;
     }
 
     p = bd->free;
@@ -864,33 +912,35 @@ dirty_MVAR(StgRegTable *reg, StgClosure *p)
  * -------------------------------------------------------------------------- */
 
 /* -----------------------------------------------------------------------------
- * calcAllocated()
+ * updateNurseriesStats()
  *
- * Approximate how much we've allocated: number of blocks in the
- * nursery + blocks allocated via allocate() - unused nusery blocks.
- * This leaves a little slop at the end of each block.
+ * Update the per-cap total_allocated numbers with an approximation of
+ * the amount of memory used in each cap's nursery. Also return the
+ * total across all caps.
+ *
+ * Since this update is also performed by clearNurseries() then we only
+ * need this function for the final stats when the RTS is shutting down.
  * -------------------------------------------------------------------------- */
 
 lnat
-calcAllocated (rtsBool include_nurseries)
+updateNurseriesStats (void)
 {
-  nat allocated = 0;
+    lnat allocated = 0;
   nat i;
 
-  // When called from GC.c, we already have the allocation count for
-  // the nursery from resetNurseries(), so we don't need to walk
-  // through these block lists again.
-  if (include_nurseries)
-  {
       for (i = 0; i < n_capabilities; i++) {
-          allocated += countOccupied(nurseries[i].blocks);
-      }
+        int cap_allocated = countOccupied(nurseries[i].blocks);
+        capabilities[i].total_allocated += cap_allocated;
+        allocated                       += cap_allocated;
   }
 
-  // add in sizes of new large and pinned objects
-  allocated += g0->n_new_large_words;
-
   return allocated;
+}
+
+lnat
+countLargeAllocated (void)
+{
+    return g0->n_new_large_words;
 }
 
 lnat countOccupied (bdescr *bd)
@@ -1132,10 +1182,10 @@ void freeExec (void *addr)
 #ifdef DEBUG
 
 // handy function for use in gdb, because Bdescr() is inlined.
-extern bdescr *_bdescr( StgPtr p );
+extern bdescr *_bdescr (StgPtr p);
 
 bdescr *
-_bdescr( StgPtr p )
+_bdescr (StgPtr p)
 {
     return Bdescr(p);
 }

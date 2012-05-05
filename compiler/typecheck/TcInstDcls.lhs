@@ -42,7 +42,7 @@ import DataCon
 import Class
 import Var
 import VarEnv
-import VarSet     ( mkVarSet, varSetElems )
+import VarSet     ( mkVarSet, subVarSet, varSetElems )
 import Pair
 import CoreUnfold ( mkDFunUnfolding )
 import CoreSyn    ( Expr(Var), CoreExpr, varToCoreExpr )
@@ -56,12 +56,13 @@ import Id
 import MkId
 import Name
 import NameSet
+import NameEnv
 import Outputable
 import SrcLoc
+import Digraph( SCC(..) )
 import Util
 
 import Control.Monad
-import Data.Maybe
 import Maybes     ( orElse )
 \end{code}
 
@@ -367,84 +368,170 @@ tcInstDecls1    -- Deal with both source-code and imported instance decls
 
 tcInstDecls1 tycl_decls inst_decls deriv_decls 
   = checkNoErrs $
-    do {        -- Stop if addInstInfos etc discovers any errors
-                -- (they recover, so that we get more than one error each
-                -- round)
+    do {    -- Stop if addInstInfos etc discovers any errors
+            -- (they recover, so that we get more than one error each
+            -- round)
 
-                -- (1) Do class and family instance declarations
-       ; idx_tycons        <- mapAndRecoverM tcTopFamInstDecl $
-                              filter (isFamInstDecl . unLoc) tycl_decls
-       ; local_info_tycons <- mapAndRecoverM tcLocalInstDecl1  inst_decls
+            -- Do class and family instance declarations
+       ; (gbl_env, local_infos) <- tcLocalInstDecls (calcInstDeclCycles inst_decls)
+       ; setGblEnv gbl_env $
 
-       ; let { (local_info,
-                at_tycons_s)   = unzip local_info_tycons
-             ; at_idx_tycons   = concat at_tycons_s ++ idx_tycons
-             ; at_things       = map ATyCon at_idx_tycons }
-
-                -- (2) Add the tycons of indexed types and their implicit
-                --     tythings to the global environment
-       ; tcExtendGlobalEnvImplicit at_things $ do
-       { tcg_env <- tcAddImplicits at_things
-       ; setGblEnv tcg_env $
-
-
-                -- Next, construct the instance environment so far, consisting
-                -- of
-                --   (a) local instance decls
-                --   (b) local family instance decls
-         addInsts local_info         $
-         addFamInsts at_idx_tycons   $ do {
-
-                -- (3) Compute instances from "deriving" clauses;
-                -- This stuff computes a context for the derived instance
-                -- decl, so it needs to know about all the instances possible
-                -- NB: class instance declarations can contain derivings as
-                --     part of associated data type declarations
+    do {    -- Compute instances from "deriving" clauses;
+            -- This stuff computes a context for the derived instance
+            -- decl, so it needs to know about all the instances possible
+            -- NB: class instance declarations can contain derivings as
+            --     part of associated data type declarations
          failIfErrsM    -- If the addInsts stuff gave any errors, don't
                         -- try the deriving stuff, because that may give
                         -- more errors still
 
+       ; traceTc "tcDeriving" empty
+       ; th_stage <- getStage   -- See Note [Deriving inside TH brackets ]
        ; (gbl_env, deriv_inst_info, deriv_binds)
-              <- tcDeriving tycl_decls inst_decls deriv_decls
+              <- if isBrackStage th_stage 
+                 then return (gbl_env, emptyBag, emptyValBindsOut)
+                 else tcDeriving tycl_decls inst_decls deriv_decls
+
 
        -- Check that if the module is compiled with -XSafe, there are no
        -- hand written instances of Typeable as then unsafe casts could be
        -- performed. Derived instances are OK.
-       ; dflags <- getDOpts
+       ; dflags <- getDynFlags
        ; when (safeLanguageOn dflags) $
              mapM_ (\x -> when (typInstCheck x)
                                (addErrAt (getSrcSpan $ iSpec x) typInstErr))
-                   local_info
+                   local_infos
        -- As above but for Safe Inference mode.
        ; when (safeInferOn dflags) $
-             mapM_ (\x -> when (typInstCheck x) recordUnsafeInfer) local_info
+             mapM_ (\x -> when (typInstCheck x) recordUnsafeInfer) local_infos
 
        ; return ( gbl_env
-                , (bagToList deriv_inst_info) ++ local_info
+                , bagToList deriv_inst_info ++ local_infos
                 , deriv_binds)
-    }}}
+    }}
   where
     typInstCheck ty = is_cls (iSpec ty) `elem` typeableClassNames
     typInstErr = ptext $ sLit $ "Can't create hand written instances of Typeable in Safe"
                               ++ " Haskell! Can only derive them"
 
-addInsts :: [InstInfo Name] -> TcM a -> TcM a
-addInsts infos thing_inside
+tcLocalInstDecls :: [SCC (LInstDecl Name)] -> TcM (TcGblEnv, [InstInfo Name])
+tcLocalInstDecls [] 
+ = do { gbl_env <- getGblEnv
+      ; return (gbl_env, []) }
+tcLocalInstDecls (AcyclicSCC inst_decl : sccs)
+ = do { (inst_infos, fam_insts) <- recoverM (return ([], [])) $
+                                   tcLocalInstDecl inst_decl
+      ; (gbl_env, more_infos) <- addClsInsts inst_infos  $
+                                 addFamInsts fam_insts   $ 
+                                 tcLocalInstDecls sccs
+      ; return (gbl_env, inst_infos ++ more_infos) }
+tcLocalInstDecls (CyclicSCC inst_decls : _)
+  = do { cyclicDeclErr inst_decls; failM }
+
+addClsInsts :: [InstInfo Name] -> TcM a -> TcM a
+addClsInsts infos thing_inside
   = tcExtendLocalInstEnv (map iSpec infos) thing_inside
 
-addFamInsts :: [TyCon] -> TcM a -> TcM a
-addFamInsts tycons thing_inside
-  = tcExtendLocalFamInstEnv (map mkLocalFamInst tycons) thing_inside
+addFamInsts :: [FamInst] -> TcM a -> TcM a
+-- Extend (a) the family instance envt
+--        (b) the type envt with stuff from data type decls
+addFamInsts fam_insts thing_inside
+  = tcExtendLocalFamInstEnv fam_insts $ 
+    tcExtendGlobalEnvImplicit things  $ 
+    do { traceTc "addFamInsts" (pprFamInsts fam_insts)
+       ; tcg_env <- tcAddImplicits things
+       ; setGblEnv tcg_env thing_inside }
+  where
+    axioms = map famInstAxiom fam_insts
+    tycons = famInstsRepTyCons fam_insts
+    things = map ATyCon tycons ++ map ACoAxiom axioms 
+\end{code}
+
+Note [Deriving inside TH brackets]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Given a declaration bracket
+  [d| data T = A | B deriving( Show ) |]
+
+there is really no point in generating the derived code for deriving(
+Show) and then type-checking it. This will happen at the call site
+anyway, and the type check should never fail!  Moreover (Trac #6005)
+the scoping of the generated code inside the bracket does not seem to 
+work out.  
+
+The easy solution is simply not to generate the derived instances at
+all.  (A less brutal solution would be to generate them with no
+bindings.)  This will become moot when we shift to the new TH plan, so 
+the brutal solution will do.
+
+
+Note [Instance declaration cycles]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+With -XDataKinds we can get this
+   data instance Foo [a] = MkFoo (MkFoo a)
+where the constructor MkFoo is used in a type before it is
+defined.  Here is a more complicated situation, involving an 
+associated type and mutual recursion
+
+   data instance T [a] = MkT (MkS a)
+
+   instance C [a] where
+     data S [a] = MkS (MkT a)
+
+When type checking ordinary data type decls we detect this staging
+problem in the kind-inference phase, but there *is* no kind inference
+phase here.
+
+So intead we extract the strongly connected components and look for
+cycles.
+
+
+\begin{code}
+calcInstDeclCycles :: [LInstDecl Name] -> [SCC (LInstDecl Name)]
+-- see Note [Instance declaration cycles]
+calcInstDeclCycles decls
+  = depAnal get_defs get_uses decls
+  where
+    -- get_defs extracts the *constructor* bindings of the declaration
+    get_defs :: LInstDecl Name -> [Name]
+    get_defs (L _ (FamInstD { lid_inst = fid }))       = get_fi_defs fid
+    get_defs (L _ (ClsInstD { cid_fam_insts = fids })) = concatMap (get_fi_defs . unLoc) fids
+
+    get_fi_defs :: FamInstDecl Name -> [Name]
+    get_fi_defs (FamInstDecl { fid_defn = TyData { td_cons = cons } }) 
+      = map (unLoc . con_name . unLoc) cons
+    get_fi_defs (FamInstDecl {}) = []
+
+    -- get_uses extracts the *tycon or constructor* uses of the declaration
+    get_uses :: LInstDecl Name -> [Name]
+    get_uses (L _ (FamInstD { lid_inst = fid })) = nameSetToList (fid_fvs fid)
+    get_uses (L _ (ClsInstD { cid_fam_insts = fids })) 
+        = nameSetToList (foldr (unionNameSets . fid_fvs . unLoc) emptyNameSet fids)
+
+cyclicDeclErr :: Outputable d => [Located d] -> TcRn ()
+cyclicDeclErr inst_decls
+  = setSrcSpan (getLoc (head sorted_decls)) $
+    addErr (sep [ptext (sLit "Cycle in type declarations: data constructor used (in a type) before it is defined"),
+		 nest 2 (vcat (map ppr_decl sorted_decls))])
+  where
+    sorted_decls = sortLocated inst_decls
+    ppr_decl (L loc decl) = ppr loc <> colon <+> ppr decl
 \end{code}
 
 \begin{code}
-tcLocalInstDecl1 :: LInstDecl Name
-                 -> TcM (InstInfo Name, [TyCon])
+tcLocalInstDecl :: LInstDecl Name
+                -> TcM ([InstInfo Name], [FamInst])
         -- A source-file instance declaration
         -- Type-check all the stuff before the "where"
         --
         -- We check for respectable instance type, and context
-tcLocalInstDecl1 (L loc (InstDecl poly_ty binds uprags ats))
+tcLocalInstDecl (L loc (FamInstD { lid_inst = decl }))
+  = setSrcSpan loc      $
+    tcAddFamInstCtxt decl  $
+    do { fam_inst <- tcFamInstDecl TopLevel decl
+       ; return ([], [fam_inst]) }
+
+tcLocalInstDecl (L loc (ClsInstD { cid_poly_ty = poly_ty, cid_binds = binds
+                                 , cid_sigs = uprags, cid_fam_insts = ats }))
   = setSrcSpan loc                      $
     addErrCtxt (instDeclCtxt1 poly_ty)  $
 
@@ -453,40 +540,45 @@ tcLocalInstDecl1 (L loc (InstDecl poly_ty binds uprags ats))
                   badBootDeclErr
 
         ; (tyvars, theta, clas, inst_tys) <- tcHsInstHead InstDeclCtxt poly_ty
-        ; let mini_env = mkVarEnv (classTyVars clas `zip` inst_tys)
-
+        ; let mini_env   = mkVarEnv (classTyVars clas `zip` inst_tys)
+              mini_subst = mkTvSubst (mkInScopeSet (mkVarSet tyvars)) mini_env
+                           
         -- Next, process any associated types.
         ; traceTc "tcLocalInstDecl" (ppr poly_ty)
-        ; idx_tycons0 <- tcExtendTyVarEnv tyvars $
-                         mapAndRecoverM (tcAssocDecl clas mini_env) ats
+        ; fam_insts0 <- tcExtendTyVarEnv tyvars $
+                        mapAndRecoverM (tcAssocDecl clas mini_env) ats
 
         -- Check for missing associated types and build them
         -- from their defaults (if available)
-        ; let defined_ats = mkNameSet $ map (tcdName . unLoc) ats
-              check_at_instance (fam_tc, defs)
-                 -- User supplied instances ==> everything is OK
-                | tyConName fam_tc `elemNameSet` defined_ats = return (Nothing, [])
-                 -- No defaults ==> generate a warning
-                | null defs                                  = return (Just (tyConName fam_tc), [])
-                 -- No user instance, have defaults ==> instatiate them
-                | otherwise = do
-                    defs' <- forM defs $ \(ATD tvs pat_tys rhs _loc) -> do
-                      let mini_env_subst = mkTvSubst (mkInScopeSet (mkVarSet tvs)) mini_env
-                          tvs' = varSetElems (tyVarsOfType rhs')
-                          pat_tys' = substTys mini_env_subst pat_tys
-                          rhs' = substTy mini_env_subst rhs
-                      rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
-                      buildSynTyCon rep_tc_name tvs'
-                                    (SynonymTyCon rhs')
-                                    (mkArrowKinds (map tyVarKind tvs') (typeKind rhs'))
-                                    NoParentTyCon (Just (fam_tc, pat_tys'))
-                    return (Nothing, defs')
-        ; missing_at_stuff <- mapM check_at_instance (classATItems clas)
-        
-        ; let (omitted, idx_tycons1) = unzip missing_at_stuff
-        ; warn <- woptM Opt_WarnMissingMethods
-        ; mapM_ (warnTc warn . omittedATWarn) (catMaybes omitted)
+        ; let defined_ats = mkNameSet $ map famInstDeclName ats
 
+              mk_deflt_at_instances :: ClassATItem -> TcM [FamInst]
+              mk_deflt_at_instances (fam_tc, defs)
+                 -- User supplied instances ==> everything is OK
+                | tyConName fam_tc `elemNameSet` defined_ats 
+                = return []
+
+                 -- No defaults ==> generate a warning
+                | null defs
+                = do { warnMissingMethodOrAT "associated type" (tyConName fam_tc)
+                     ; return [] }
+
+                 -- No user instance, have defaults ==> instatiate them
+                 -- Example:   class C a where { type F a b :: *; type F a b = () }
+                 --            instance C [x]
+                 -- Then we want to generate the decl:   type F [x] b = ()
+                | otherwise 
+                = forM defs $ \(ATD _tvs pat_tys rhs _loc) ->
+                  do { let pat_tys' = substTys mini_subst pat_tys
+                           rhs'     = substTy  mini_subst rhs
+                           tv_set'  = tyVarsOfTypes pat_tys'
+                           tvs'     = varSetElems tv_set'
+                     ; rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
+                     ; ASSERT( tyVarsOfType rhs' `subVarSet` tv_set' ) 
+                       return (mkSynFamInst rep_tc_name tvs' fam_tc pat_tys' rhs') }
+
+        ; fam_insts1 <- mapM mk_deflt_at_instances (classATItems clas)
+        
         -- Finally, construct the Core representation of the instance.
         -- (This no longer includes the associated types.)
         ; dfun_name <- newDFunName clas inst_tys (getLoc poly_ty)
@@ -497,9 +589,8 @@ tcLocalInstDecl1 (L loc (InstDecl poly_ty binds uprags ats))
               ispec 	= mkLocalInstance dfun overlap_flag
               inst_info = InstInfo { iSpec  = ispec, iBinds = VanillaInst binds uprags False }
 
-        ; return (inst_info, idx_tycons0 ++ concat idx_tycons1) }
+        ; return ( [inst_info], fam_insts0 ++ concat fam_insts1) }
 \end{code}
-
 
 %************************************************************************
 %*                                                                      *
@@ -513,18 +604,12 @@ lot of kinding and type checking code with ordinary algebraic data types (and
 GADTs).
 
 \begin{code}
-tcTopFamInstDecl :: LTyClDecl Name -> TcM TyCon
-tcTopFamInstDecl (L loc decl)
-  = setSrcSpan loc      $
-    tcAddDeclCtxt decl  $
-    tcFamInstDecl TopLevel decl
-
-tcFamInstDecl :: TopLevelFlag -> TyClDecl Name -> TcM TyCon
+tcFamInstDecl :: TopLevelFlag -> FamInstDecl Name -> TcM FamInst
 tcFamInstDecl top_lvl decl
-  = do { -- type family instances require -XTypeFamilies
+  = do { -- Type family instances require -XTypeFamilies
          -- and can't (currently) be in an hs-boot file
        ; traceTc "tcFamInstDecl" (ppr decl)
-       ; let fam_tc_lname = tcdLName decl
+       ; let fam_tc_lname = fid_tycon decl
        ; type_families <- xoptM Opt_TypeFamilies
        ; is_boot <- tcIsHsBoot   -- Are we compiling an hs-boot file?
        ; checkTc type_families $ badFamInstDecl fam_tc_lname
@@ -539,16 +624,13 @@ tcFamInstDecl top_lvl decl
 
          -- Now check the type/data instance itself
          -- This is where type and data decls are treated separately
-       ; tc <- tcFamInstDecl1 fam_tc decl
-       ; checkValidTyCon tc     -- Remember to check validity;
-                                -- no recursion to worry about here
+       ; tcFamInstDecl1 fam_tc decl }
 
-       ; return tc }
-
-tcFamInstDecl1 :: TyCon -> TyClDecl Name -> TcM TyCon
+tcFamInstDecl1 :: TyCon -> FamInstDecl Name -> TcM FamInst
 
   -- "type instance"
-tcFamInstDecl1 fam_tc (decl@TySynonym {})
+tcFamInstDecl1 fam_tc decl@(FamInstDecl { fid_tycon = fam_tc_name
+                                        , fid_defn = TySynonym {} })
   = do { -- (1) do the work of verifying the synonym
        ; (t_tvs, t_typats, t_rhs) <- tcSynFamInstDecl fam_tc decl
 
@@ -556,24 +638,23 @@ tcFamInstDecl1 fam_tc (decl@TySynonym {})
        ; checkValidFamInst t_typats t_rhs
 
          -- (3) construct representation tycon
-       ; rep_tc_name <- newFamInstTyConName (tcdLName decl) t_typats
-       ; buildSynTyCon rep_tc_name t_tvs
-                       (SynonymTyCon t_rhs)
-                       (typeKind t_rhs)
-                       NoParentTyCon (Just (fam_tc, t_typats))
-       }
+       ; rep_tc_name <- newFamInstAxiomName fam_tc_name t_typats
+
+       ; return (mkSynFamInst rep_tc_name t_tvs fam_tc t_typats t_rhs) }
 
   -- "newtype instance" and "data instance"
-tcFamInstDecl1 fam_tc (decl@TyData { tcdND = new_or_data, tcdCtxt = ctxt
-                                   , tcdTyVars = tvs, tcdTyPats = Just pats
-                                  , tcdCons = cons})
+tcFamInstDecl1 fam_tc 
+    (FamInstDecl { fid_pats = pats
+                 , fid_tycon = fam_tc_name
+                 , fid_defn = defn@TyData { td_ND = new_or_data, td_cType = cType
+                                          , td_ctxt = ctxt, td_cons = cons } })
   = do { -- Check that the family declaration is for the right kind
          checkTc (isFamilyTyCon fam_tc) (notFamily fam_tc)
        ; checkTc (isAlgTyCon fam_tc) (wrongKindOfFamily fam_tc)
 
          -- Kind check type patterns
-       ; tcFamTyPats fam_tc tvs pats (\_always_star -> kcDataDecl decl) $ 
-           \tvs' pats' resultKind -> do
+       ; tcFamTyPats fam_tc pats (kcTyDefn defn) $ 
+           \tvs' pats' res_kind -> do
 
          -- Check that left-hand side contains no type family applications
          -- (vanilla synonyms are fine, though, and we checked for
@@ -581,64 +662,70 @@ tcFamInstDecl1 fam_tc (decl@TyData { tcdND = new_or_data, tcdCtxt = ctxt
        { mapM_ checkTyFamFreeness pats'
          
          -- Result kind must be '*' (otherwise, we have too few patterns)
-       ; checkTc (isLiftedTypeKind resultKind) $ tooFewParmsErr (tyConArity fam_tc)
+       ; checkTc (isLiftedTypeKind res_kind) $ tooFewParmsErr (tyConArity fam_tc)
 
-       ; stupid_theta <- tcHsKindedContext =<< kcHsContext ctxt
-       ; dataDeclChecks (tcdName decl) new_or_data stupid_theta cons
+       ; stupid_theta <- tcHsContext ctxt
+       ; dataDeclChecks (tyConName fam_tc) new_or_data stupid_theta cons
 
          -- Construct representation tycon
-       ; rep_tc_name <- newFamInstTyConName (tcdLName decl) pats'
+       ; rep_tc_name <- newFamInstTyConName fam_tc_name pats'
+       ; axiom_name  <- newImplicitBinder rep_tc_name mkInstTyCoOcc
        ; let ex_ok = True       -- Existentials ok for type families!
-       ; fixM (\ rep_tycon -> do
-             { let orig_res_ty = mkTyConApp fam_tc pats'
-             ; data_cons <- tcConDecls new_or_data ex_ok rep_tycon
+             orig_res_ty = mkTyConApp fam_tc pats'
+
+       ; (rep_tc, fam_inst) <- fixM $ \ ~(rec_rep_tc, _) ->
+           do { data_cons <- tcConDecls new_or_data ex_ok rec_rep_tc
                                        (tvs', orig_res_ty) cons
-             ; tc_rhs <-
-                 case new_or_data of
-                   DataType -> return (mkDataTyConRhs data_cons)
-                   NewType  -> ASSERT( not (null data_cons) )
-                               mkNewTyConRhs rep_tc_name rep_tycon (head data_cons)
-             ; buildAlgTyCon rep_tc_name tvs' stupid_theta tc_rhs Recursive
-                             h98_syntax NoParentTyCon (Just (fam_tc, pats'))
+              ; tc_rhs <- case new_or_data of
+                     DataType -> return (mkDataTyConRhs data_cons)
+                     NewType  -> ASSERT( not (null data_cons) )
+                                 mkNewTyConRhs rep_tc_name rec_rep_tc (head data_cons)
+              ; let fam_inst = mkDataFamInst axiom_name tvs' fam_tc pats' rep_tc
+                    parent   = FamInstTyCon (famInstAxiom fam_inst) fam_tc pats'
+                    rep_tc   = buildAlgTyCon rep_tc_name tvs' cType stupid_theta tc_rhs 
+                                             Recursive h98_syntax parent
                  -- We always assume that indexed types are recursive.  Why?
                  -- (1) Due to their open nature, we can never be sure that a
                  -- further instance might not introduce a new recursive
                  -- dependency.  (2) They are always valid loop breakers as
                  -- they involve a coercion.
-             })
-       } }
+              ; return (rep_tc, fam_inst) }
+
+         -- Remember to check validity; no recursion to worry about here
+       ; checkValidTyCon rep_tc
+       ; return fam_inst } }
     where
-         h98_syntax = case cons of      -- All constructors have same shape
+       h98_syntax = case cons of      -- All constructors have same shape
                         L _ (ConDecl { con_res = ResTyGADT _ }) : _ -> False
                         _ -> True
 
-tcFamInstDecl1 _ d = pprPanic "tcFamInstDecl1" (ppr d)
-
 
 ----------------
-tcAssocDecl :: Class           -- ^ Class of associated type
-            -> VarEnv Type     -- ^ Instantiation of class TyVars
-            -> LTyClDecl Name  -- ^ RHS
-            -> TcM TyCon
+tcAssocDecl :: Class              -- ^ Class of associated type
+            -> VarEnv Type        -- ^ Instantiation of class TyVars
+            -> LFamInstDecl Name  -- ^ RHS
+            -> TcM FamInst
 tcAssocDecl clas mini_env (L loc decl)
   = setSrcSpan loc      $
-    tcAddDeclCtxt decl  $
-    do { at_tc <- tcFamInstDecl NotTopLevel decl
-       ; let Just (fam_tc, at_tys) = tyConFamInst_maybe at_tc
-  
+    tcAddFamInstCtxt decl  $
+    do { fam_inst <- tcFamInstDecl NotTopLevel decl
+       ; let (fam_tc, at_tys) = famInstLHS fam_inst
+
        -- Check that the associated type comes from this class
        ; checkTc (Just clas == tyConAssoc_maybe fam_tc)
-                 (badATErr (className clas) (tyConName at_tc))
+                 (badATErr (className clas) (tyConName fam_tc))
 
        -- See Note [Checking consistent instantiation] in TcTyClsDecls
        ; zipWithM_ check_arg (tyConTyVars fam_tc) at_tys
 
-       ; return at_tc }
+       ; return fam_inst }
   where
     check_arg fam_tc_tv at_ty
       | Just inst_ty <- lookupVarEnv mini_env fam_tc_tv
       = checkTc (inst_ty `eqType` at_ty) 
                 (wrongATArgErr at_ty inst_ty)
+                -- No need to instantiate here, becuase the axiom
+                -- uses the same type variables as the assocated class
       | otherwise
       = return ()   -- Allow non-type-variable instantiation
                     -- See Note [Associated type instances]
@@ -713,7 +800,7 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
 
        -- Deal with 'SPECIALISE instance' pragmas
        -- See Note [SPECIALISE instance pragmas]
-       ; spec_info@(spec_inst_prags,_) <- tcSpecInstPrags dfun_id ibinds
+       ; spec_inst_info <- tcSpecInstPrags dfun_id ibinds
 
         -- Typecheck the methods
        ; (meth_ids, meth_binds)
@@ -722,7 +809,7 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
                 -- Those tyvars are inside the dfun_id's type, which is a bit
                 -- bizarre, but OK so long as you realise it!
               tcInstanceMethods dfun_id clas inst_tyvars dfun_ev_vars
-                                inst_tys spec_info
+                                inst_tys spec_inst_info
                                 op_items ibinds
 
        -- Create the result bindings
@@ -773,7 +860,8 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
                          map Var           meth_ids
 
              export = ABE { abe_wrap = idHsWrapper, abe_poly = dfun_id_w_fun
-                          , abe_mono = self_dict, abe_prags = SpecPrags spec_inst_prags }
+                          , abe_mono = self_dict, abe_prags = noSpecPrags }
+                          -- NB: noSpecPrags, see Note [SPECIALISE instance pragmas]
              main_bind = AbsBinds { abs_tvs = inst_tyvars
                                   , abs_ev_vars = dfun_ev_vars
                                   , abs_exports = [export]
@@ -788,6 +876,63 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
    dfun_ty   = idType dfun_id
    dfun_id   = instanceDFunId ispec
    loc       = getSrcSpan dfun_id
+
+------------------------------
+----------------------
+mkMethIds :: HsSigFun -> Class -> [TcTyVar] -> [EvVar] 
+          -> [TcType] -> Id -> TcM (TcId, TcSigInfo)
+mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
+  = do  { uniq <- newUnique
+        ; loc <- getSrcSpanM
+        ; let meth_name = mkDerivedInternalName mkClassOpAuxOcc uniq sel_name
+        ; local_meth_name <- newLocalName sel_name
+                  -- Base the local_meth_name on the selector name, becuase
+                  -- type errors from tcInstanceMethodBody come from here
+
+        ; local_meth_sig <- case lookupHsSig sig_fn sel_name of
+            Just hs_ty  -- There is a signature in the instance declaration
+               -> do { sig_ty <- check_inst_sig hs_ty
+                     ; instTcTySig hs_ty sig_ty local_meth_name }
+
+            Nothing     -- No type signature
+               -> instTcTySigFromId loc (mkLocalId local_meth_name local_meth_ty)
+              -- Absent a type sig, there are no new scoped type variables here
+              -- Only the ones from the instance decl itself, which are already
+              -- in scope.  Example:
+              --      class C a where { op :: forall b. Eq b => ... }
+              --      instance C [c] where { op = <rhs> }
+              -- In <rhs>, 'c' is scope but 'b' is not!
+
+        ; let meth_id = mkLocalId meth_name meth_ty
+        ; return (meth_id, local_meth_sig) }
+  where
+    sel_name      = idName sel_id
+    local_meth_ty = instantiateMethod clas sel_id inst_tys
+    meth_ty       = mkForAllTys tyvars $ mkPiTypes dfun_ev_vars local_meth_ty
+
+    -- Check that any type signatures have exactly the right type
+    check_inst_sig hs_ty@(L loc _) 
+       = setSrcSpan loc $ 
+         do { sig_ty <- tcHsSigType (FunSigCtxt sel_name) hs_ty
+            ; inst_sigs <- xoptM Opt_InstanceSigs
+            ; if inst_sigs then 
+                checkTc (sig_ty `eqType` local_meth_ty)
+                        (badInstSigErr sel_name local_meth_ty)
+              else
+                addErrTc (misplacedInstSig sel_name hs_ty)
+            ; return sig_ty }
+
+badInstSigErr :: Name -> Type -> SDoc
+badInstSigErr meth ty
+  = hang (ptext (sLit "Method signature does not match class; it should be"))
+       2 (pprPrefixName meth <+> dcolon <+> ppr ty)
+
+misplacedInstSig :: Name -> LHsType Name -> SDoc
+misplacedInstSig name hs_ty
+  = vcat [ hang (ptext (sLit "Illegal type signature in instance declaration:"))
+              2 (hang (pprPrefixName name)
+                    2 (dcolon <+> ppr hs_ty))
+         , ptext (sLit "(Use -XInstanceSigs to allow this)") ]
 
 ------------------------------
 tcSuperClass :: [TcTyVar] -> [EvVar]
@@ -860,16 +1005,12 @@ Consider
      range (x,y) = ...
 
 We do *not* want to make a specialised version of the dictionary
-function.  Rather, we want specialised versions of each method.
+function.  Rather, we want specialised versions of each *method*.
 Thus we should generate something like this:
 
-  $dfIx :: (Ix a, Ix x) => Ix (a,b)
-  {- DFUN [$crange, ...] -}
-  $dfIx da db = Ix ($crange da db) (...other methods...)
-
-  $dfIxPair :: (Ix a, Ix x) => Ix (a,b)
+  $dfIxPair :: (Ix a, Ix b) => Ix (a,b)
   {- DFUN [$crangePair, ...] -}
-  $dfIxPair = Ix ($crangePair da db) (...other methods...)
+  $dfIxPair da db = Ix ($crangePair da db) (...other methods...)
 
   $crange :: (Ix a, Ix b) -> ((a,b),(a,b)) -> [(a,b)]
   {-# SPECIALISE $crange :: ((Int,Int),(Int,Int)) -> [(Int,Int)] #-}
@@ -936,44 +1077,48 @@ tcInstanceMethods :: DFunId -> Class -> [TcTyVar]
         --      forall tvs. theta => ...
 tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
                   (spec_inst_prags, prag_fn)
-                  op_items (VanillaInst binds _ standalone_deriv)
-  = mapAndUnzipM tc_item op_items
+                  op_items (VanillaInst binds sigs standalone_deriv)
+  = do { traceTc "tcInstMeth" (ppr sigs $$ ppr binds)
+       ; let hs_sig_fn = mkHsSigFun sigs
+       ; mapAndUnzipM (tc_item hs_sig_fn) op_items }
   where
     ----------------------
-    tc_item :: (Id, DefMeth) -> TcM (Id, LHsBind Id)
-    tc_item (sel_id, dm_info)
+    tc_item :: HsSigFun -> (Id, DefMeth) -> TcM (Id, LHsBind Id)
+    tc_item sig_fn (sel_id, dm_info)
       = case findMethodBind (idName sel_id) binds of
-            Just user_bind -> tc_body sel_id standalone_deriv user_bind
+            Just user_bind -> tc_body sig_fn sel_id standalone_deriv user_bind
             Nothing        -> traceTc "tc_def" (ppr sel_id) >> 
-                              tc_default sel_id dm_info
+                              tc_default sig_fn sel_id dm_info
 
     ----------------------
-    tc_body :: Id -> Bool -> LHsBind Name -> TcM (TcId, LHsBind Id)
-    tc_body sel_id generated_code rn_bind
+    tc_body :: HsSigFun -> Id -> Bool -> LHsBind Name -> TcM (TcId, LHsBind Id)
+    tc_body sig_fn sel_id generated_code rn_bind
       = add_meth_ctxt sel_id generated_code rn_bind $
-        do { (meth_id, local_meth_id) <- mkMethIds clas tyvars dfun_ev_vars
-                                                   inst_tys sel_id
+        do { traceTc "tc_item" (ppr sel_id <+> ppr (idType sel_id))
+           ; (meth_id, local_meth_sig) <- setSrcSpan (getLoc rn_bind) $
+                                          mkMethIds sig_fn clas tyvars dfun_ev_vars
+                                                    inst_tys sel_id
            ; let prags = prag_fn (idName sel_id)
            ; meth_id1 <- addInlinePrags meth_id prags
            ; spec_prags <- tcSpecPrags meth_id1 prags
            ; bind <- tcInstanceMethodBody InstSkol
                           tyvars dfun_ev_vars
-                          meth_id1 local_meth_id meth_sig_fn
+                          meth_id1 local_meth_sig
                           (mk_meth_spec_prags meth_id1 spec_prags)
                           rn_bind
            ; return (meth_id1, bind) }
 
     ----------------------
-    tc_default :: Id -> DefMeth -> TcM (TcId, LHsBind Id)
+    tc_default :: HsSigFun -> Id -> DefMeth -> TcM (TcId, LHsBind Id)
 
-    tc_default sel_id (GenDefMeth dm_name)
+    tc_default sig_fn sel_id (GenDefMeth dm_name)
       = do { meth_bind <- mkGenericDefMethBind clas inst_tys sel_id dm_name
-           ; tc_body sel_id False {- Not generated code? -} meth_bind }
+           ; tc_body sig_fn sel_id False {- Not generated code? -} meth_bind }
 
-    tc_default sel_id NoDefMeth     -- No default method at all
+    tc_default sig_fn sel_id NoDefMeth     -- No default method at all
       = do { traceTc "tc_def: warn" (ppr sel_id)
-           ; warnMissingMethod sel_id
-           ; (meth_id, _) <- mkMethIds clas tyvars dfun_ev_vars
+           ; warnMissingMethodOrAT "method" (idName sel_id)
+           ; (meth_id, _) <- mkMethIds sig_fn clas tyvars dfun_ev_vars
                                          inst_tys sel_id
            ; return (meth_id, mkVarBind meth_id $
                               mkLHsWrap lam_wrapper error_rhs) }
@@ -985,7 +1130,7 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
         error_string = showSDoc (hcat [ppr loc, text "|", ppr sel_id ])
         lam_wrapper  = mkWpTyLams tyvars <.> mkWpLams dfun_ev_vars
 
-    tc_default sel_id (DefMeth dm_name) -- A polymorphic default method
+    tc_default sig_fn sel_id (DefMeth dm_name) -- A polymorphic default method
       = do {   -- Build the typechecked version directly,
                  -- without calling typecheck_method;
                  -- see Note [Default methods in instances]
@@ -998,13 +1143,14 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
            ; let self_ev_bind = EvBind self_dict
                                 (EvDFunApp dfun_id (mkTyVarTys tyvars) dfun_ev_vars)
 
-           ; (meth_id, local_meth_id) <- mkMethIds clas tyvars dfun_ev_vars
+           ; (meth_id, local_meth_sig) <- mkMethIds sig_fn clas tyvars dfun_ev_vars
                                                    inst_tys sel_id
            ; dm_id <- tcLookupId dm_name
            ; let dm_inline_prag = idInlinePragma dm_id
                  rhs = HsWrap (mkWpEvVarApps [self_dict] <.> mkWpTyApps inst_tys) $
                        HsVar dm_id
 
+                 local_meth_id = sig_id local_meth_sig
                  meth_bind = mkVarBind local_meth_id (L loc rhs)
                  meth_id1 = meth_id `setInlinePragma` dm_inline_prag
                         -- Copy the inline pragma (if any) from the default
@@ -1029,23 +1175,24 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
     mk_meth_spec_prags :: Id -> [LTcSpecPrag] -> TcSpecPrags
         -- Adapt the SPECIALISE pragmas to work for this method Id
         -- There are two sources:
-        --   * spec_inst_prags: {-# SPECIALISE instance :: <blah> #-}
-        --     These ones have the dfun inside, but [perhaps surprisingly]
-        --     the correct wrapper
         --   * spec_prags_for_me: {-# SPECIALISE op :: <blah> #-}
+        --   * spec_prags_from_inst: derived from {-# SPECIALISE instance :: <blah> #-}
+        --     These ones have the dfun inside, but [perhaps surprisingly]
+        --     the correct wrapper.
     mk_meth_spec_prags meth_id spec_prags_for_me
-      = SpecPrags (spec_prags_for_me ++
-                   [ L loc (SpecPrag meth_id wrap inl)
-                   | L loc (SpecPrag _ wrap inl) <- spec_inst_prags])
+      = SpecPrags (spec_prags_for_me ++ spec_prags_from_inst)
+      where
+        spec_prags_from_inst
+           | isInlinePragma (idInlinePragma meth_id)
+           = []  -- Do not inherit SPECIALISE from the instance if the
+                 -- method is marked INLINE, because then it'll be inlined
+                 -- and the specialisation would do nothing. (Indeed it'll provoke
+                 -- a warning from the desugarer
+           | otherwise 
+           = [ L loc (SpecPrag meth_id wrap inl)
+             | L loc (SpecPrag _ wrap inl) <- spec_inst_prags]
 
     loc = getSrcSpan dfun_id
-    meth_sig_fn _ = Just ([],loc)       -- The 'Just' says "yes, there's a type sig"
-        -- But there are no scoped type variables from local_method_id
-        -- Only the ones from the instance decl itself, which are already
-        -- in scope.  Example:
-        --      class C a where { op :: forall b. Eq b => ... }
-        --      instance C [c] where { op = <rhs> }
-        -- In <rhs>, 'c' is scope but 'b' is not!
 
         -- For instance decls that come from standalone deriving clauses
         -- we want to print out the full source code if there's an error
@@ -1096,14 +1243,16 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
 
      -- co : [p] ~ T p
      co = mkTcSymCo (mkTcInstCos coi (mkTyVarTys tyvars))
+     sig_fn = emptyHsSigs
 
      ----------------
      tc_item :: (TcEvBinds, EvVar) -> (Id, DefMeth) -> TcM (TcId, LHsBind TcId)
      tc_item (rep_ev_binds, rep_d) (sel_id, _)
-       = do { (meth_id, local_meth_id) <- mkMethIds clas tyvars dfun_ev_vars
-                                                    inst_tys sel_id
+       = do { (meth_id, local_meth_sig) <- mkMethIds sig_fn clas tyvars dfun_ev_vars
+                                                     inst_tys sel_id
 
-            ; let meth_rhs  = wrapId (mk_op_wrapper sel_id rep_d) sel_id
+            ; let meth_rhs      = wrapId (mk_op_wrapper sel_id rep_d) sel_id
+                  local_meth_id = sig_id local_meth_sig
                   meth_bind = mkVarBind local_meth_id (L loc meth_rhs)
                   export = ABE { abe_wrap = idHsWrapper, abe_poly = meth_id
                                , abe_mono = local_meth_id, abe_prags = noSpecPrags }
@@ -1127,23 +1276,6 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
                               `orElse` pprPanic "tcInstanceMethods" (ppr sel_id)
 
 ----------------------
-mkMethIds :: Class -> [TcTyVar] -> [EvVar] -> [TcType] -> Id -> TcM (TcId, TcId)
-mkMethIds clas tyvars dfun_ev_vars inst_tys sel_id
-  = do  { uniq <- newUnique
-        ; let meth_name = mkDerivedInternalName mkClassOpAuxOcc uniq sel_name
-        ; local_meth_name <- newLocalName sel_name
-                  -- Base the local_meth_name on the selector name, becuase
-                  -- type errors from tcInstanceMethodBody come from here
-
-        ; let meth_id       = mkLocalId meth_name meth_ty
-              local_meth_id = mkLocalId local_meth_name local_meth_ty
-        ; return (meth_id, local_meth_id) }
-  where
-    local_meth_ty = instantiateMethod clas sel_id inst_tys
-    meth_ty = mkForAllTys tyvars $ mkPiTypes dfun_ev_vars local_meth_ty
-    sel_name = idName sel_id
-
-----------------------
 wrapId :: HsWrapper -> id -> HsExpr id
 wrapId wrapper id = mkHsWrap wrapper (HsVar id)
 
@@ -1154,18 +1286,15 @@ derivBindCtxt sel_id clas tys _bind
                     <+> quotes (pprClassPred clas tys) <> colon)
           , nest 2 $ ptext (sLit "To see the code I am typechecking, use -ddump-deriv") ]
 
--- Too voluminous
---        , nest 2 $ pprSetDepth AllTheWay $ ppr bind ]
-
-warnMissingMethod :: Id -> TcM ()
-warnMissingMethod sel_id
+warnMissingMethodOrAT :: String -> Name -> TcM ()
+warnMissingMethodOrAT what name
   = do { warn <- woptM Opt_WarnMissingMethods
-       ; traceTc "warn" (ppr sel_id <+> ppr warn <+> ppr (not (startsWithUnderscore (getOccName sel_id))))
+       ; traceTc "warn" (ppr name <+> ppr warn <+> ppr (not (startsWithUnderscore (getOccName name))))
        ; warnTc (warn  -- Warn only if -fwarn-missing-methods
-                 && not (startsWithUnderscore (getOccName sel_id)))
+                 && not (startsWithUnderscore (getOccName name)))
                                         -- Don't warn about _foo methods
-                (ptext (sLit "No explicit method nor default method for")
-                 <+> quotes (ppr sel_id)) }
+                (ptext (sLit "No explicit") <+> text what <+> ptext (sLit "or default declaration for")
+                 <+> quotes (ppr name)) }
 \end{code}
 
 Note [Export helper functions]
@@ -1290,10 +1419,6 @@ instDeclCtxt2 dfun_ty
 
 inst_decl_ctxt :: SDoc -> SDoc
 inst_decl_ctxt doc = ptext (sLit "In the instance declaration for") <+> quotes doc
-
-omittedATWarn :: Name -> SDoc
-omittedATWarn at
-  = ptext (sLit "No explicit AT declaration for") <+> quotes (ppr at)
 
 badBootFamInstDeclErr :: SDoc
 badBootFamInstDeclErr

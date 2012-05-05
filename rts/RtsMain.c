@@ -49,21 +49,20 @@ static void real_main(void)
     /* kick off the computation by creating the main thread with a pointer
        to mainIO_closure representing the computation of the overall program;
        then enter the scheduler with this thread and off we go;
-
+      
        the same for GranSim (we have only one instance of this code)
 
        in a parallel setup, where we have many instances of this code
        running on different PEs, we should do this only for the main PE
-       (IAmMainThread is set in startupHaskell)
+       (IAmMainThread is set in startupHaskell) 
     */
 
     /* ToDo: want to start with a larger stack size */
-    {
-  Capability *cap = rts_lock();
+    { 
+	Capability *cap = rts_lock();
         rts_evalLazyIO(&cap,progmain_closure, NULL);
-  status = rts_getSchedStatus(cap);
-  taskTimeStamp(myTask());
-  rts_unlock(cap);
+	status = rts_getSchedStatus(cap);
+        rts_unlock(cap);
     }
 
     /* check the status of the entire Haskell computation */
@@ -109,11 +108,11 @@ int hs_main (int argc, char *argv[],     // program args
     progmain_closure = main_closure;
     rtsconfig = rts_config;
 
-#if defined(mingw32_HOST_OS)
+#if defined(mingw32_HOST_OS) && defined(i386_HOST_ARCH)
     BEGIN_CATCH
 #endif
     real_main();
-#if defined(mingw32_HOST_OS)
+#if defined(mingw32_HOST_OS) && defined(i386_HOST_ARCH)
     END_CATCH
 #endif
 }

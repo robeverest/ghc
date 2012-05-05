@@ -56,6 +56,8 @@ module Lexer (
    getLexState, popLexState, pushLexState,
    extension, bangPatEnabled, datatypeContextsEnabled,
    traditionalRecordSyntaxEnabled,
+   typeLiteralsEnabled,
+   explicitNamespacesEnabled,
    addWarning,
    lexTokenStream
   ) where
@@ -145,7 +147,7 @@ haskell :-
 
 -- everywhere: skip whitespace and comments
 $white_no_nl+ ;
-$tab+         { warn Opt_WarnTabs (text "Warning: Tab character") }
+$tab+         { warn Opt_WarnTabs (text "Tab character") }
 
 -- Everywhere: deal with nested comments.  We explicitly rule out
 -- pragmas, "{-#", so that we don't accidentally treat them as comments.
@@ -319,6 +321,10 @@ $tab+         { warn Opt_WarnTabs (text "Warning: Tab character") }
 
   "[" @varid "|"  / { ifExtension qqEnabled }
                      { lex_quasiquote_tok }
+
+  -- qualified quasi-quote (#5555)
+  "[" @qual @varid "|"  / { ifExtension qqEnabled }
+                          { lex_qquasiquote_tok }
 }
 
 <0> {
@@ -487,6 +493,7 @@ data Token
   | ITvect_prag
   | ITvect_scalar_prag
   | ITnovect_prag
+  | ITctype
 
   | ITdotdot                    -- reserved symbols
   | ITcolon
@@ -509,8 +516,6 @@ data Token
 
   | ITocurly                    -- special symbols
   | ITccurly
-  | ITocurlybar                 -- {|, for type applications
-  | ITccurlybar                 -- |}, for type applications
   | ITvocurly
   | ITvccurly
   | ITobrack
@@ -561,7 +566,14 @@ data Token
   | ITidEscape   FastString     --  $x
   | ITparenEscape               --  $(
   | ITtyQuote                   --  ''
-  | ITquasiQuote (FastString,FastString,RealSrcSpan) --  [:...|...|]
+  | ITquasiQuote (FastString,FastString,RealSrcSpan)
+    -- ITquasiQuote(quoter, quote, loc)
+    -- represents a quasi-quote of the form
+    -- [quoter| quote |]
+  | ITqQuasiQuote (FastString,FastString,FastString,RealSrcSpan)
+    -- ITqQuasiQuote(Qual, quoter, quote, loc)
+    -- represents a qualified quasi-quote of the form
+    -- [Qual.quoter| quote |]
 
   -- Arrow notation extension
   | ITproc
@@ -1422,6 +1434,18 @@ getCharOrFail i =  do
 -- -----------------------------------------------------------------------------
 -- QuasiQuote
 
+lex_qquasiquote_tok :: Action
+lex_qquasiquote_tok span buf len = do
+  let (qual, quoter) = splitQualName (stepOn buf) (len - 2) False
+  quoteStart <- getSrcLoc
+  quote <- lex_quasiquote quoteStart ""
+  end <- getSrcLoc
+  return (L (mkRealSrcSpan (realSrcSpanStart span) end)
+           (ITqQuasiQuote (qual,
+                           quoter,
+                           mkFastString (reverse quote),
+                           mkRealSrcSpan quoteStart end)))
+
 lex_quasiquote_tok :: Action
 lex_quasiquote_tok span buf len = do
   let quoter = tail (lexemeToString buf (len - 1))
@@ -1484,7 +1508,7 @@ data ParseResult a
         SrcSpan         -- The start and end of the text span related to
                         -- the error.  Might be used in environments which can
                         -- show this span, e.g. by highlighting it.
-        Message         -- The error message
+        MsgDoc          -- The error message
 
 data PState = PState {
         buffer     :: StringBuffer,
@@ -1562,8 +1586,8 @@ failSpanMsgP span msg = P $ \_ -> PFailed span msg
 getPState :: P PState
 getPState = P $ \s -> POk s s
 
-getDynFlags :: P DynFlags
-getDynFlags = P $ \s -> POk s (dflags s)
+instance HasDynFlags P where
+    getDynFlags = P $ \s -> POk s (dflags s)
 
 withThisPackage :: (PackageId -> a) -> P a
 withThisPackage f
@@ -1807,6 +1831,11 @@ safeHaskellBit :: Int
 safeHaskellBit = 26
 traditionalRecordSyntaxBit :: Int
 traditionalRecordSyntaxBit = 27
+typeLiteralsBit :: Int
+typeLiteralsBit = 28
+explicitNamespacesBit :: Int
+explicitNamespacesBit = 29
+
 
 always :: Int -> Bool
 always           _     = True
@@ -1850,6 +1879,11 @@ nondecreasingIndentation :: Int -> Bool
 nondecreasingIndentation flags = testBit flags nondecreasingIndentationBit
 traditionalRecordSyntaxEnabled :: Int -> Bool
 traditionalRecordSyntaxEnabled flags = testBit flags traditionalRecordSyntaxBit
+typeLiteralsEnabled :: Int -> Bool
+typeLiteralsEnabled flags = testBit flags typeLiteralsBit
+
+explicitNamespacesEnabled :: Int -> Bool
+explicitNamespacesEnabled flags = testBit flags explicitNamespacesBit
 
 -- PState for parsing options pragmas
 --
@@ -1909,6 +1943,8 @@ mkPState flags buf loc =
                .|. nondecreasingIndentationBit `setBitIf` xopt Opt_NondecreasingIndentation flags
                .|. safeHaskellBit              `setBitIf` safeImportsOn                     flags
                .|. traditionalRecordSyntaxBit  `setBitIf` xopt Opt_TraditionalRecordSyntax  flags
+               .|. typeLiteralsBit             `setBitIf` xopt Opt_DataKinds flags
+               .|. explicitNamespacesBit       `setBitIf` xopt Opt_ExplicitNamespaces flags
       --
       setBitIf :: Int -> Bool -> Int
       b `setBitIf` cond | cond      = bit b
@@ -1959,7 +1995,7 @@ getOffside = P $ \s@PState{last_loc=loc, context=stk} ->
 srcParseErr
   :: StringBuffer       -- current buffer (placed just after the last token)
   -> Int                -- length of the previous token
-  -> Message
+  -> MsgDoc
 srcParseErr buf len
   = hcat [ if null token
              then ptext (sLit "parse error (possibly incorrect indentation)")
@@ -2289,7 +2325,8 @@ oneWordPrags = Map.fromList([("rules", rulePrag),
                            ("nounpack", token ITnounpack_prag),
                            ("ann", token ITann_prag),
                            ("vectorize", token ITvect_prag),
-                           ("novectorize", token ITnovect_prag)])
+                           ("novectorize", token ITnovect_prag),
+                           ("ctype", token ITctype)])
 
 twoWordPrags = Map.fromList([("inline conlike", token (ITinline_prag Inline ConLike)),
                              ("notinline conlike", token (ITinline_prag NoInline ConLike)),

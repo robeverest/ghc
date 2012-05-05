@@ -41,7 +41,8 @@ import CLabel
 import Util
 
 import Data.Array
-import System.Directory ( createDirectoryIfMissing )
+import Data.Time
+import System.Directory
 
 import Trace.Hpc.Mix
 import Trace.Hpc.Util
@@ -158,7 +159,7 @@ writeMixEntries dflags mod count entries filename
             tabStop = 8 -- <tab> counts as a normal char in GHC's location ranges.
 
         createDirectoryIfMissing True hpc_mod_dir
-        modTime <- getModificationTime filename
+        modTime <- getModificationUTCTime filename
         let entries' = [ (hpcPos, box) 
                        | (span,_,_,box) <- entries, hpcPos <- [mkHpcPos span] ]
         when (length entries' /= count) $ do
@@ -619,12 +620,11 @@ addTickStmt isGuard (ExprStmt e bind' guard' ty) = do
 addTickStmt _isGuard (LetStmt binds) = do
 	liftM LetStmt
 		(addTickHsLocalBinds binds)
-addTickStmt isGuard (ParStmt pairs mzipExpr bindExpr returnExpr) = do
-    liftM4 ParStmt 
+addTickStmt isGuard (ParStmt pairs mzipExpr bindExpr) = do
+    liftM3 ParStmt 
         (mapM (addTickStmtAndBinders isGuard) pairs)
         (addTickSyntaxExpr hpcSrcSpan mzipExpr)
         (addTickSyntaxExpr hpcSrcSpan bindExpr)
-        (addTickSyntaxExpr hpcSrcSpan returnExpr)
 
 addTickStmt isGuard stmt@(TransStmt { trS_stmts = stmts
                                     , trS_by = by, trS_using = using
@@ -651,12 +651,13 @@ addTick :: Maybe (Bool -> BoxLabel) -> LHsExpr Id -> TM (LHsExpr Id)
 addTick isGuard e | Just fn <- isGuard = addBinTickLHsExpr fn e
                   | otherwise          = addTickLHsExprRHS e
 
-addTickStmtAndBinders :: Maybe (Bool -> BoxLabel) -> ([LStmt Id], a) 
-                      -> TM ([LStmt Id], a)
-addTickStmtAndBinders isGuard (stmts, ids) = 
-    liftM2 (,) 
+addTickStmtAndBinders :: Maybe (Bool -> BoxLabel) -> ParStmtBlock Id Id
+                      -> TM (ParStmtBlock Id Id)
+addTickStmtAndBinders isGuard (ParStmtBlock stmts ids returnExpr) = 
+    liftM3 ParStmtBlock 
         (addTickLStmts isGuard stmts)
         (return ids)
+        (addTickSyntaxExpr hpcSrcSpan returnExpr)
 
 addTickHsLocalBinds :: HsLocalBinds Id -> TM (HsLocalBinds Id)
 addTickHsLocalBinds (HsValBinds binds) = 
@@ -1097,7 +1098,7 @@ type MixEntry_ = (SrcSpan, [String], [OccName], BoxLabel)
 -- This hash only has to be hashed at Mix creation time,
 -- and is for sanity checking only.
 
-mixHash :: FilePath -> Integer -> Int -> [MixEntry] -> Int
+mixHash :: FilePath -> UTCTime -> Int -> [MixEntry] -> Int
 mixHash file tm tabstop entries = fromIntegral $ hashString
 	(show $ Mix file tm 0 tabstop entries)
 \end{code}

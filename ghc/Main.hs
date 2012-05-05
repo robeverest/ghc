@@ -1,12 +1,5 @@
 {-# OPTIONS -fno-warn-incomplete-patterns -optc-DNON_POSIX_SOURCE #-}
 
-{-# OPTIONS -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSp
--- for details
-
 -----------------------------------------------------------------------------
 --
 -- GHC Driver program
@@ -85,7 +78,7 @@ import Data.Maybe
 main :: IO ()
 main = do
    hSetBuffering stdout NoBuffering
-   GHC.defaultErrorHandler defaultLogAction $ do
+   GHC.defaultErrorHandler defaultLogAction defaultFlushOut $ do
     -- 1. extract the -B flag from the args
     argv0 <- getArgs
 
@@ -162,6 +155,8 @@ main' postLoadMode dflags0 args flagWarnings = do
 
       -- turn on -fimplicit-import-qualified for GHCi now, so that it
       -- can be overriden from the command-line
+      -- XXX: this should really be in the interactive DynFlags, but
+      -- we don't set that until later in interactiveUI
       dflags1a | DoInteractive <- postLoadMode = imp_qual_enabled
                | DoEval _      <- postLoadMode = imp_qual_enabled
                | otherwise                 = dflags1
@@ -549,14 +544,21 @@ mode_flags =
                                             addFlag "-no-link" f))
   , Flag "M"            (PassFlag (setMode doMkDependHSMode))
   , Flag "E"            (PassFlag (setMode (stopBeforeMode anyHsc)))
-  , Flag "C"            (PassFlag (\f -> do setMode (stopBeforeMode HCc) f
-                                            addFlag "-fvia-C" f))
+  , Flag "C"            (PassFlag setGenerateC)
   , Flag "S"            (PassFlag (setMode (stopBeforeMode As)))
   , Flag "-make"        (PassFlag (setMode doMakeMode))
   , Flag "-interactive" (PassFlag (setMode doInteractiveMode))
   , Flag "-abi-hash"    (PassFlag (setMode doAbiHashMode))
   , Flag "e"            (SepArg   (\s -> setMode (doEvalMode s) "-e"))
   ]
+
+setGenerateC :: String -> EwM ModeM ()
+setGenerateC f
+  | cGhcUnregisterised /= "YES" = do
+        addWarn ("Compiler not unregisterised, so ignoring " ++ f)
+  | otherwise = do
+        setMode (stopBeforeMode HCc) f
+        addFlag "-fvia-C" f
 
 setMode :: Mode -> String -> EwM ModeM ()
 setMode newMode newFlag = liftEwM $ do

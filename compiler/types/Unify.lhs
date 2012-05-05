@@ -156,9 +156,6 @@ match :: MatchEnv	-- For the most part this is pushed downwards
 			--	in-scope set of the RnEnv2
       -> Type -> Type	-- Template and target respectively
       -> Maybe TvSubstEnv
--- This matcher works on core types; that is, it ignores PredTypes
--- Watch out if newtypes become transparent agin!
--- 	this matcher must respect newtypes
 
 match menv subst ty1 ty2 | Just ty1' <- coreView ty1 = match menv subst ty1' ty2
 			 | Just ty2' <- coreView ty2 = match menv subst ty1 ty2'
@@ -201,6 +198,8 @@ match menv subst (AppTy ty1a ty1b) ty2
 	-- 'repSplit' used because the tcView stuff is done above
   = do { subst' <- match menv subst ty1a ty2a
        ; match menv subst' ty1b ty2b }
+
+match _ subst (LitTy x) (LitTy y) | x == y  = return subst
 
 match _ _ _ _
   = Nothing
@@ -342,6 +341,8 @@ typesCantMatch prs = any (\(s,t) -> cant_match s t) prs
 	| Just (f1, a1) <- repSplitAppTy_maybe ty1
 	= cant_match f1 f2 || cant_match a1 a2
 
+    cant_match (LitTy x) (LitTy y) = x /= y
+
     cant_match _ _ = False      -- Safe!
 
 -- Things we could add;
@@ -455,6 +456,8 @@ unify subst ty1 (AppTy ty2a ty2b)
   | Just (ty1a, ty1b) <- repSplitAppTy_maybe ty1
   = do	{ subst' <- unify subst ty1a ty2a
         ; unify subst' ty1b ty2b }
+
+unify subst (LitTy x) (LitTy y) | x == y = return subst
 
 unify _ ty1 ty2 = failWith (misMatch ty1 ty2)
 	-- ForAlls??
@@ -579,7 +582,7 @@ data BindFlag
 
 \begin{code}
 newtype UM a = UM { unUM :: (TyVar -> BindFlag)
-		         -> MaybeErr Message a }
+		         -> MaybeErr MsgDoc a }
 
 instance Monad UM where
   return a = UM (\_tvs -> Succeeded a)
@@ -588,13 +591,13 @@ instance Monad UM where
 			   Failed err -> Failed err
 			   Succeeded v  -> unUM (k v) tvs)
 
-initUM :: (TyVar -> BindFlag) -> UM a -> MaybeErr Message a
+initUM :: (TyVar -> BindFlag) -> UM a -> MaybeErr MsgDoc a
 initUM badtvs um = unUM um badtvs
 
 tvBindFlag :: TyVar -> UM BindFlag
 tvBindFlag tv = UM (\tv_fn -> Succeeded (tv_fn tv))
 
-failWith :: Message -> UM a
+failWith :: MsgDoc -> UM a
 failWith msg = UM (\_tv_fn -> Failed msg)
 
 maybeErrToMaybe :: MaybeErr fail succ -> Maybe succ

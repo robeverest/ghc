@@ -137,7 +137,7 @@ showPass dflags pass = Err.showPass dflags (showSDoc (ppr pass))
 
 endPass :: DynFlags -> CoreToDo -> CoreProgram -> [CoreRule] -> IO ()
 endPass dflags pass binds rules
-  = do { dumpPassResult dflags mb_flag (ppr pass) empty binds rules
+  = do { dumpPassResult dflags mb_flag (ppr pass) (pprPassDetails pass) binds rules
        ; lintPassResult dflags pass binds }      
   where
     mb_flag = case coreDumpFlag pass of
@@ -161,15 +161,16 @@ dumpPassResult dflags mb_flag hdr extra_info binds rules
   = Err.dumpSDoc dflags dflag (showSDoc hdr) dump_doc
 
   | otherwise
-  = Err.debugTraceMsg dflags 2 $
-    (text "Result size of" <+> hdr <+> equals <+> int (coreBindsSize binds))
+  = Err.debugTraceMsg dflags 2 size_doc
           -- Report result size 
 	  -- This has the side effect of forcing the intermediate to be evaluated
 
   where
-    dump_doc  = vcat [ text "Result size =" <+> int (coreBindsSize binds)
-                     , extra_info
-		     , blankLine
+    size_doc = sep [text "Result size of" <+> hdr, nest 2 (equals <+> ppr (coreBindsStats binds))]
+
+    dump_doc  = vcat [ nest 2 extra_info
+		     , size_doc
+                     , blankLine
                      , pprCoreBindings binds 
                      , ppUnless (null rules) pp_rules ]
     pp_rules = vcat [ blankLine
@@ -184,7 +185,7 @@ lintPassResult dflags pass binds
        ; displayLintResults dflags pass warns errs binds  }
 
 displayLintResults :: DynFlags -> CoreToDo
-                   -> Bag Err.Message -> Bag Err.Message -> CoreProgram
+                   -> Bag Err.MsgDoc -> Bag Err.MsgDoc -> CoreProgram
                    -> IO ()
 displayLintResults dflags pass warns errs binds
   | not (isEmptyBag errs)
@@ -307,7 +308,8 @@ instance Outputable CoreToDo where
   ppr (CoreDoPasses {})        = ptext (sLit "CoreDoPasses")
 
 pprPassDetails :: CoreToDo -> SDoc
-pprPassDetails (CoreDoSimplify n md) = ppr md <+> ptext (sLit "max-iterations=") <> int n
+pprPassDetails (CoreDoSimplify n md) = vcat [ ptext (sLit "Max iterations =") <+> int n 
+                                            , ppr md ]
 pprPassDetails _ = empty
 \end{code}
 
@@ -865,8 +867,8 @@ addSimplCount count = write (CoreWriter { cw_simpl_count = count })
 
 -- Convenience accessors for useful fields of HscEnv
 
-getDynFlags :: CoreM DynFlags
-getDynFlags = fmap hsc_dflags getHscEnv
+instance HasDynFlags CoreM where
+    getDynFlags = fmap hsc_dflags getHscEnv
 
 -- | The original name cache is the current mapping from 'Module' and
 -- 'OccName' to a compiler-wide unique 'Name'

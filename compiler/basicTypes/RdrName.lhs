@@ -132,6 +132,10 @@ data RdrName
 %************************************************************************
 
 \begin{code}
+
+instance HasOccName RdrName where
+  occName = rdrNameOcc
+
 rdrNameOcc :: RdrName -> OccName
 rdrNameOcc (Qual _ occ) = occ
 rdrNameOcc (Unqual occ) = occ
@@ -520,6 +524,7 @@ pickGREs :: RdrName -> [GlobalRdrElt] -> [GlobalRdrElt]
 -- ^ Take a list of GREs which have the right OccName
 -- Pick those GREs that are suitable for this RdrName
 -- And for those, keep only only the Provenances that are suitable
+-- Only used for Qual and Unqual, not Orig or Exact
 -- 
 -- Consider:
 --
@@ -536,7 +541,8 @@ pickGREs :: RdrName -> [GlobalRdrElt] -> [GlobalRdrElt]
 -- the locally-defined @f@, and a GRE for the imported @f@, with a /single/ 
 -- provenance, namely the one for @Baz(f)@.
 pickGREs rdr_name gres
-  = mapCatMaybes pick gres
+  = ASSERT2( isSrcRdrName rdr_name, ppr rdr_name )
+    mapCatMaybes pick gres
   where
     rdr_is_unqual = isUnqual rdr_name
     rdr_is_qual   = isQual_maybe rdr_name

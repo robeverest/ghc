@@ -221,7 +221,8 @@ These data types are the heart of the compiler
 --    This is one of the more complicated elements of the Core language, 
 --    and comes with a number of restrictions:
 --    
---    1. The list of alternatives is non-empty
+--    1. The list of alternatives may be empty; 
+--       See Note [Empty case alternatives]
 --
 --    2. The 'DEFAULT' case alternative must be first in the list, 
 --       if it occurs at all.
@@ -338,10 +339,64 @@ Note [CoreSyn let goal]
   application, its arguments are trivial, so that the constructor can be
   inlined vigorously.
 
-
 Note [Type let]
 ~~~~~~~~~~~~~~~
 See #type_let#
+
+Note [Empty case alternatives]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The alternatives of a case expression should be exhaustive.  A case expression
+can have empty alternatives if (and only if) the scrutinee is bound to raise
+an exception or diverge.  So:
+   Case (error Int "Hello") b Bool []
+is fine, and has type Bool.  This is one reason we need a type on 
+the case expression: if the alternatives are empty we can't get the type
+from the alternatives!  I'll write this
+   case (error Int "Hello") of Bool {}
+with the return type just before the alterantives.
+
+Here's another example:
+  data T
+  f :: T -> Bool
+  f = \(x:t). case x of Bool {}
+Since T has no data constructors, the case alterantives are of course
+empty.  However note that 'x' is not bound to a visbily-bottom value;
+it's the *type* that tells us it's going to diverge.  Its a bit of a
+degnerate situation but we do NOT want to replace
+   case x of Bool {}   -->   error Bool "Inaccessible case"
+because x might raise an exception, and *that*'s what we want to see!
+(Trac #6067 is an example.) To preserve semantics we'd have to say
+   x `seq` error Bool "Inaccessible case"   
+ but the 'seq' is just a case, so we are back to square 1.  Or I suppose
+we could say
+   x |> UnsafeCoerce T Bool
+but that loses all trace of the fact that this originated with an empty
+set of alternatives.
+
+We can use the empty-alternative construct to coerce error values from
+one type to another.  For example
+
+    f :: Int -> Int
+    f n = error "urk"
+   
+    g :: Int -> (# Char, Bool #)
+    g x = case f x of { 0 -> ..., n -> ... }
+
+Then if we inline f in g's RHS we get
+    case (error Int "urk") of (# Char, Bool #) { ... }
+and we can discard the alternatives since the scrutinee is bottom to give
+    case (error Int "urk") of (# Char, Bool #) {}
+
+This is nicer than using an unsafe coerce between Int ~ (# Char,Bool #),
+if for no other reason that we don't need to instantiate the (~) at an 
+unboxed type.
+
+
+%************************************************************************
+%*									*
+              Ticks
+%*									*
+%************************************************************************
 
 \begin{code}
 -- | Allows attaching extra information to points in expressions
@@ -449,12 +504,12 @@ data CoreRule
 	ru_act  :: Activation,          -- ^ When the rule is active
 
 	-- Rough-matching stuff
-	-- see comments with InstEnv.Instance( is_cls, is_rough )
+	-- see comments with InstEnv.ClsInst( is_cls, is_rough )
 	ru_fn    :: Name,	        -- ^ Name of the 'Id.Id' at the head of this rule
 	ru_rough :: [Maybe Name],	-- ^ Name at the head of each argument to the left hand side
 	
 	-- Proper-matching stuff
-	-- see comments with InstEnv.Instance( is_tvs, is_tys )
+	-- see comments with InstEnv.ClsInst( is_tvs, is_tys )
 	ru_bndrs :: [CoreBndr],         -- ^ Variables quantified over
 	ru_args  :: [CoreExpr],         -- ^ Left hand side arguments
 	
@@ -893,7 +948,7 @@ the occurrence info is wrong
 
 %************************************************************************
 %*									*
-\subsection{The main data type}
+                  AltCon
 %*									*
 %************************************************************************
 
@@ -911,10 +966,10 @@ instance Outputable AltCon where
 instance Show AltCon where
   showsPrec p con = showsPrecSDoc p (ppr con)
 
-cmpAlt :: Alt b -> Alt b -> Ordering
+cmpAlt :: (AltCon, a, b) -> (AltCon, a, b) -> Ordering
 cmpAlt (con1, _, _) (con2, _, _) = con1 `cmpAltCon` con2
 
-ltAlt :: Alt b -> Alt b -> Bool
+ltAlt :: (AltCon, a, b) -> (AltCon, a, b) -> Bool
 ltAlt a1 a2 = (a1 `cmpAlt` a2) == LT
 
 cmpAltCon :: AltCon -> AltCon -> Ordering

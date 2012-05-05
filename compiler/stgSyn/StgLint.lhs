@@ -4,13 +4,6 @@
 \section[StgLint]{A ``lint'' pass to check for Stg correctness}
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
-
 module StgLint ( lintStgBindings ) where
 
 import StgSyn
@@ -24,7 +17,7 @@ import PrimOp           ( primOpType )
 import Literal          ( literalType )
 import Maybes
 import Name             ( getSrcLoc )
-import ErrUtils         ( Message, mkLocMessage )
+import ErrUtils         ( MsgDoc, Severity(..), mkLocMessage )
 import TypeRep
 import Type
 import TyCon
@@ -121,10 +114,10 @@ lint_binds_help (binder, rhs)
                (mkUnLiftedTyMsg binder rhs)
 
         -- Check match to RHS type
-	-- Actually we *can't* check the RHS type, because
-	-- unsafeCoerce means it really might not match at all
-	-- notably;  eg x::Int = (error @Bool "urk") |> unsafeCoerce...
-	-- case maybe_rhs_ty of
+        -- Actually we *can't* check the RHS type, because
+        -- unsafeCoerce means it really might not match at all
+        -- notably;  eg x::Int = (error @Bool "urk") |> unsafeCoerce...
+        -- case maybe_rhs_ty of
         --  Nothing     -> return ()
         --    Just rhs_ty -> checkTys binder_ty
         --                          rhs_ty
@@ -237,8 +230,8 @@ lintStgAlts alts scrut_ty = do
                            return (Just first_ty)
         where
           -- check ty = checkTys first_ty ty (mkCaseAltMsg alts)
-	  -- We can't check that the alternatives have the
-	  -- same type, becuase they don't, with unsafeCoerce#
+          -- We can't check that the alternatives have the
+          -- same type, becuase they don't, with unsafeCoerce#
 
 lintAlt :: Type -> (AltCon, [Id], [Bool], StgExpr) -> LintM (Maybe Type)
 lintAlt _ (DEFAULT, _, _, rhs)
@@ -288,8 +281,8 @@ lintAlt scrut_ty (DataAlt con, args, _, rhs) = do
 newtype LintM a = LintM
     { unLintM :: [LintLocInfo]      -- Locations
               -> IdSet              -- Local vars in scope
-              -> Bag Message        -- Error messages so far
-              -> (a, Bag Message)   -- Result and error messages (if any)
+              -> Bag MsgDoc        -- Error messages so far
+              -> (a, Bag MsgDoc)   -- Result and error messages (if any)
     }
 
 data LintLocInfo
@@ -316,7 +309,7 @@ pp_binders bs
 \end{code}
 
 \begin{code}
-initL :: LintM a -> Maybe Message
+initL :: LintM a -> Maybe MsgDoc
 initL (LintM m)
   = case (m [] emptyVarSet emptyBag) of { (_, errs) ->
     if isEmptyBag errs then
@@ -342,19 +335,19 @@ thenL_ m k = LintM $ \loc scope errs
 \end{code}
 
 \begin{code}
-checkL :: Bool -> Message -> LintM ()
+checkL :: Bool -> MsgDoc -> LintM ()
 checkL True  _   = return ()
 checkL False msg = addErrL msg
 
-addErrL :: Message -> LintM ()
+addErrL :: MsgDoc -> LintM ()
 addErrL msg = LintM $ \loc _scope errs -> ((), addErr errs msg loc)
 
-addErr :: Bag Message -> Message -> [LintLocInfo] -> Bag Message
+addErr :: Bag MsgDoc -> MsgDoc -> [LintLocInfo] -> Bag MsgDoc
 addErr errs_so_far msg locs
   = errs_so_far `snocBag` mk_msg locs
   where
     mk_msg (loc:_) = let (l,hdr) = dumpLoc loc
-                     in  mkLocMessage l (hdr $$ msg)
+                     in  mkLocMessage SevWarning l (hdr $$ msg)
     mk_msg []      = msg
 
 addLoc :: LintLocInfo -> LintM a -> LintM a
@@ -387,7 +380,7 @@ have long since disappeared.
 \begin{code}
 checkFunApp :: Type                 -- The function type
             -> [Type]               -- The arg type(s)
-            -> Message              -- Error message
+            -> MsgDoc              -- Error message
             -> LintM (Maybe Type)   -- Just ty => result type is accurate
 
 checkFunApp fun_ty arg_tys msg
@@ -398,8 +391,8 @@ checkFunApp fun_ty arg_tys msg
  where
   (mb_ty, mb_msg) = cfa True fun_ty arg_tys
 
-  cfa :: Bool -> Type -> [Type] -> (Maybe Type		-- Accurate result?
-                                   , Maybe Message)	-- Errors?
+  cfa :: Bool -> Type -> [Type] -> (Maybe Type          -- Accurate result?
+                                   , Maybe MsgDoc)      -- Errors?
 
   cfa accurate fun_ty []      -- Args have run out; that's fine
       = (if accurate then Just fun_ty else Nothing, Nothing)
@@ -446,12 +439,12 @@ stgEqType orig_ty1 orig_ty2
       | Just (tc1, tc_args1) <- splitTyConApp_maybe ty1
       , Just (tc2, tc_args2) <- splitTyConApp_maybe ty2
       , let res = if tc1 == tc2 
-        	  then equalLength tc_args1 tc_args2 
-        	    && and (zipWith go tc_args1 tc_args2)
-        	  else  -- TyCons don't match; but don't bleat if either is a 
-    		        -- family TyCon because a coercion might have made it 
-        	        -- equal to something else
-        	    (isFamilyTyCon tc1 || isFamilyTyCon tc2)
+                  then equalLength tc_args1 tc_args2 
+                    && and (zipWith go tc_args1 tc_args2)
+                  else  -- TyCons don't match; but don't bleat if either is a 
+                        -- family TyCon because a coercion might have made it 
+                        -- equal to something else
+                    (isFamilyTyCon tc1 || isFamilyTyCon tc2)
       = if res then True
         else 
         pprTrace "stgEqType: unequal" (vcat [ppr orig_ty1, ppr orig_ty2, ppr rep_ty1
@@ -459,7 +452,7 @@ stgEqType orig_ty1 orig_ty2
         False
 
       | otherwise = True  -- Conservatively say "fine".  
-      		    	  -- Type variables in particular
+                          -- Type variables in particular
 
 checkInScope :: Id -> LintM ()
 checkInScope id = LintM $ \loc scope errs
@@ -468,7 +461,7 @@ checkInScope id = LintM $ \loc scope errs
     else
         ((), errs)
 
-checkTys :: Type -> Type -> Message -> LintM ()
+checkTys :: Type -> Type -> MsgDoc -> LintM ()
 checkTys ty1 ty2 msg = LintM $ \loc _scope errs
   -> if (ty1 `stgEqType` ty2)
      then ((), errs)
@@ -476,35 +469,35 @@ checkTys ty1 ty2 msg = LintM $ \loc _scope errs
 \end{code}
 
 \begin{code}
-_mkCaseAltMsg :: [StgAlt] -> Message
+_mkCaseAltMsg :: [StgAlt] -> MsgDoc
 _mkCaseAltMsg _alts
   = ($$) (text "In some case alternatives, type of alternatives not all same:")
             (empty) -- LATER: ppr alts
 
-mkDefltMsg :: Id -> TyCon -> Message
+mkDefltMsg :: Id -> TyCon -> MsgDoc
 mkDefltMsg bndr tc
   = ($$) (ptext (sLit "Binder of a case expression doesn't match type of scrutinee:"))
          (ppr bndr $$ ppr (idType bndr) $$ ppr tc)
 
-mkFunAppMsg :: Type -> [Type] -> StgExpr -> Message
+mkFunAppMsg :: Type -> [Type] -> StgExpr -> MsgDoc
 mkFunAppMsg fun_ty arg_tys expr
   = vcat [text "In a function application, function type doesn't match arg types:",
               hang (ptext (sLit "Function type:")) 4 (ppr fun_ty),
               hang (ptext (sLit "Arg types:")) 4 (vcat (map (ppr) arg_tys)),
               hang (ptext (sLit "Expression:")) 4 (ppr expr)]
 
-mkRhsConMsg :: Type -> [Type] -> Message
+mkRhsConMsg :: Type -> [Type] -> MsgDoc
 mkRhsConMsg fun_ty arg_tys
   = vcat [text "In a RHS constructor application, con type doesn't match arg types:",
               hang (ptext (sLit "Constructor type:")) 4 (ppr fun_ty),
               hang (ptext (sLit "Arg types:")) 4 (vcat (map (ppr) arg_tys))]
 
-mkAltMsg1 :: Type -> Message
+mkAltMsg1 :: Type -> MsgDoc
 mkAltMsg1 ty
   = ($$) (text "In a case expression, type of scrutinee does not match patterns")
          (ppr ty)
 
-mkAlgAltMsg2 :: Type -> DataCon -> Message
+mkAlgAltMsg2 :: Type -> DataCon -> MsgDoc
 mkAlgAltMsg2 ty con
   = vcat [
         text "In some algebraic case alternative, constructor is not a constructor of scrutinee type:",
@@ -512,7 +505,7 @@ mkAlgAltMsg2 ty con
         ppr con
     ]
 
-mkAlgAltMsg3 :: DataCon -> [Id] -> Message
+mkAlgAltMsg3 :: DataCon -> [Id] -> MsgDoc
 mkAlgAltMsg3 con alts
   = vcat [
         text "In some algebraic case alternative, number of arguments doesn't match constructor:",
@@ -520,7 +513,7 @@ mkAlgAltMsg3 con alts
         ppr alts
     ]
 
-mkAlgAltMsg4 :: Type -> Id -> Message
+mkAlgAltMsg4 :: Type -> Id -> MsgDoc
 mkAlgAltMsg4 ty arg
   = vcat [
         text "In some algebraic case alternative, type of argument doesn't match data constructor:",
@@ -528,7 +521,7 @@ mkAlgAltMsg4 ty arg
         ppr arg
     ]
 
-_mkRhsMsg :: Id -> Type -> Message
+_mkRhsMsg :: Id -> Type -> MsgDoc
 _mkRhsMsg binder ty
   = vcat [hsep [ptext (sLit "The type of this binder doesn't match the type of its RHS:"),
                      ppr binder],
