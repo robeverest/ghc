@@ -1388,7 +1388,7 @@ lookupType dflags hpt pte name
   = lookupNameEnv pte name
   where 
     mod = ASSERT2( isExternalName name, ppr name ) nameModule name
-        this_pkg = thisPackage dflags
+    this_pkg = thisPackage dflags
 
 -- | As 'lookupType', but with a marginally easier-to-use interface
 -- if you have a 'HscEnv'

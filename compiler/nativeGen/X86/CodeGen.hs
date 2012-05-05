@@ -1991,7 +1991,7 @@ genCCall64' :: Platform
             -> [HintedCmmActual]        -- arguments (of mixed type)
             -> NatM InstrBlock
 genCCall64' platform target dest_regs args = do
-        -- load up the register arguments
+    -- load up the register arguments
     (stack_args, int_regs_used, fp_regs_used, load_args_code)
          <-
         if platformOS platform == OSMinGW32
@@ -2002,97 +2002,97 @@ genCCall64' platform target dest_regs args = do
                     int_regs_used = reverse (drop (length aregs) (reverse allIntArgRegs))
                 return (stack_args, int_regs_used, fp_regs_used, load_args_code)
 
-        let
+    let
         arg_regs_used = int_regs_used ++ fp_regs_used
         arg_regs = [eax] ++ arg_regs_used
-                    -- for annotating the call instruction with
-            sse_regs = length fp_regs_used
+                -- for annotating the call instruction with
+        sse_regs = length fp_regs_used
         arg_stack_slots = if platformOS platform == OSMinGW32
                           then length stack_args + length allArgRegs
                           else length stack_args
         tot_arg_size = arg_size * arg_stack_slots
 
 
-        -- Align stack to 16n for calls, assuming a starting stack
-        -- alignment of 16n - word_size on procedure entry. Which we
-        -- maintiain. See Note [rts/StgCRun.c : Stack Alignment on X86]
-        (real_size, adjust_rsp) <-
-            if (tot_arg_size + wORD_SIZE) `rem` 16 == 0
-                then return (tot_arg_size, nilOL)
-                else do -- we need to adjust...
-                    delta <- getDeltaNat
-                    setDeltaNat (delta - wORD_SIZE)
-                    return (tot_arg_size + wORD_SIZE, toOL [
-                                    SUB II64 (OpImm (ImmInt wORD_SIZE)) (OpReg rsp),
-                                    DELTA (delta - wORD_SIZE) ])
+    -- Align stack to 16n for calls, assuming a starting stack
+    -- alignment of 16n - word_size on procedure entry. Which we
+    -- maintiain. See Note [rts/StgCRun.c : Stack Alignment on X86]
+    (real_size, adjust_rsp) <-
+        if (tot_arg_size + wORD_SIZE) `rem` 16 == 0
+            then return (tot_arg_size, nilOL)
+            else do -- we need to adjust...
+                delta <- getDeltaNat
+                setDeltaNat (delta - wORD_SIZE)
+                return (tot_arg_size + wORD_SIZE, toOL [
+                                SUB II64 (OpImm (ImmInt wORD_SIZE)) (OpReg rsp),
+                                DELTA (delta - wORD_SIZE) ])
 
-        -- push the stack args, right to left
-        push_code <- push_args (reverse stack_args) nilOL
+    -- push the stack args, right to left
+    push_code <- push_args (reverse stack_args) nilOL
     -- On Win64, we also have to leave stack space for the arguments
     -- that we are passing in registers
     lss_code <- if platformOS platform == OSMinGW32
                 then leaveStackSpace (length allArgRegs)
                 else return nilOL
-        delta <- getDeltaNat
+    delta <- getDeltaNat
 
-        -- deal with static vs dynamic call targets
-        (callinsns,_cconv) <-
-          case target of
-            CmmCallee (CmmLit (CmmLabel lbl)) conv
-               -> -- ToDo: stdcall arg sizes
-                  return (unitOL (CALL (Left fn_imm) arg_regs), conv)
-               where fn_imm = ImmCLbl lbl
-            CmmCallee expr conv
-               -> do (dyn_r, dyn_c) <- getSomeReg expr
-                     return (dyn_c `snocOL` CALL (Right dyn_r) arg_regs, conv)
+    -- deal with static vs dynamic call targets
+    (callinsns,_cconv) <-
+      case target of
+        CmmCallee (CmmLit (CmmLabel lbl)) conv
+           -> -- ToDo: stdcall arg sizes
+              return (unitOL (CALL (Left fn_imm) arg_regs), conv)
+           where fn_imm = ImmCLbl lbl
+        CmmCallee expr conv
+           -> do (dyn_r, dyn_c) <- getSomeReg expr
+                 return (dyn_c `snocOL` CALL (Right dyn_r) arg_regs, conv)
         CmmPrim _ _
-                -> panic $ "genCCall: Can't handle CmmPrim call type here, error "
-                            ++ "probably because too many return values."
+            -> panic $ "genCCall: Can't handle CmmPrim call type here, error "
+                        ++ "probably because too many return values."
 
-        let
-            -- The x86_64 ABI requires us to set %al to the number of SSE2
-            -- registers that contain arguments, if the called routine
-            -- is a varargs function.  We don't know whether it's a
-            -- varargs function or not, so we have to assume it is.
-            --
-            -- It's not safe to omit this assignment, even if the number
-            -- of SSE2 regs in use is zero.  If %al is larger than 8
-            -- on entry to a varargs function, seg faults ensue.
-            assign_eax n = unitOL (MOV II32 (OpImm (ImmInt n)) (OpReg eax))
+    let
+        -- The x86_64 ABI requires us to set %al to the number of SSE2
+        -- registers that contain arguments, if the called routine
+        -- is a varargs function.  We don't know whether it's a
+        -- varargs function or not, so we have to assume it is.
+        --
+        -- It's not safe to omit this assignment, even if the number
+        -- of SSE2 regs in use is zero.  If %al is larger than 8
+        -- on entry to a varargs function, seg faults ensue.
+        assign_eax n = unitOL (MOV II32 (OpImm (ImmInt n)) (OpReg eax))
 
-        let call = callinsns `appOL`
-                   toOL (
-                        -- Deallocate parameters after call for ccall;
-                        -- stdcall has callee do it, but is not supported on
-                        -- x86_64 target (see #3336)
-                      (if real_size==0 then [] else
-                       [ADD (intSize wordWidth) (OpImm (ImmInt real_size)) (OpReg esp)])
-                      ++
-                      [DELTA (delta + real_size)]
-                   )
-        -- in
-        setDeltaNat (delta + real_size)
+    let call = callinsns `appOL`
+               toOL (
+                    -- Deallocate parameters after call for ccall;
+                    -- stdcall has callee do it, but is not supported on
+                    -- x86_64 target (see #3336)
+                  (if real_size==0 then [] else
+                   [ADD (intSize wordWidth) (OpImm (ImmInt real_size)) (OpReg esp)])
+                  ++
+                  [DELTA (delta + real_size)]
+               )
+    -- in
+    setDeltaNat (delta + real_size)
 
-        let
-            -- assign the results, if necessary
-            assign_code []     = nilOL
-            assign_code [CmmHinted dest _hint] =
-              case typeWidth rep of
-                    W32 | isFloatType rep -> unitOL (MOV (floatSize W32) (OpReg xmm0) (OpReg r_dest))
-                    W64 | isFloatType rep -> unitOL (MOV (floatSize W64) (OpReg xmm0) (OpReg r_dest))
-                    _ -> unitOL (MOV (cmmTypeSize rep) (OpReg rax) (OpReg r_dest))
-              where
-                    rep = localRegType dest
-                    r_dest = getRegisterReg True (CmmLocal dest)
-            assign_code _many = panic "genCCall.assign_code many"
+    let
+        -- assign the results, if necessary
+        assign_code []     = nilOL
+        assign_code [CmmHinted dest _hint] =
+          case typeWidth rep of
+                W32 | isFloatType rep -> unitOL (MOV (floatSize W32) (OpReg xmm0) (OpReg r_dest))
+                W64 | isFloatType rep -> unitOL (MOV (floatSize W64) (OpReg xmm0) (OpReg r_dest))
+                _ -> unitOL (MOV (cmmTypeSize rep) (OpReg rax) (OpReg r_dest))
+          where
+                rep = localRegType dest
+                r_dest = getRegisterReg True (CmmLocal dest)
+        assign_code _many = panic "genCCall.assign_code many"
 
-        return (load_args_code      `appOL`
-                adjust_rsp          `appOL`
-                push_code           `appOL`
+    return (load_args_code      `appOL`
+            adjust_rsp          `appOL`
+            push_code           `appOL`
             lss_code            `appOL`
-                assign_eax sse_regs `appOL`
-                call                `appOL`
-                assign_code dest_regs)
+            assign_eax sse_regs `appOL`
+            call                `appOL`
+            assign_code dest_regs)
 
   where arg_size = 8 -- always, at the mo
 

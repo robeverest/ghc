@@ -115,9 +115,9 @@ import Data.List        ( (\\), partition, mapAccumL )
 
 \begin{code}
 newMetaKindVar :: TcM TcKind
-newMetaKindVar = do	{ uniq <- newUnique
-		; ref <- newMutVar Flexi
-		; return (mkTyVarTy (mkMetaKindVar uniq ref)) }
+newMetaKindVar = do { uniq <- newUnique
+		    ; ref <- newMutVar Flexi
+		    ; return (mkTyVarTy (mkMetaKindVar uniq ref)) }
 
 newMetaKindVars :: Int -> TcM [TcKind]
 newMetaKindVars n = mapM (\ _ -> newMetaKindVar) (nOfThem n ())
@@ -884,10 +884,10 @@ checkValidType ctxt ty
              r1 = LimitedRank True r0
              r2 = LimitedRank True r1
 
-	rank
-	  = case ctxt of
-		 DefaultDeclCtxt-> MustBeMonoType
-		 ResSigCtxt	-> MustBeMonoType
+             rank
+	       = case ctxt of
+	     	 DefaultDeclCtxt-> MustBeMonoType
+	     	 ResSigCtxt	-> MustBeMonoType
 	     	 LamPatSigCtxt	-> rank0
 	     	 BindPatSigCtxt	-> rank0
 	     	 RuleSigCtxt _  -> rank1
@@ -895,33 +895,33 @@ checkValidType ctxt ty
 
 	     	 ExprSigCtxt 	-> rank1
 	     	 FunSigCtxt _   -> rank1
-		 InfSigCtxt _   -> ArbitraryRank	-- Inferred type
+	     	 InfSigCtxt _   -> ArbitraryRank	-- Inferred type
 	     	 ConArgCtxt _   | polycomp -> rank2
-                                -- We are given the type of the entire
-                                -- constructor, hence rank 1
+                                     -- We are given the type of the entire
+                                     -- constructor, hence rank 1
  	     			| otherwise -> rank1
 
 	     	 ForSigCtxt _	-> rank1
 	     	 SpecInstCtxt   -> rank1
                  ThBrackCtxt    -> rank1
-		 GhciCtxt       -> ArbitraryRank
+	     	 GhciCtxt       -> ArbitraryRank
                  _              -> panic "checkValidType"
-                                     -- Can't happen; not used for *user* sigs
+                                          -- Can't happen; not used for *user* sigs
 
-	actual_kind = typeKind ty
+	     actual_kind = typeKind ty
 
-        kind_ok = case expectedKindInCtxt ctxt of
-                    Nothing -> True
-                    Just k  -> tcIsSubKind actual_kind k
+             kind_ok = case expectedKindInCtxt ctxt of
+                         Nothing -> True
+                         Just k  -> tcIsSubKind actual_kind k
 	
-	ubx_tup 
-         | not unboxed = UT_NotOk
-         | otherwise   = case ctxt of
-	              	   TySynCtxt _ -> UT_Ok
-	              	   ExprSigCtxt -> UT_Ok
-	              	   ThBrackCtxt -> UT_Ok
-		      	   GhciCtxt    -> UT_Ok
-	              	   _           -> UT_NotOk
+	     ubx_tup 
+              | not unboxed = UT_NotOk
+              | otherwise   = case ctxt of
+	                   	   TySynCtxt _ -> UT_Ok
+	                   	   ExprSigCtxt -> UT_Ok
+	                   	   ThBrackCtxt -> UT_Ok
+	     	      	           GhciCtxt    -> UT_Ok
+	                   	   _           -> UT_NotOk
 
 	-- Check the internal validity of the type itself
        ; check_type rank ubx_tup ty
@@ -958,7 +958,7 @@ data Rank = ArbitraryRank	  -- Any rank ok
 
           | MonoType SDoc   -- Monotype, with a suggestion of how it could be a polytype
   
-          | MustBeMonoType  	  -- Monotype regardless of flags
+          | MustBeMonoType  -- Monotype regardless of flags
 
 rankZeroMonoType, tyConArgMonoType, synArgMonoType :: Rank
 rankZeroMonoType = MonoType (ptext (sLit "Perhaps you intended to use -XRankNTypes or -XRank2Types"))
@@ -1117,7 +1117,7 @@ forAllTyErr rank ty
     suggestion = case rank of
     	       	   LimitedRank {} -> ptext (sLit "Perhaps you intended to use -XRankNTypes or -XRank2Types")
     	       	   MonoType d     -> d
-		   _ -> empty      -- Polytype is always illegal
+		   _              -> empty      -- Polytype is always illegal
 
 unliftedArgErr, ubxArgTyErr :: Type -> SDoc
 unliftedArgErr  ty = sep [ptext (sLit "Illegal unlifted type:"), ppr ty]
