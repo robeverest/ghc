@@ -946,10 +946,10 @@ te_Stmt :: CmmStmt -> TE ()
 te_Stmt (CmmAssign r e)         = te_Reg r >> te_Expr e
 te_Stmt (CmmStore l r)          = te_Expr l >> te_Expr r
 te_Stmt (CmmCall target rs es _) = do {
-																		 te_Target target;
+                                     te_Target target;
                                      mapM_ (te_temp.hintlessCmm) rs;
-                                  	 mapM_ (te_Expr.hintlessCmm) es
-																	 }
+                                     mapM_ (te_Expr.hintlessCmm) es
+                                   }
 te_Stmt (CmmCondBranch e _)     = te_Expr e
 te_Stmt (CmmSwitch e _)         = te_Expr e
 te_Stmt (CmmJump e _)           = te_Expr e
