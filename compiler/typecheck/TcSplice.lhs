@@ -924,7 +924,7 @@ instance TH.Quasi (IOEnv (Env TcGblEnv TcLclEnv)) where
                   ; let i = getKey u
                   ; return (TH.mkNameU s i) }
 
-  qReport True msg  = addErr (text msg)
+  qReport True msg  = addErr  (text msg)
   qReport False msg = addWarn (text msg)
 
   qLocation = do { m <- getModule
@@ -1180,8 +1180,8 @@ reifyThing (ATcId {tct_id = id})
 
 reifyThing (ATyVar tv tv1)
   = do { ty1 <- zonkTcTyVar tv1
-        ; ty2 <- reifyType ty1
-        ; return (TH.TyVarI (reifyName tv) ty2) }
+       ; ty2 <- reifyType ty1
+       ; return (TH.TyVarI (reifyName tv) ty2) }
 
 reifyThing (AThing {}) = panic "reifyThing AThing"
 reifyThing ANothing = panic "reifyThing ANothing"
@@ -1306,16 +1306,16 @@ reifyFamilyInstance fi
       SynFamilyInst ->
         do { th_tys <- reifyTypes (fi_tys fi)
            ; rhs_ty <- reifyType (coAxiomRHS rep_ax)
-       ; return (TH.TySynInstD fam th_tys rhs_ty) }
+           ; return (TH.TySynInstD fam th_tys rhs_ty) }
 
       DataFamilyInst rep_tc ->
         do { let tvs = tyConTyVars rep_tc
-             fam = reifyName (fi_fam fi)
-       ; cons <- mapM (reifyDataCon (mkTyVarTys tvs)) (tyConDataCons rep_tc)
-       ; th_tys <- reifyTypes (fi_tys fi)
-       ; return (if isNewTyCon rep_tc
-                 then TH.NewtypeInstD [] fam th_tys (head cons) []
-                 else TH.DataInstD    [] fam th_tys cons        []) }
+                 fam = reifyName (fi_fam fi)
+           ; cons <- mapM (reifyDataCon (mkTyVarTys tvs)) (tyConDataCons rep_tc)
+           ; th_tys <- reifyTypes (fi_tys fi)
+           ; return (if isNewTyCon rep_tc
+                     then TH.NewtypeInstD [] fam th_tys (head cons) []
+                     else TH.DataInstD    [] fam th_tys cons        []) }
   where
     rep_ax = fi_axiom fi
     fam = reifyName (fi_fam fi)

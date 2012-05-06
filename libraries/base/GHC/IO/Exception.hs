@@ -19,6 +19,7 @@
 
 module GHC.IO.Exception (
   BlockedIndefinitelyOnMVar(..), blockedIndefinitelyOnMVar,
+  BlockedIndefinitelyOnConcDS(..), blockedIndefinitelyOnConcDS,
   BlockedIndefinitelyOnSTM(..), blockedIndefinitelyOnSTM,
   Deadlock(..),
   AssertionFailed(..),
@@ -64,6 +65,22 @@ instance Show BlockedIndefinitelyOnMVar where
 
 blockedIndefinitelyOnMVar :: SomeException -- for the RTS
 blockedIndefinitelyOnMVar = toException BlockedIndefinitelyOnMVar
+
+-----
+
+-- |The thread is blocked on an @ConcDS@, but there are no other references
+-- to the @ConcDS@ so it can't ever continue.
+
+data BlockedIndefinitelyOnConcDS = BlockedIndefinitelyOnConcDS
+    deriving Typeable
+
+instance Exception BlockedIndefinitelyOnConcDS
+
+instance Show BlockedIndefinitelyOnConcDS where
+    showsPrec _ BlockedIndefinitelyOnConcDS = showString "thread blocked indefinitely in an ConcDS operation"
+
+blockedIndefinitelyOnConcDS :: SomeException -- for the RTS
+blockedIndefinitelyOnConcDS = toException BlockedIndefinitelyOnConcDS
 
 -----
 
@@ -188,7 +205,7 @@ ioException     :: IOException -> IO a
 ioException err = throwIO err
 
 -- | Raise an 'IOError' in the 'IO' monad.
-ioError         :: IOError -> IO a 
+ioError         :: IOError -> IO a
 ioError         =  ioException
 
 -- ---------------------------------------------------------------------------
@@ -208,7 +225,7 @@ type IOError = IOException
 -- flagged.
 data IOException
  = IOError {
-     ioe_handle   :: Maybe Handle,   -- the handle used by the action flagging 
+     ioe_handle   :: Maybe Handle,   -- the handle used by the action flagging
                                      -- the error.
      ioe_type     :: IOErrorType,    -- what it was.
      ioe_location :: String,         -- location.
@@ -221,7 +238,7 @@ data IOException
 instance Exception IOException
 
 instance Eq IOException where
-  (IOError h1 e1 loc1 str1 en1 fn1) == (IOError h2 e2 loc2 str2 en2 fn2) = 
+  (IOError h1 e1 loc1 str1 en1 fn1) == (IOError h2 e2 loc2 str2 en2 fn2) =
     e1==e2 && str1==str2 && h1==h2 && loc1==loc2 && en1==en2 && fn1==fn2
 
 -- | An abstract type that contains a value for each variant of 'IOError'.
@@ -250,7 +267,7 @@ data IOErrorType
 
 instance Eq IOErrorType where
    x == y = getTag x ==# getTag y
- 
+
 instance Show IOErrorType where
   showsPrec _ e =
     showString $
@@ -279,7 +296,7 @@ instance Show IOErrorType where
 -- The 'fail' method of the 'IO' instance of the 'Monad' class raises a
 -- 'userError', thus:
 --
--- > instance Monad IO where 
+-- > instance Monad IO where
 -- >   ...
 -- >   fail s = ioError (userError s)
 --
@@ -299,7 +316,7 @@ instance Show IOException where
       (case loc of
          "" -> id
          _  -> showString loc . showString ": ") .
-      showsPrec p iot . 
+      showsPrec p iot .
       (case s of
          "" -> id
          _  -> showString " (" . showString s . showString ")")
@@ -313,7 +330,7 @@ assertError str predicate v
   | otherwise = throw (AssertionFailed (untangle str "Assertion failed"))
 
 unsupportedOperation :: IOError
-unsupportedOperation = 
+unsupportedOperation =
    (IOError Nothing UnsupportedOperation ""
         "Operation is not supported" Nothing Nothing)
 

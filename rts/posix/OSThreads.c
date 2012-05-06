@@ -228,7 +228,6 @@ forkOS_createThreadForSContWrapper (void* p)
   rts_lockWithCapability (cap);
   rts_bindSContToCurrentTask (&cap, entry);
 
-  taskTimeStamp(myTask());
   rts_unlock(cap);
   return NULL;
 }
