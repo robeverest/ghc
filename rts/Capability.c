@@ -506,7 +506,7 @@ releaseCapability_ (Capability* cap,
     // ThreadBlocked, but the thread may be back on the run queue
     // by now.
     task = cap->run_queue_hd->bound->task;
-	giveCapabilityToTask(cap, task);
+  giveCapabilityToTask(cap, task);
     return;
   }
 
@@ -529,7 +529,7 @@ releaseCapability_ (Capability* cap,
       !emptyRunQueue(cap) || !emptyInbox(cap) ||
         (!cap->disabled && !emptySparkPoolCap(cap)) || globalWorkToDo()) {
     if (cap->spare_workers) {
-	    giveCapabilityToTask(cap, cap->spare_workers);
+      giveCapabilityToTask(cap, cap->spare_workers);
       // The worker Task pops itself from the queue;
       return;
     }
