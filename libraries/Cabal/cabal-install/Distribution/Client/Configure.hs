@@ -82,7 +82,7 @@ configure verbosity packageDBs repos comp conf
         configureCommand (const configFlags) extraArgs
 
     Right installPlan -> case InstallPlan.ready installPlan of
-      [pkg@(ConfiguredPackage (SourcePackage _ _ (LocalUnpackedPackage _)) _ _)] ->
+      [pkg@(ConfiguredPackage (SourcePackage _ _ (LocalUnpackedPackage _)) _ _ _)] ->
         configurePackage verbosity
           (InstallPlan.planPlatform installPlan)
           (InstallPlan.planCompiler installPlan)
@@ -137,6 +137,10 @@ planLocalPackage verbosity comp configFlags configExFlags installedPkgIndex
 
       solver = fromFlag $ configSolver configExFlags
 
+      testsEnabled = fromFlagOrDefault False $ configTests configFlags
+      benchmarksEnabled =
+        fromFlagOrDefault False $ configBenchmarks configFlags
+
       resolverParams =
 
           addPreferences
@@ -154,6 +158,15 @@ planLocalPackage verbosity comp configFlags configExFlags installedPkgIndex
             -- package flags from the config file or command line
             [ PackageConstraintFlags (packageName pkg)
                                      (configConfigurationsFlags configFlags) ]
+
+        . addConstraints
+            -- '--enable-tests' and '--enable-benchmarks' constraints from
+            -- command line
+            [ PackageConstraintStanzas (packageName pkg) $ concat
+                [ if testsEnabled then [TestStanzas] else []
+                , if benchmarksEnabled then [BenchStanzas] else []
+                ]
+            ]
 
         $ standardInstallPolicy
             installedPkgIndex
@@ -177,7 +190,7 @@ configurePackage :: Verbosity
                  -> [String]
                  -> IO ()
 configurePackage verbosity platform comp scriptOptions configFlags
-  (ConfiguredPackage (SourcePackage _ gpkg _) flags deps) extraArgs =
+  (ConfiguredPackage (SourcePackage _ gpkg _) flags stanzas deps) extraArgs =
 
   setupWrapper verbosity
     scriptOptions (Just pkg) configureCommand configureFlags extraArgs
@@ -186,11 +199,13 @@ configurePackage verbosity platform comp scriptOptions configFlags
     configureFlags   = filterConfigureFlags configFlags {
       configConfigurationsFlags = flags,
       configConstraints         = map thisPackageVersion deps,
-      configVerbosity           = toFlag verbosity
+      configVerbosity           = toFlag verbosity,
+      configBenchmarks          = toFlag (BenchStanzas `elem` stanzas),
+      configTests               = toFlag (TestStanzas `elem` stanzas)
     }
 
     pkg = case finalizePackageDescription flags
            (const True)
-           platform comp [] gpkg of
+           platform comp [] (enableStanzas stanzas gpkg) of
       Left _ -> error "finalizePackageDescription ConfiguredPackage failed"
       Right (desc, _) -> desc

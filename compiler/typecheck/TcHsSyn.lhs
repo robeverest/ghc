@@ -189,7 +189,7 @@ data ZonkEnv
   = ZonkEnv 
       UnboundTyVarZonker
       (TyVarEnv TyVar)          -- 
-      (IdEnv Var)		-- What variables are in scope
+      (IdEnv    Var)		-- What variables are in scope
 	-- Maps an Id or EvVar to its zonked version; both have the same Name
 	-- Note that all evidence (coercion variables as well as dictionaries)
 	-- 	are kept in the ZonkEnv
@@ -773,7 +773,7 @@ zonkStmt :: ZonkEnv -> Stmt TcId -> TcM (ZonkEnv, Stmt Id)
 zonkStmt env (ParStmt stmts_w_bndrs mzip_op bind_op)
   = do { new_stmts_w_bndrs <- mapM zonk_branch stmts_w_bndrs
        ; let new_binders = [b | ParStmtBlock _ bs _ <- new_stmts_w_bndrs, b <- bs]
-	env1 = extendIdZonkEnv env new_binders
+	     env1 = extendIdZonkEnv env new_binders
        ; new_mzip <- zonkExpr env1 mzip_op
        ; new_bind <- zonkExpr env1 bind_op
        ; return (env1, ParStmt new_stmts_w_bndrs new_mzip new_bind) }
@@ -1037,7 +1037,7 @@ zonkRule env (HsRule name act (vars{-::[RuleBndr TcId]-}) lhs fv_lhs rhs fv_rhs)
 
        ; let final_bndrs :: [RuleBndr Var]
              final_bndrs = map (RuleBndr . noLoc)
-                             (varSetElemsKvsFirst unbound_tkvs)
+                               (varSetElemsKvsFirst unbound_tkvs)
                            ++ new_bndrs
 
        ; return $ 
@@ -1153,7 +1153,7 @@ zonkEvBind env (EvBind var term)
       -- Fast path for variable-variable bindings 
       -- NB: could be optimized further! (e.g. SymCo cv)
         | Just cv <- getTcCoVar_maybe co 
-        -> do { let cv' = zonkIdOcc env cv -- Just lazily look up
+        -> do { let cv'   = zonkIdOcc env cv -- Just lazily look up
                     term' = EvCoercion (TcCoVarCo cv')
                     var'  = setVarType var (varType cv')
               ; return (EvBind var' term') }

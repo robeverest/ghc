@@ -111,7 +111,7 @@ import Distribution.Simple.Compiler
 import Distribution.Version
          ( Version(..), anyVersion, orLaterVersion )
 import Distribution.System
-         ( OS(..), buildOS )
+         ( OS(..), buildOS, Arch(..), buildArch )
 import Distribution.Verbosity
 import Distribution.Text
          ( display, simpleParse )
@@ -251,22 +251,28 @@ configureToolchain ghcProg ghcInfo =
     addKnownProgram gccProgram {
       programFindLocation = findProg gccProgram
                               [ if ghcVersion >= Version [6,12] []
-                                  then mingwBinDir </> "gcc.exe"
+                                  then mingwBinDir </> binPrefix ++ "gcc.exe"
                                   else baseDir     </> "gcc.exe" ],
       programPostConf     = configureGcc
     }
   . addKnownProgram ldProgram {
       programFindLocation = findProg ldProgram
                               [ if ghcVersion >= Version [6,12] []
-                                  then mingwBinDir </> "ld.exe"
+                                  then mingwBinDir </> binPrefix ++ "ld.exe"
                                   else libDir      </> "ld.exe" ],
       programPostConf     = configureLd
     }
   . addKnownProgram arProgram {
       programFindLocation = findProg arProgram
                               [ if ghcVersion >= Version [6,12] []
-                                  then mingwBinDir </> "ar.exe"
+                                  then mingwBinDir </> binPrefix ++ "ar.exe"
                                   else libDir      </> "ar.exe" ]
+    }
+  . addKnownProgram stripProgram {
+      programFindLocation = findProg stripProgram
+                              [ if ghcVersion >= Version [6,12] []
+                                  then mingwBinDir </> binPrefix ++ "strip.exe"
+                                  else libDir      </> "strip.exe" ]
     }
   where
     Just ghcVersion = programVersion ghcProg
@@ -276,6 +282,9 @@ configureToolchain ghcProg ghcInfo =
     libDir      = baseDir </> "gcc-lib"
     includeDir  = baseDir </> "include" </> "mingw"
     isWindows   = case buildOS of Windows -> True; _ -> False
+    binPrefix   = case buildArch of
+                  X86_64 -> "x86_64-w64-mingw32-"
+                  _      -> ""
 
     -- on Windows finding and configuring ghc's gcc and ld is a bit special
     findProg :: Program -> [FilePath] -> Verbosity -> IO (Maybe FilePath)

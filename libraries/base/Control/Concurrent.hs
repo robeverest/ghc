@@ -45,6 +45,7 @@ module Control.Concurrent (
         forkOn,
         forkOnWithUnmask,
         getNumCapabilities,
+        setNumCapabilities,
         threadCapability,
 
         -- * Scheduling
@@ -87,6 +88,9 @@ module Control.Concurrent (
         runInBoundThread,
         runInUnboundThread,
 #endif
+
+        -- * Weak references to ThreadIds
+        mkWeakThreadId,
 
         -- * GHC's implementation of concurrency
 

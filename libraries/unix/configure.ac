@@ -28,11 +28,14 @@ AC_CHECK_HEADERS([termios.h time.h unistd.h utime.h])
 
 AC_CHECK_FUNCS([getgrgid_r getgrnam_r getpwnam_r getpwuid_r getpwnam getpwuid])
 AC_CHECK_FUNCS([getpwent getgrent])
-AC_CHECK_FUNCS([lchown setenv sysconf unsetenv])
+AC_CHECK_FUNCS([lchown setenv sysconf unsetenv clearenv])
 AC_CHECK_FUNCS([nanosleep])
 AC_CHECK_FUNCS([ptsname])
 AC_CHECK_FUNCS([setitimer])
 AC_CHECK_FUNCS([readdir_r])
+
+# Additional temp functions
+AC_CHECK_FUNCS([mkstemps mkdtemp])
 
 # Avoid adding rt if absent or unneeded
 AC_CHECK_LIB(rt, shm_open, [EXTRA_LIBS="$EXTRA_LIBS rt" CFLAGS="$CFLAGS -lrt"])

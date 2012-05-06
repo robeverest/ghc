@@ -22,6 +22,7 @@ type DecQ           = Q Dec
 type DecsQ          = Q [Dec]
 type ConQ           = Q Con
 type TypeQ          = Q Type
+type TyLitQ         = Q TyLit
 type CxtQ           = Q Cxt
 type PredQ          = Q Pred
 type MatchQ         = Q Match
@@ -354,6 +355,15 @@ forImpD cc s str n ty
  = do ty' <- ty
       return $ ForeignD (ImportF cc s str n ty')
 
+infixLD :: Int -> Name -> DecQ
+infixLD prec nm = return (InfixD (Fixity prec InfixL) nm)
+
+infixRD :: Int -> Name -> DecQ
+infixRD prec nm = return (InfixD (Fixity prec InfixR) nm)
+
+infixND :: Int -> Name -> DecQ
+infixND prec nm = return (InfixD (Fixity prec InfixN) nm)
+
 pragInlD :: Name -> InlineSpecQ -> DecQ
 pragInlD n ispec 
   = do
@@ -460,6 +470,9 @@ arrowT = return ArrowT
 listT :: TypeQ
 listT = return ListT
 
+litT :: TyLit -> TypeQ
+litT l = return (LitT l)
+
 tupleT :: Int -> TypeQ
 tupleT i = return (TupleT i)
 
@@ -483,6 +496,17 @@ strictType = liftM2 (,)
 varStrictType :: Name -> StrictTypeQ -> VarStrictTypeQ
 varStrictType v st = do (s, t) <- st
                         return (v, s, t)
+
+-- * Type Literals
+
+numTyLit :: Integer -> TyLitQ
+numTyLit n = if n >= 0 then return (NumTyLit n)
+                       else fail ("Negative type-level number: " ++ show n)
+
+strTyLit :: String -> TyLitQ
+strTyLit s = return (StrTyLit s)
+
+
 
 -------------------------------------------------------------------------------
 -- *   Kind

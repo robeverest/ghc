@@ -7,11 +7,10 @@ import System.Console.Haskeline.Prefs(Prefs)
 import System.Console.Haskeline.Completion(Completion)
 
 import Control.Concurrent
-import Data.Typeable
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.Word
-import Control.Exception.Extensible (fromException, AsyncException(..),bracket_)
+import Control.Exception (fromException, AsyncException(..),bracket_)
 import System.IO
 import Control.Monad(liftM,when,guard)
 import System.IO.Error (isEOFError)
@@ -35,7 +34,6 @@ data RunTerm = RunTerm {
             encodeForTerm :: String -> IO ByteString,
             decodeForTerm :: ByteString -> IO String,
             termOps :: Either TermOps FileOps,
-            wrapInterrupt :: MonadException m => m a -> m a,
             closeTerm :: IO ()
     }
 
@@ -115,11 +113,6 @@ keyEventLoop readEvents eventChan = do
 
 saveKeys :: Chan Event -> [Key] -> IO ()
 saveKeys ch = writeChan ch . KeyInput
-
-data Interrupt = Interrupt
-                deriving (Show,Typeable,Eq)
-
-instance Exception Interrupt where
 
 data Layout = Layout {width, height :: Int}
                     deriving (Show,Eq)

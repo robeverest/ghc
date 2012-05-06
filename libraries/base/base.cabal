@@ -38,6 +38,7 @@ Library {
             Foreign.Concurrent,
             GHC.Arr,
             GHC.Base,
+            GHC.Char,
             GHC.Conc,
             GHC.Conc.IO,
             GHC.Conc.Signal,
@@ -57,6 +58,7 @@ Library {
             GHC.Float.RealFracMethods,
             GHC.Foreign,
             GHC.ForeignPtr,
+            GHC.GHCi,
             GHC.Handle,
             GHC.IO,
             GHC.IO.Buffer,
@@ -98,6 +100,7 @@ Library {
             GHC.Stable,
             GHC.Storable,
             GHC.STRef,
+            GHC.TypeLits,
             GHC.TopHandler,
             GHC.Unicode,
             GHC.Weak,
@@ -120,7 +123,6 @@ Library {
         Control.Concurrent.SampleVar,
         Control.Exception,
         Control.Exception.Base
-        Control.OldException,
         Control.Monad,
         Control.Monad.Fix,
         Control.Monad.Instances,
@@ -219,10 +221,10 @@ Library {
         cbits/PrelIOUtils.c
         cbits/WCsubst.c
         cbits/Win32Utils.c
+        cbits/DarwinUtils.c
         cbits/consUtils.c
         cbits/iconv.c
         cbits/inputReady.c
-        cbits/selectUtils.c
         cbits/primFloat.c
         cbits/md5.c
     include-dirs: include

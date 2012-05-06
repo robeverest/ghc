@@ -36,6 +36,7 @@ module Language.Haskell.TH.Syntax(
 	-- * The algebraic data types
 	-- $infix
 	Dec(..), Exp(..), Con(..), Type(..), TyVarBndr(..), Kind(..),Cxt,
+        TyLit(..),
 	Pred(..), Match(..),  Clause(..), Body(..), Guard(..), Stmt(..),
 	Range(..), Lit(..), Pat(..), FieldExp, FieldPat, 
 	Strict(..), Foreign(..), Callconv(..), Safety(..), Pragma(..),
@@ -916,6 +917,8 @@ data Dec
   | SigD Name Type                -- ^ @{ length :: [a] -> Int }@
   | ForeignD Foreign
 
+  | InfixD Fixity Name            -- ^ @{ infix 3 foo }@
+
   -- | pragmas
   | PragmaD Pragma                -- ^ @{ {-# INLINE [1] foo #-} }@
 
@@ -986,11 +989,16 @@ data Type = ForallT [TyVarBndr] Cxt Type  -- ^ @forall <vars>. <ctxt> -> <type>@
           | ListT                         -- ^ @[]@
           | AppT Type Type                -- ^ @T a b@
           | SigT Type Kind                -- ^ @t :: k@
+          | LitT TyLit                    -- ^ @0,1,2, etc.@
       deriving( Show, Eq, Data, Typeable )
 
 data TyVarBndr = PlainTV  Name            -- ^ @a@
                | KindedTV Name Kind       -- ^ @(a :: k)@
       deriving( Show, Eq, Data, Typeable )
+
+data TyLit = NumTyLit Integer
+           | StrTyLit String
+  deriving ( Show, Eq, Data, Typeable )
 
 data Kind = StarK                         -- ^ @'*'@
           | ArrowK Kind Kind              -- ^ @k1 -> k2@

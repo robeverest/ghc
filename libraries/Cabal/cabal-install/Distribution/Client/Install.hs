@@ -91,7 +91,8 @@ import Distribution.Simple.Setup
          , buildCommand, BuildFlags(..), emptyBuildFlags
          , toFlag, fromFlag, fromFlagOrDefault, flagToMaybe )
 import qualified Distribution.Simple.Setup as Cabal
-         ( installCommand, InstallFlags(..), emptyInstallFlags )
+         ( installCommand, InstallFlags(..), emptyInstallFlags
+         , emptyTestFlags, testCommand )
 import Distribution.Simple.Utils
          ( rawSystemExit, comparing )
 import Distribution.Simple.InstallDirs as InstallDirs
@@ -103,10 +104,10 @@ import Distribution.Package
          , Dependency(..), thisPackageVersion )
 import qualified Distribution.PackageDescription as PackageDescription
 import Distribution.PackageDescription
-         ( Benchmark(..), PackageDescription, GenericPackageDescription(..)
-         , TestSuite(..), Flag(..), FlagName(..), FlagAssignment )
+         ( PackageDescription, GenericPackageDescription(..), Flag(..)
+         , FlagName(..), FlagAssignment )
 import Distribution.PackageDescription.Configuration
-         ( finalizePackageDescription, mapTreeData )
+         ( finalizePackageDescription )
 import Distribution.Version
          ( Version, anyVersion, thisVersion )
 import Distribution.Simple.Utils as Utils
@@ -174,7 +175,8 @@ install verbosity packageDBs repos comp conf
                          comp configFlags configExFlags installFlags
                          installedPkgIndex sourcePkgDb pkgSpecifiers
 
-    checkPrintPlan verbosity installedPkgIndex installPlan installFlags solver
+    checkPrintPlan verbosity installedPkgIndex installPlan installFlags
+      pkgSpecifiers solver
 
     unless dryRun $ do
       installPlan' <- performInstallations verbosity
@@ -266,36 +268,22 @@ planPackages comp configFlags configExFlags installFlags
           [ PackageConstraintFlags (pkgSpecifierTarget pkgSpecifier) flags
           | let flags = configConfigurationsFlags configFlags
           , not (null flags)
-          , pkgSpecifier <- pkgSpecifiers'' ]
+          , pkgSpecifier <- pkgSpecifiers ]
+
+      . addConstraints
+          [ PackageConstraintStanzas (pkgSpecifierTarget pkgSpecifier) stanzas
+          | pkgSpecifier <- pkgSpecifiers ]
 
       . (if reinstall then reinstallTargets else id)
 
-      $ standardInstallPolicy installedPkgIndex sourcePkgDb pkgSpecifiers''
+      $ standardInstallPolicy installedPkgIndex sourcePkgDb pkgSpecifiers
 
-    -- Mark test suites as enabled if invoked with '--enable-tests'. This
-    -- ensures that test suite dependencies are included.
-    pkgSpecifiers' = map enableTests pkgSpecifiers
+    stanzas = concat
+        [ if testsEnabled then [TestStanzas] else []
+        , if benchmarksEnabled then [BenchStanzas] else []
+        ]
     testsEnabled = fromFlagOrDefault False $ configTests configFlags
-    enableTests (SpecificSourcePackage pkg) =
-        let pkgDescr = Source.packageDescription pkg
-            suites = condTestSuites pkgDescr
-            enable = mapTreeData (\t -> t { testEnabled = testsEnabled })
-        in SpecificSourcePackage $ pkg { Source.packageDescription = pkgDescr
-            { condTestSuites = map (\(n, t) -> (n, enable t)) suites } }
-    enableTests x = x
-
-    -- Mark benchmarks as enabled if invoked with
-    -- '--enable-benchmarks'. This ensures that benchmark dependencies
-    -- are included.
-    pkgSpecifiers'' = map enableBenchmarks pkgSpecifiers'
     benchmarksEnabled = fromFlagOrDefault False $ configBenchmarks configFlags
-    enableBenchmarks (SpecificSourcePackage pkg) =
-        let pkgDescr = Source.packageDescription pkg
-            bms = condBenchmarks pkgDescr
-            enable = mapTreeData (\t -> t { benchmarkEnabled = benchmarksEnabled })
-        in SpecificSourcePackage $ pkg { Source.packageDescription = pkgDescr
-            { condBenchmarks = map (\(n, t) -> (n, enable t)) bms } }
-    enableBenchmarks x = x
 
     --TODO: this is a general feature and should be moved to D.C.Dependency
     -- Also, the InstallPlan.remove should return info more precise to the
@@ -303,11 +291,8 @@ planPackages comp configFlags configExFlags installFlags
     adjustPlanOnlyDeps :: InstallPlan -> Progress String String InstallPlan
     adjustPlanOnlyDeps =
         either (Fail . explain) Done
-      . InstallPlan.remove isTarget
+      . InstallPlan.remove (isTarget pkgSpecifiers)
       where
-        isTarget pkg = packageName pkg `elem` targetnames
-        targetnames  = map pkgSpecifierTarget pkgSpecifiers
-
         explain :: [InstallPlan.PlanProblem] -> String
         explain problems =
             "Cannot select only the dependencies (as requested by the "
@@ -323,6 +308,9 @@ planPackages comp configFlags configExFlags installFlags
                   | InstallPlan.PackageMissingDeps _ depids <- problems
                   , depid <- depids
                   , packageName depid `elem` targetnames ]
+
+        targetnames  = map pkgSpecifierTarget pkgSpecifiers
+
 
     solver           = fromFlag (configSolver            configExFlags)
     reinstall        = fromFlag (installReinstall        installFlags)
@@ -341,9 +329,10 @@ checkPrintPlan :: Verbosity
                -> PackageIndex
                -> InstallPlan
                -> InstallFlags
+               -> [PackageSpecifier SourcePackage]
                -> Solver
                -> IO ()
-checkPrintPlan verbosity installed installPlan installFlags solver = do
+checkPrintPlan verbosity installed installPlan installFlags pkgSpecifiers solver = do
 
   when nothingToInstall $
     notice verbosity $
@@ -352,7 +341,12 @@ checkPrintPlan verbosity installed installPlan installFlags solver = do
       ++ "the --reinstall flag."
 
   let lPlan = linearizeInstallPlan installed installPlan
-  let containsReinstalls = any (isReinstall . snd) lPlan
+  -- The following check is for packages contained in the install plan
+  -- that are destructive reinstalls. We exclude packages that are specified
+  -- targets as long as --reinstall is specified.
+  let containsReinstalls = any (\ (p, s) -> isReinstall s &&
+                                            (not (reinstall && isTarget pkgSpecifiers p)))
+                               lPlan
   let adaptedVerbosity | containsReinstalls = verbose `max` verbosity
                        | otherwise          = verbosity
 
@@ -376,7 +370,9 @@ checkPrintPlan verbosity installed installPlan installFlags solver = do
 
   where
     nothingToInstall = null (InstallPlan.ready installPlan)
-    dryRun = fromFlag (installDryRun installFlags)
+
+    reinstall         = fromFlag (installReinstall         installFlags)
+    dryRun            = fromFlag (installDryRun            installFlags)
     overrideReinstall = fromFlag (installOverrideReinstall installFlags)
 
 linearizeInstallPlan :: PackageIndex
@@ -398,6 +394,11 @@ data PackageStatus = NewPackage
                    | Reinstall  [PackageChange]
 
 type PackageChange = MergeResult PackageIdentifier PackageIdentifier
+
+isTarget :: Package pkg => [PackageSpecifier SourcePackage] -> pkg -> Bool
+isTarget pkgSpecifiers pkg = packageName pkg `elem` targetnames
+  where
+    targetnames  = map pkgSpecifierTarget pkgSpecifiers
 
 isReinstall :: PackageStatus -> Bool
 isReinstall (Reinstall _) = True
@@ -444,7 +445,8 @@ printDryRun verbosity plan = case plan of
       : map (display . packageId) (map fst pkgs)
   where
     showPkgAndReason (pkg', pr) = display (packageId pkg') ++
-          showFlagAssignment (nonDefaultFlags pkg') ++ " " ++
+          showFlagAssignment (nonDefaultFlags pkg') ++
+          showStanzas (stanzas pkg') ++ " " ++
           case pr of
             NewPackage   -> "(new package)"
             NewVersion _ -> "(new version)"
@@ -456,13 +458,22 @@ printDryRun verbosity plan = case plan of
     toFlagAssignment = map (\ f -> (flagName f, flagDefault f))
 
     nonDefaultFlags :: ConfiguredPackage -> FlagAssignment
-    nonDefaultFlags (ConfiguredPackage spkg fa _) =
+    nonDefaultFlags (ConfiguredPackage spkg fa _ _) =
       let defaultAssignment =
             toFlagAssignment
              (genPackageFlags (Source.packageDescription spkg))
       in  fa \\ defaultAssignment
 
+    stanzas :: ConfiguredPackage -> [OptionalStanza]
+    stanzas (ConfiguredPackage _ _ sts _) = sts
+
+    showStanzas :: [OptionalStanza] -> String
+    showStanzas = concatMap ((' ' :) . showStanza)
+    showStanza TestStanzas  = "*test"
+    showStanza BenchStanzas = "*bench"
+
     -- FIXME: this should be a proper function in a proper place
+    showFlagAssignment :: FlagAssignment -> String
     showFlagAssignment = concatMap ((' ' :) . showFlagValue)
     showFlagValue (f, True)   = '+' : showFlagName f
     showFlagValue (f, False)  = '-' : showFlagName f
@@ -665,6 +676,8 @@ printBuildFailures plan =
                         ++ " The exception was:\n  " ++ show e
       BuildFailed     e -> " failed during the building phase."
                         ++ " The exception was:\n  " ++ show e
+      TestsFailed     e -> " failed during the tests phase."
+                        ++ " The exception was:\n  " ++ show e
       InstallFailed   e -> " failed during the final install step."
                         ++ " The exception was:\n  " ++ show e
 
@@ -782,15 +795,17 @@ installConfiguredPackage :: Platform -> CompilerId
                                          -> PackageDescription -> a)
                          -> a
 installConfiguredPackage platform comp configFlags
-  (ConfiguredPackage (SourcePackage _ gpkg source) flags deps)
+  (ConfiguredPackage (SourcePackage _ gpkg source) flags stanzas deps)
   installPkg = installPkg configFlags {
     configConfigurationsFlags = flags,
-    configConstraints = map thisPackageVersion deps
+    configConstraints = map thisPackageVersion deps,
+    configBenchmarks = toFlag False,
+    configTests = toFlag (TestStanzas `elem` stanzas)
   } source pkg
   where
     pkg = case finalizePackageDescription flags
            (const True)
-           platform comp [] gpkg of
+           platform comp [] (enableStanzas stanzas gpkg) of
       Left _ -> error "finalizePackageDescription ConfiguredPackage failed"
       Right (desc, _) -> desc
 
@@ -879,15 +894,20 @@ installUnpackedPackage verbosity scriptOptions miscOptions
         else return DocsNotTried
 
   -- Tests phase
-      testsResult <- return TestsNotTried  --TODO: add optional tests
+      onFailure TestsFailed $ do
+        when (testsEnabled && PackageDescription.hasTests pkg) $
+            setup Cabal.testCommand testFlags
 
-  -- Install phase
-      onFailure InstallFailed $
-        withWin32SelfUpgrade verbosity configFlags compid pkg $ do
-          case rootCmd miscOptions of
-            (Just cmd) -> reexec cmd
-            Nothing    -> setup Cabal.installCommand installFlags
-          return (Right (BuildOk docsResult testsResult))
+        let testsResult | testsEnabled = TestsOk
+                        | otherwise = TestsNotTried
+
+      -- Install phase
+        onFailure InstallFailed $
+          withWin32SelfUpgrade verbosity configFlags compid pkg $ do
+            case rootCmd miscOptions of
+              (Just cmd) -> reexec cmd
+              Nothing    -> setup Cabal.installCommand installFlags
+            return (Right (BuildOk docsResult testsResult))
 
   where
     configureFlags   = filterConfigureFlags configFlags {
@@ -902,6 +922,8 @@ installUnpackedPackage verbosity scriptOptions miscOptions
     haddockFlags' _   = haddockFlags {
       haddockVerbosity = toFlag verbosity'
     }
+    testsEnabled = fromFlag (configTests configFlags)
+    testFlags _ = Cabal.emptyTestFlags
     installFlags _   = Cabal.emptyInstallFlags {
       Cabal.installDistPref  = configDistPref configFlags,
       Cabal.installVerbosity = toFlag verbosity'

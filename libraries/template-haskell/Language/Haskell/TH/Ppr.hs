@@ -235,9 +235,10 @@ ppr_dec _  (ClassD ctxt c xs fds ds)
     $$ where_clause ds
 ppr_dec _ (InstanceD ctxt i ds) = text "instance" <+> pprCxt ctxt <+> ppr i
                                   $$ where_clause ds
-ppr_dec _ (SigD f t) = ppr f <+> text "::" <+> ppr t
-ppr_dec _ (ForeignD f) = ppr f
-ppr_dec _ (PragmaD p) = ppr p
+ppr_dec _ (SigD f t)    = ppr f <+> text "::" <+> ppr t
+ppr_dec _ (ForeignD f)  = ppr f
+ppr_dec _ (InfixD fx n) = pprFixity n fx
+ppr_dec _ (PragmaD p)   = ppr p
 ppr_dec isTop (FamilyD flav tc tvs k) 
   = ppr flav <+> maybeFamily <+> ppr tc <+> hsep (map ppr tvs) <+> maybeKind
   where
@@ -388,6 +389,7 @@ pprParendType (TupleT n) = parens (hcat (replicate (n-1) comma))
 pprParendType (UnboxedTupleT n) = hashParens $ hcat $ replicate (n-1) comma
 pprParendType ArrowT     = parens (text "->")
 pprParendType ListT      = text "[]"
+pprParendType (LitT l)   = pprTyLit l
 pprParendType other      = parens (ppr other)
 
 instance Ppr Type where
@@ -415,6 +417,13 @@ split :: Type -> (Type, [Type])    -- Split into function and args
 split t = go t []
     where go (AppT t1 t2) args = go t1 (t2:args)
           go ty           args = (ty, args)
+
+pprTyLit :: TyLit -> Doc
+pprTyLit (NumTyLit n) = integer n
+pprTyLit (StrTyLit s) = text (show s)
+
+instance Ppr TyLit where
+  ppr = pprTyLit
 
 ------------------------------
 instance Ppr TyVarBndr where
