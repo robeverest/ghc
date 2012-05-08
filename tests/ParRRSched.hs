@@ -77,7 +77,7 @@ switchToNextAndFinish sched = do
           body
        (Seq.viewl -> x Seq.:< tail) -> do
               writePVar ref $ tail
-              setCurrentSContStatus Completed
+              setSContSwitchReason Completed
               switchTo x
   }
   atomically $ body
@@ -142,7 +142,7 @@ enque (ParRRSched pa _) s = do
 yield :: ParRRSched -> IO ()
 yield sched = atomically $ do
   s <- getSCont
-  setCurrentSContStatus Yielded
+  setSContSwitchReason Yielded
   switchToNextWith sched (\tail -> tail Seq.|> s)
 
 getSchedActionPairPrim :: ParRRSched -> IO (PTM (), SCont -> PTM ())

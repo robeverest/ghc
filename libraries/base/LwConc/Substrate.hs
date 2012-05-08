@@ -64,7 +64,9 @@ PTM
 ------------------------------------------------------------------------------
 
 , SContStatus (..)
-, setCurrentSContStatus   -- SContStatus -> PTM ()
+, SContSwitchReason (..)
+, getSContStatus -- SCont -> PTM SContStatus
+, setSContSwitchReason -- SContSwitchReason -> PTM ()
 
 ------------------------------------------------------------------------------
 -- Bound SConts
@@ -114,6 +116,7 @@ PTM
 -- cannot find it otherwise. TODO: Hide them. - KC
 ------------------------------------------------------------------------------
 
+, initSContStatus 				-- SContStatus
 , unblockThreadRts        -- PTM () -> IO ()
 , switchToNextThreadRts   -- PTM () -> Int -> IO ()
 ) where
@@ -240,31 +243,31 @@ writePVar (PVar tvar#) val = PTM $ \s1# ->
     	 s2# -> (# s2#, () #)
 
 ---------------------------------------------------------------------------------
--- One-shot continuations (SCont)
+-- SContStatus
 ---------------------------------------------------------------------------------
 
-data SContStatus = Running |
-                   Yielded |
-                   BlockedInHaskell |
-                   BlockedInRTS |
-                   Completed
+data SContStatus = SContRunning |
+									 SContKilled |
+									 SContSwitched SContSwitchReason
 
-data SCont = SCont SCont#
+data SContSwitchReason = Yielded |
+		                     BlockedInHaskell |
+                         BlockedInRTS |
+												 Completed
 
----------------------------------------------------------------------------------
 
-getStatusFromInt x | x == 0 = Running
-                   | x == 1 = Yielded
-                   | x == 2 = BlockedInHaskell
-                   | x == 3 = BlockedInRTS
-                   | x == 4 = Completed
+getStatusFromInt x | x == 0 = SContRunning
+                   | x == 1 = SContSwitched Yielded
+                   | x == 2 = SContSwitched BlockedInHaskell
+                   | x == 3 = SContSwitched BlockedInRTS
+                   | x == 4 = SContSwitched Completed
 
 getIntFromStatus x = case x of
-                          Running -> 0#
-                          Yielded -> 1#
-                          BlockedInHaskell -> 2#
-                          BlockedInRTS -> 3#
-                          Completed -> 4#
+                          SContRunning -> 0#
+                          SContSwitched Yielded -> 1#
+                          SContSwitched BlockedInHaskell -> 2#
+                          SContSwitched BlockedInRTS -> 3#
+                          SContSwitched Completed -> 4#
 
 {-# INLINE getSContStatus #-}
 getSContStatus :: SCont -> PTM SContStatus
@@ -278,19 +281,21 @@ setSContStatus (SCont sc) status = do
   st <- PTM $ \s -> case getStatusTVar# sc s of (# s, st #) -> (# s, PVar st #)
   writePVar st status
 
-{-# INLINE setCurrentSContStatus #-}
-setCurrentSContStatus :: SContStatus -> PTM ()
-setCurrentSContStatus status = do
+{-# INLINE setSContSwitchReason #-}
+setSContSwitchReason :: SContSwitchReason -> PTM ()
+setSContSwitchReason reason = do
   s <- getSCont
-  setSContStatus s status
+  setSContStatus s $ SContSwitched reason
 
+initSContStatus :: SContStatus
+initSContStatus = SContSwitched BlockedInHaskell
 
-{-# INLINE getSContId #-}
-getSContId :: SCont -> PTM Int
-getSContId (SCont sc) = PTM $ \s ->
-  case getSContId# sc s of (# s, i #) -> (# s, (I# i) #)
 
 -----------------------------------------------------------------------------------
+-- One-shot continuations (SCont)
+---------------------------------------------------------------------------------
+
+data SCont = SCont SCont#
 
 {-# INLINE newSCont #-}
 newSCont :: IO () -> IO SCont
@@ -302,7 +307,7 @@ newSCont x = do
 switchTo :: SCont -> PTM ()
 switchTo targetSCont = do
   -- Set target to Running
-  setSContStatus targetSCont Running
+  setSContStatus targetSCont SContRunning
   -- Get Int# version of current thread's status to pass to atomicSwitch#
   currentSCont <- getSCont
   status <- getSContStatus currentSCont
@@ -337,6 +342,12 @@ switch arg = atomically $ do
   -- At this point we expect currentSCont status to not be Running
   switchTo targetSCont
 
+{-# INLINE getSContId #-}
+getSContId :: SCont -> PTM Int
+getSContId (SCont sc) = PTM $ \s ->
+  case getSContId# sc s of (# s, i #) -> (# s, (I# i) #)
+
+
 -----------------------------------------------------------------------------------
 -- switchToNextThread and friends..
 -----------------------------------------------------------------------------------
@@ -361,14 +372,12 @@ getSwitchToNextThread = do
 {-# INLINE switchToNextThreadRts #-}
 switchToNextThreadRts :: SCont -> IO () -- used by RTS
 switchToNextThreadRts sc = atomically $ do
-  setCurrentSContStatus Completed
+  setSContSwitchReason Completed
   stat <- getSContStatus sc
   case stat of
-      Running -> setSContStatus sc BlockedInRTS -- Hasn't been unblocked yet
-      Yielded -> return () -- Has been unblocked and put on the run queue
+      SContRunning -> setSContStatus sc $ SContSwitched BlockedInRTS -- Hasn't been unblocked yet
+      SContSwitched Yielded -> return () -- Has been unblocked and put on the run queue
       otherwise -> error "switchToNextThread: Impossible status"
-  stat <- getSContStatus sc
-  return stat
   switch <- getSwitchToNextThreadSCont sc
   switch
 
@@ -379,24 +388,9 @@ switchToNextThreadRts sc = atomically $ do
 {-# INLINE unblockThreadRts #-}
 unblockThreadRts :: SCont -> IO () -- used by RTS
 unblockThreadRts sc = atomically $ do
-  setSContStatus sc Yielded
+  setSContStatus sc $ SContSwitched Yielded
   unblock <- getUnblockThreadSCont sc
   unblock
-  {- stat <- getSContStatus sc
-  shouldUnblock <- case stat of
-                     -- This can happen if sc hasn't finished evaluating its
-                     -- block action. TODO KC
-                     Running -> error "unblockThreadRTS: thread running??"
-                     otherwise-> do {
-                       setSContStatus sc Yielded; -- Unblock it
-                       return True
-                     }
-  if shouldUnblock
-     then do {
-       unblock <- getUnblockThreadSCont sc;
-       unblock
-     }
-     else return () -}
 
 {-# INLINE setUnblockThread #-}
 setUnblockThread :: SCont -> PTM () -> IO ()
@@ -480,9 +474,10 @@ newBoundSCont action0
                         MaskedInterruptible -> action0
                         MaskedUninterruptible -> uninterruptibleMask_ action0
             action2 = switchback >> action1
-                      where switchback = atomically $ do
-                                            setCurrentSContStatus Yielded
-                                            switchTo callingSCont
+                      where switchback = atomically $ do {
+											                      setSContSwitchReason Yielded;
+																						switchTo callingSCont
+																				 }
             action_plus = Exception.catch action2 childHandler
         s <- newSCont action_plus
         entry <- newStablePtr s
@@ -506,7 +501,7 @@ newBoundSCont action0
         -- () loop and has yielded the capability. Hence, we switch to and
         -- switch back (see action2 above) from the new bound task.
         atomically $ do {
-          setCurrentSContStatus Yielded;
+          setSContSwitchReason Yielded;
           switchTo s
         }
         -- We are back.

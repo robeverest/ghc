@@ -101,7 +101,7 @@ createThread(Capability *cap, nat size)
   tso->resume_thread  = (StgClosure*)defaultUpcall_closure;
   tso->switch_to_next = (StgClosure*)defaultUpcall_closure;
   tso->finalizer      = (StgClosure*)defaultUpcall_closure;
-  tso->scont_status   = stmNewTVar (cap, (StgClosure*)Yielded_closure);
+  tso->scont_status   = stmNewTVar (cap, (StgClosure*)initSContStatus_closure);
 
   tso->blocked_exceptions = END_BLOCKED_EXCEPTIONS_QUEUE;
   tso->bq = (StgBlockingQueue *)END_TSO_QUEUE;

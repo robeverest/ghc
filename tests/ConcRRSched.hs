@@ -66,7 +66,7 @@ switchToNextAndFinish (ConcRRSched ref token) =
           if canRun
             then do {
               writePVar ref $ tail;
-              setCurrentSContStatus Completed;
+              setSContSwitchReason Completed;
               switchTo x
             }
             else do {
@@ -135,7 +135,7 @@ enque (ConcRRSched ref _) s = do
 yield :: ConcRRSched -> IO ()
 yield sched = atomically $ do
   s <- getSCont
-  setCurrentSContStatus Yielded
+  setSContSwitchReason Yielded
   switchToNextWith sched (\tail -> tail Seq.|> s)
 
 getSchedActionPairPrim :: ConcRRSched -> IO (PTM (), SCont -> PTM ())
