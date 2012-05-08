@@ -35,19 +35,6 @@ Soln: Make switchTo return a (error "Eagerly returned transaction. Result must
 be ignored"). This needs to be a default closure that can be found from the C--
 code.
 
-
-* -----------------------------------------------------------------------------
-* SCont status
-* -----------------------------------------------------------------------------
-
-data SContStatus = SContRunning | SContKilled | SContCompleted
-                 | SContBlocked BlockReason
-data BlockReason = Yielded | BlockedInRTS | BlockedInHaskell
-
-getSContStatus :: SCont -> SContStatus
-setBlockReason :: BlockReason -> PTM ()
-
-
 * -----------------------------------------------------------------------------
 * Default Scheduler
 * -----------------------------------------------------------------------------
