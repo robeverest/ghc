@@ -1195,7 +1195,7 @@ schedulePostRunThread (Capability *cap, StgTSO *t)
  * Handle a thread that returned to the scheduler with ThreadHeapOverflow
  * -------------------------------------------------------------------------- */
 
-    static rtsBool
+static rtsBool
 scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 {
     IF_DEBUG (sanity, checkTSO (t));
@@ -2425,6 +2425,7 @@ resumeThread (void *task_)
     if (incall->uls_stat == UserLevelSchedulerRunning) {
         //Evaluate the unblock action on the upcall thread
         pushUpcallReturning (cap, getResumeThreadUpcall (cap, tso));
+        tso->why_blocked = Yielded;
         tso = prepareUpcallThread (cap, (StgTSO*)END_TSO_QUEUE);
     }
 #endif
