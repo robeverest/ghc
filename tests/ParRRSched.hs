@@ -66,16 +66,16 @@ newVProc sched = do
 
 switchToNextAndFinish :: ParRRSched -> IO ()
 switchToNextAndFinish (ParRRSched pa _) = atomically $ do
-	cc <- getCurrentCapability
-	let ref = pa ! cc
-	contents <- readPVar ref
-	case contents of
-			(Seq.viewl -> Seq.EmptyL) -> do
-				sleepCapability
-			(Seq.viewl -> x Seq.:< tail) -> do
-				writePVar ref $ tail
-				setSContSwitchReason Completed
-				switchTo x
+  cc <- getCurrentCapability
+  let ref = pa ! cc
+  contents <- readPVar ref
+  case contents of
+      (Seq.viewl -> Seq.EmptyL) -> do
+        sleepCapability
+      (Seq.viewl -> x Seq.:< tail) -> do
+        writePVar ref $ tail
+        setSContSwitchReason Completed
+        switchTo x
 
 data SContKind = Bound | Unbound
 
@@ -120,10 +120,10 @@ switchToNextWith sched f = do
   contents <- readPVar ref;
   case f contents of
       (Seq.viewl -> Seq.EmptyL) -> do
-				sleepCapability
+        sleepCapability
       (Seq.viewl -> x Seq.:< tail) -> do
-				writePVar ref $ tail
-				switchTo x
+        writePVar ref $ tail
+        switchTo x
 
 enque :: ParRRSched -> SCont -> PTM ()
 enque (ParRRSched pa _) s = do
