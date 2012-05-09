@@ -95,20 +95,18 @@ PTM
 -- Capability Management
 ------------------------------------------------------------------------------
 
-, setOC                   -- SCont -> Int -> IO ()
-, getCurrentCapability    -- IO Int
-, getCurrentCapabilityPTM -- PTM Int
-, getSContCapability      -- SCont -> PTM Int
 , getNumCapabilities      -- IO Int
-, iCanRunSCont            -- SCont -> PTM Bool
-                          -- Whether the given SCont can be run on the current
-                          -- capability.
+, getCurrentCapability 		-- PTM Int
+
+, setSContCapability      -- SCont -> Int -> IO ()
+, getSContCapability      -- SCont -> PTM Int
+
+, sleepCapability					-- PTM a
 
 ------------------------------------------------------------------------------
 -- Experimental
 ------------------------------------------------------------------------------
 
-, abortAndRetry           -- PTM ()
 , scheduleSContOnFreeCap  -- SCont -> IO ()
 
 ------------------------------------------------------------------------------
@@ -288,7 +286,7 @@ setSContSwitchReason reason = do
   setSContStatus s $ SContSwitched reason
 
 initSContStatus :: SContStatus
-initSContStatus = SContSwitched BlockedInHaskell
+initSContStatus = SContSwitched Yielded
 
 
 -----------------------------------------------------------------------------------
@@ -315,11 +313,6 @@ switchTo targetSCont = do
   let SCont targetSCont# = targetSCont
   PTM $ \s ->
     case (atomicSwitch# targetSCont# intStatus s) of s1 -> (# s1, () #)
-
-{-# INLINE abortAndRetry #-}
-abortAndRetry :: PTM ()
-abortAndRetry = PTM $ \s ->
-  case abortAndRetry# s of s -> (# s, () #)
 
 {-# INLINE getSCont #-}
 getSCont :: PTM SCont
@@ -518,43 +511,46 @@ newBoundSCont action0
 ----------------------------------------------------------------------------
 
 scheduleSContOnFreeCap :: SCont -> IO ()
-scheduleSContOnFreeCap (SCont s) = do
-  isBound <- isThreadBound $ SCont s
-  if not isBound
-    then do
-      print "LwConc.Substrate.newVProc: Given SCont unbound!!"
-      undefined
-    else
-      IO $ \st -> case scheduleThreadOnFreeCap# s st of st -> (# st, () #)
+scheduleSContOnFreeCap (SCont s) = IO $
+	\st -> case scheduleThreadOnFreeCap# s st of st -> (# st, () #)
 
 ------------------------------------------------------------------------------
 -- Capability Management
 ------------------------------------------------------------------------------
 
--- returns true if the given SCont is bound to the current capability
-iCanRunSCont :: SCont -> PTM Bool
-iCanRunSCont (SCont sc) =
-   PTM $ \s -> case iCanRunSCont# sc s of
-                   (# s, flg #) -> (# s, not (flg ==# 0#) #)
-
--- We must own the capability (i.e, scont->cap == MyCapability ()). Otherwise,
--- will throw a runtime error. TODO: check and throw exception. -- KC
-setOC :: SCont -> Int -> IO ()
-setOC (SCont sc) (I# i) = IO $
-  \s -> case setOC# sc i s of s -> (# s, () #)
-
-getCurrentCapability :: IO Int
-getCurrentCapability = IO $
+getCurrentCapability :: PTM Int
+getCurrentCapability = PTM $
   \s -> case getCurrentCapability# s of
-             (# s, n #) -> (# s, (I# n) #)
+             (# s, n #) -> (# s, I# n #)
 
-getCurrentCapabilityPTM :: PTM Int
-getCurrentCapabilityPTM = PTM $
+getCurrentCapabilityIO :: IO Int
+getCurrentCapabilityIO = IO $
   \s -> case getCurrentCapability# s of
-             (# s, n #) -> (# s, (I# n) #)
+             (# s, n #) -> (# s, I# n #)
 
 -- Returns the capability the given scont is bound to
 getSContCapability :: SCont -> PTM Int
 getSContCapability (SCont sc) = PTM $
   \s -> case getSContCapability# sc s of
-             (# s, n #) -> (# s, (I# n) #)
+             (# s, n #) -> (# s, I# n #)
+
+-- Returns the capability the given scont is bound to
+getSContCapabilityIO :: SCont -> IO Int
+getSContCapabilityIO (SCont sc) = IO $
+  \s -> case getSContCapability# sc s of
+             (# s, n #) -> (# s, I# n #)
+
+
+-- We must own the capability (i.e, scont->cap == MyCapability ()). Otherwise,
+-- will throw a runtime error.
+setSContCapability :: SCont -> Int -> IO ()
+setSContCapability (SCont sc) (I# i) = do
+	cc <- getCurrentCapabilityIO
+	scc <- getSContCapabilityIO $ SCont sc
+	if cc == scc
+		then IO $ \s -> case setSContCapability# sc i s of s -> (# s, () #)
+		else error "setSContCapability: SCont must belong to the current capability"
+
+-- Is PTM retry
+sleepCapability :: PTM a
+sleepCapability = PTM $ \s -> retry# s

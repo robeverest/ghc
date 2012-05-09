@@ -314,6 +314,11 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
       goto unblock1;
 
     case BlockedOnSTM:
+      if (hasHaskellScheduler (tso))
+        goto unblock1;
+      else
+        goto unblock2;
+
     case ThreadMigrating:
       goto unblock2;
 

@@ -58,29 +58,24 @@ newVProc sched = do
     yield sched;
     loop
   }
-  s <- newBoundSCont $ print "Running VProc" >> loop
+  s <- newSCont loop
   (b,u) <- getSchedActionPairPrim sched;
   setUnblockThread s $ u s;
   setSwitchToNextThread s b;
   scheduleSContOnFreeCap s
 
 switchToNextAndFinish :: ParRRSched -> IO ()
-switchToNextAndFinish sched = do
-  let ParRRSched pa _ = sched
-  cc <- getCurrentCapability
-  let ref = pa ! cc
-  let body = do {
-    contents <- readPVar ref;
-    case contents of
-       (Seq.viewl -> Seq.EmptyL) -> do
-          unsafeIOToPTM $ print "Spinning...."
-          body
-       (Seq.viewl -> x Seq.:< tail) -> do
-              writePVar ref $ tail
-              setSContSwitchReason Completed
-              switchTo x
-  }
-  atomically $ body
+switchToNextAndFinish (ParRRSched pa _) = atomically $ do
+	cc <- getCurrentCapability
+	let ref = pa ! cc
+	contents <- readPVar ref
+	case contents of
+			(Seq.viewl -> Seq.EmptyL) -> do
+				sleepCapability
+			(Seq.viewl -> x Seq.:< tail) -> do
+				writePVar ref $ tail
+				setSContSwitchReason Completed
+				switchTo x
 
 data SContKind = Bound | Unbound
 
@@ -101,9 +96,9 @@ fork sched task kind = do
   setSwitchToNextThread s b;
   t <- atomically $ readPVar token
   nc <- Conc.getNumCapabilities
-  cc <- getCurrentCapability
+  cc <- atomically $ getCurrentCapability
   let ref = pa ! t
-  setOC s t
+  setSContCapability s t
   -- Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
   atomically $ do
     contents <- readPVar ref
@@ -120,15 +115,15 @@ forkOS sched task = fork sched task Bound
 switchToNextWith :: ParRRSched -> (Seq.Seq SCont -> Seq.Seq SCont) -> PTM ()
 switchToNextWith sched f = do
   let ParRRSched pa _ = sched
-  cc <- getCurrentCapabilityPTM
+  cc <- getCurrentCapability
   let ref = pa ! cc
   contents <- readPVar ref;
   case f contents of
       (Seq.viewl -> Seq.EmptyL) -> do
-        switchToNextWith sched (\x -> x)
+				sleepCapability
       (Seq.viewl -> x Seq.:< tail) -> do
-            writePVar ref $ tail
-            switchTo x
+				writePVar ref $ tail
+				switchTo x
 
 enque :: ParRRSched -> SCont -> PTM ()
 enque (ParRRSched pa _) s = do

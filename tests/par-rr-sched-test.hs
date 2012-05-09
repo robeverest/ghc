@@ -31,7 +31,8 @@ main = do
   n <- C.getNumCapabilities
   spawnScheds sched $ n-1
   loop sched 0 $ parse args
-  -- yield sched
+  yield sched
+  print "Main Done"
 
 spawnScheds _ 0 = return ()
 spawnScheds s n = do

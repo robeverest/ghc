@@ -1509,7 +1509,7 @@ primop  RaiseOp "raise#" GenPrimOp
 -- being applied to two arguments, so that this function is strict in y
 --     f x y | x>0  	 = raiseIO blah
 --           | y>0  	 = return 1
---           | otherwise = return 2 
+--           | otherwise = return 2
 
 primop  RaiseIOOp "raiseIO#" GenPrimOp
    a -> State# RealWorld -> (# State# RealWorld, b #)
@@ -1880,12 +1880,7 @@ primop ScheduleThreadOnFreeCap "scheduleThreadOnFreeCap#" GenPrimOp
   with out_of_line = True
   has_side_effects = True
 
-primop ICanRunSContOp "iCanRunSCont#" GenPrimOp
-  SCont# -> State# RealWorld -> (# State# RealWorld, Int# #)
-  with
-  out_of_line = True
-
-primop SetOCOp "setOC#" GenPrimOp
+primop SetSContCapability "setSContCapability#" GenPrimOp
   SCont# -> Int# -> State# RealWorld -> State# RealWorld
   with
   has_side_effects = True

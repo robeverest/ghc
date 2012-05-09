@@ -129,7 +129,7 @@ prepareUpcallThread (Capability* cap, StgTSO* current_thread)
 
 
   StgStack* stack = upcall_thread->stackobj;
-  stack->dirty = 1;
+  dirty_STACK (cap, stack);
   //Pop everything
   stack->sp = stack->stack + stack->stack_size;
   //Push stop frame

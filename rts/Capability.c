@@ -506,7 +506,7 @@ releaseCapability_ (Capability* cap,
     // ThreadBlocked, but the thread may be back on the run queue
     // by now.
     task = cap->run_queue_hd->bound->task;
-  giveCapabilityToTask(cap, task);
+    giveCapabilityToTask(cap, task);
     return;
   }
 
@@ -813,6 +813,7 @@ yieldCapability (Capability** pCap, Task *task)
 //     holding a Capability that is not the same as task->cap
 //   - Hence we must check for this case and immediately give up the
 //     cap we hold.
+
 
 /* ----------------------------------------------------------------------------
  * prodCapability

@@ -628,47 +628,6 @@ stg_defaultUpcallErrorzh
   foreign "C" barf ("defaultUpcall triggered\n");
 }
 
-stg_abortAndRetryzh
-{
-  /* no args */
-
-  W_ frame_type, frame, trec, outer, cap;
-
-  MAYBE_GC (R1_PTR, stg_abortAndRetryzh); // STM operations may allocate
-
-  // Find the enclosing ATOMICALLY_FRAME or CATCH_RETRY_FRAME
-  SAVE_THREAD_STATE();
-  (frame_type) = foreign "C" findRetryFrameHelper(MyCapability(), CurrentTSO "ptr") [];
-  LOAD_THREAD_STATE();
-  frame = Sp;
-  trec = StgTSO_trec(CurrentTSO);
-  outer  = StgTRecHeader_enclosing_trec(trec);
-
-  //This is what Sp has to be if the transaction commits. If it aborts, we get
-  //the Sp and code pointer from the "frame" variable captured above.
-  Sp = Sp + SIZEOF_StgAtomicallyFrame;
-
-
-  if (frame_type == CATCH_RETRY_FRAME) {
-    foreign "C" barf("Not implemented! stg_atomicSwitchzh->CATCH_RETRY_FRAME"); // Not tested
-  }
-
-  ASSERT(frame_type == ATOMICALLY_FRAME);
-  ASSERT(outer == NO_TREC);
-
-  /* Abort */
-  foreign "C" stmAbortTransaction(MyCapability() "ptr", trec "ptr") [];
-  foreign "C" stmFreeAbortedTRec(MyCapability() "ptr", trec "ptr") [];
-
-  /* Retry */
-  ("ptr" trec) = foreign "C" stmStartTransaction(MyCapability() "ptr", NO_TREC "ptr") [];
-  StgTSO_trec(CurrentTSO) = trec;
-  StgAtomicallyFrame_next_invariant_to_check(frame) = END_INVARIANT_CHECK_QUEUE;
-  R1 = StgAtomicallyFrame_code(frame);
-  Sp = frame;
-  jump stg_ap_v_fast;
-}
-
 stg_atomicSwitchzh
 {
   /* args: R1 = scont, R2 = switch_reason
@@ -821,7 +780,7 @@ stg_atomicSwitchzh
   }
 }
 
-stg_setOCzh
+stg_setSContCapabilityzh
 {
   /* args: R1 = SCont, R2 = int */
   W_ scont, target;
