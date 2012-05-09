@@ -835,6 +835,7 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
                 next = t->_link;
                 t->_link = END_TSO_QUEUE;
                 if (t->bound == task->incall // don't move my bound thread
+                    || t->is_upcall_thread // don't move upcall thread
                     || tsoLocked(t)) {  // don't move a locked thread
                     setTSOLink(cap, prev, t);
                     setTSOPrev(cap, t, prev);
