@@ -975,11 +975,8 @@ scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
         relegateTask (cap, incall->task);
     }
     else {
-        debugTrace (DEBUG_sched, "scheduleResumedBlockedOnForeignCall: Skipping"
-                    "\n\tincall %p\n\tincall->uls_stat %d"
-                    "\n\tincall->task %p\n\tincall->task->incall %p",
-                    incall, incall->uls_stat, incall->task,
-                    incall->task->incall);
+        debugTrace (DEBUG_sched, "scheduleResumedBlockedOnForeignCall: Skipping incall %p\n",
+                    incall);
     }
     RELEASE_LOCK (&cap->lock);
 }
@@ -989,7 +986,7 @@ scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
  * Detect deadlock conditions and attempt to resolve them.
  * ------------------------------------------------------------------------- */
 
-    static void
+static void
 scheduleDetectDeadlock (Capability **pcap, Task *task)
 {
     Capability *cap = *pcap;
@@ -1338,7 +1335,7 @@ scheduleHandleYield( Capability *cap, StgTSO *t, nat prev_what_next )
     static void
 scheduleHandleThreadBlocked(Capability *cap, StgTSO *t)
 {
-    if (hasHaskellScheduler (t) && !t->why_blocked == BlockedOnSTM)
+    if (hasHaskellScheduler (t) && t->why_blocked != BlockedOnSTM)
         pushUpcallNonReturning (cap, getSwitchToNextThreadUpcall (cap, t));
 
 #ifdef DEBUG

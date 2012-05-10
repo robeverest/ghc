@@ -676,7 +676,7 @@ stg_atomicSwitchzh
 						tso = CurrentTSO;
 					}
 					else {
-						foreign "C" barf ("Unexpected: Switching from thread %d to %d - switch reason %d",
+						foreign "C" barf ("Unexpected: Switching from thread %d to %d - switch reason %d\n",
 															StgTSO_id(CurrentTSO), StgTSO_id(tso), switch_reason) [];
 					}
       	}

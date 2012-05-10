@@ -58,16 +58,17 @@ newVProc sched = do
   let body = do {
     s <- getSCont;
     cc <- getCurrentCapability;
-		contents <- readPVar $ pa ! cc;
+    contents <- readPVar $ pa ! cc;
     case contents of
       (Seq.viewl -> Seq.EmptyL) -> do
         sleepCapability
       (Seq.viewl -> x Seq.:< tail) -> do
+        setSContSwitchReason Yielded
         writePVar (pa ! cc) $ tail Seq.|> s
         switchTo x
-	}
+  }
   let loop = do {
-		atomically $ body;
+    atomically $ body;
     loop
   }
   s <- newSCont loop

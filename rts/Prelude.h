@@ -93,7 +93,7 @@ PRELUDE_INFO(base_LwConcziSubstrate_SCont_con_info);
 
 #define True_closure              DLL_IMPORT_DATA_REF(ghczmprim_GHCziTypes_True_closure)
 #define False_closure             DLL_IMPORT_DATA_REF(ghczmprim_GHCziTypes_False_closure)
-#define initSContStatus_closure           DLL_IMPORT_DATA_REF(base_LwConcziSubstrate_initSContStatus_closure)
+#define initSContStatus_closure   DLL_IMPORT_DATA_REF(base_LwConcziSubstrate_initSContStatus_closure)
 #define defaultUpcall_closure     DLL_IMPORT_DATA_REF(base_LwConcziSubstrate_defaultUpcall_closure)
 #define unblockThreadRts_closure   DLL_IMPORT_DATA_REF(base_LwConcziSubstrate_unblockThreadRts_closure)
 #define switchToNextThreadRts_closure DLL_IMPORT_DATA_REF(base_LwConcziSubstrate_switchToNextThreadRts_closure)
