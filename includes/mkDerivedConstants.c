@@ -413,7 +413,7 @@ main(int argc, char *argv[])
 
     closure_size(MessageBlackHole);
     closure_field(MessageBlackHole, link);
-    closure_field(MessageBlackHole, upcall);
+    closure_field(MessageBlackHole, tso);
     closure_field(MessageBlackHole, bh);
 
     struct_field_("RtsFlags_ProfFlags_showCCSOnException",

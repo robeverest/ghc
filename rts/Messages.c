@@ -117,9 +117,8 @@ loop:
         MessageBlackHole *b = (MessageBlackHole*)m;
 
         r = messageBlackHole(cap, b);
-        if (r == 0) {
-          pushUpcallReturning (cap, b->upcall);
-        }
+        if (r == 0)
+            tryWakeupThread (cap, b->tso);
         return;
     }
     else if (i == &stg_IND_info || i == &stg_MSG_NULL_info)
@@ -166,8 +165,8 @@ nat messageBlackHole(Capability *cap, MessageBlackHole *msg)
     StgClosure *bh = UNTAG_CLOSURE(msg->bh);
     StgTSO *owner;
 
-    debugTraceCap(DEBUG_sched, cap, "message: upcall %p blocking on blackhole %p",
-                  msg->upcall, msg->bh);
+    debugTraceCap(DEBUG_sched, cap, "message: thread %d blocking on blackhole %p",
+                  msg->tso->id, msg->bh);
 
     info = bh->header.info;
 
@@ -241,8 +240,8 @@ loop:
         ((StgInd*)bh)->indirectee = (StgClosure *)bq;
         recordClosureMutated(cap,bh); // bh was mutated
 
-        debugTraceCap(DEBUG_sched, cap, "upcall %p blocked on thread %d",
-                      msg->upcall, (lnat)owner->id);
+        debugTraceCap(DEBUG_sched, cap, "thread %d blocked on thread %d",
+                      msg->tso->id, (lnat)owner->id);
 
         return 1; // blocked
     }
@@ -274,8 +273,8 @@ loop:
             recordClosureMutated(cap,(StgClosure*)bq);
         }
 
-        debugTraceCap(DEBUG_sched, cap, "upcall %p blocked on thread %d",
-                      msg->upcall, (lnat)owner->id);
+        debugTraceCap(DEBUG_sched, cap, "thread %d blocked on thread %d",
+                      msg->tso->id, (lnat)owner->id);
 
         return 1; // blocked
     }

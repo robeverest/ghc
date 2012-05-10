@@ -311,7 +311,10 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
       }
 
     case BlockedOnBlackHole:
-      goto unblock1;
+      if (hasHaskellScheduler (tso)) //Note: Upcall threads do not have a user-level scheduler
+          goto unblock1;
+      else
+          goto unblock2;
 
     case BlockedOnSTM:
       goto unblock2;
@@ -414,7 +417,7 @@ wakeBlockingQueue(Capability *cap, StgBlockingQueue *bq)
     i = msg->header.info;
     if (i != &stg_IND_info) {
       ASSERT(i == &stg_MSG_BLACKHOLE_info);
-      pushUpcallReturning (cap, msg->upcall);
+      tryWakeupThread (cap, msg->tso);
     }
   }
 

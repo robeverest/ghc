@@ -461,7 +461,7 @@ typedef struct MessageThrowTo_ {
 typedef struct MessageBlackHole_ {
     StgHeader   header;
     struct MessageBlackHole_ *link;
-    StgClosure *upcall;
+    StgTSO     *tso;
     StgClosure *bh;
 } MessageBlackHole;
 

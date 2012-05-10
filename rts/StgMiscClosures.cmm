@@ -273,11 +273,11 @@ INFO_TABLE(stg_IND_PERM,1,0,IND_PERM,"IND_PERM","IND_PERM")
 
 INFO_TABLE(stg_BLACKHOLE,1,0,BLACKHOLE,"BLACKHOLE","BLACKHOLE")
 {
-    W_ r, p, info, bq, msg, owner, bd, uc, buct;
+    W_ r, p, info, bq;
+		W_ msg, owner, bd, uc;
+		W_ buct, trec;
 
     TICK_ENT_DYN_IND(); /* tick */
-
-    uc = 0;
 
 retry:
     p = StgInd_indirectee(R1);
@@ -298,25 +298,13 @@ retry:
         info == stg_BLOCKING_QUEUE_CLEAN_info ||
         info == stg_BLOCKING_QUEUE_DIRTY_info)
     {
+				trec = StgTSO_trec (CurrentTSO);
+				ASSERT (trec == NO_TREC);
         ("ptr" msg) = foreign "C" allocate(MyCapability() "ptr",
                                            BYTES_TO_WDS(SIZEOF_MessageBlackHole)) [R1];
 
         SET_HDR(msg, stg_MSG_BLACKHOLE_info, CCS_SYSTEM);
-        if (uc == 0) {
-          buct = TO_W_(StgTSO_is_upcall_thread(CurrentTSO));
-          if (buct == 1) {
-            foreign "C" barf ("Upcall thread entered blackhole!");
-            //uc = StgTSO_finalizer (CurrentTSO);
-
-            //(1) Am I in the middle of unblock_action or block_action??
-            //(2) Should I additionally abort transaction here?? -- KC
-          }
-          else {
-            ("ptr" uc) = foreign "C" getResumeThreadUpcall (MyCapability() "ptr",
-                                                            CurrentTSO "ptr") [R1];
-          }
-        }
-        MessageBlackHole_upcall(msg) = uc;
+        MessageBlackHole_tso(msg) = CurrentTSO;
         MessageBlackHole_bh(msg) = R1;
 
         (r) = foreign "C" messageBlackHole(MyCapability() "ptr", msg "ptr") [R1];
