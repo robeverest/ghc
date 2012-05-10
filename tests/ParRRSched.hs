@@ -54,8 +54,20 @@ createPVarList n l = do {
 
 newVProc :: ParRRSched -> IO ()
 newVProc sched = do
+  let ParRRSched pa _ = sched
+  let body = do {
+    s <- getSCont;
+    cc <- getCurrentCapability;
+		contents <- readPVar $ pa ! cc;
+    case contents of
+      (Seq.viewl -> Seq.EmptyL) -> do
+        sleepCapability
+      (Seq.viewl -> x Seq.:< tail) -> do
+        writePVar (pa ! cc) $ tail Seq.|> s
+        switchTo x
+	}
   let loop = do {
-    yield sched;
+		atomically $ body;
     loop
   }
   s <- newSCont loop
@@ -122,7 +134,7 @@ switchToNextWith sched f = do
       (Seq.viewl -> Seq.EmptyL) -> do
         sleepCapability
       (Seq.viewl -> x Seq.:< tail) -> do
-        writePVar ref $ tail
+        writePVar ref tail
         switchTo x
 
 enque :: ParRRSched -> SCont -> PTM ()

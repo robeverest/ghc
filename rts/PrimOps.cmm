@@ -609,6 +609,7 @@ stg_decodeDoublezu2Intzh
 STRING(stg_switch_msg,"Switching from thread %d (%s) to thread %d [%d]\n")
 STRING(stg_switch_reason_1, "Yielded")
 STRING(stg_switch_reason_2, "BlockedInHaskell")
+STRING(stg_switch_reason_3, "BlockedInRTS")
 STRING(stg_switch_reason_4, "ThreadComplete")
 
 stg_scheduleThreadOnFreeCapzh
@@ -645,6 +646,7 @@ stg_atomicSwitchzh
   switch_reason = R2;
 
   #if defined(DEBUG) || defined (TRACING)
+
   cap = MyCapability ();
   if (switch_reason == 1) {
     foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
@@ -658,28 +660,30 @@ stg_atomicSwitchzh
                               Capability_no(cap)) [];
     }
     else {
-      if (switch_reason == 4) {
+      if (switch_reason == 3) {
         foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
-                                stg_switch_reason_4, StgTSO_id(tso),
+                                stg_switch_reason_3, StgTSO_id(tso),
                                 Capability_no(cap)) [];
       }
-      else {
-        if (switch_reason == 0 && StgTSO_id(CurrentTSO) == StgTSO_id(tso)) {
-          tso = CurrentTSO;
-#if 0
-          foreign "C" debugBelch ("Self-switching thread %d [%d]\n",
-                                  StgTSO_id(CurrentTSO),
-                                  Capability_no(cap)) [];
-#endif
-        }
-        else {
-          foreign "C" debugBelch ("Switching from thread %d to %d\n",
-                                StgTSO_id(CurrentTSO), StgTSO_id(tso)) [];
-          foreign "C" barf ("Unexpected switch reason %d", switch_reason) [];
-        }
-      }
+			else {
+				if (switch_reason == 4) {
+					foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
+																	stg_switch_reason_4, StgTSO_id(tso),
+																	Capability_no(cap)) [];
+				}
+				else {
+					if (switch_reason == 0 && StgTSO_id(CurrentTSO) == StgTSO_id(tso)) {
+						tso = CurrentTSO;
+					}
+					else {
+						foreign "C" barf ("Unexpected: Switching from thread %d to %d - switch reason %d",
+															StgTSO_id(CurrentTSO), StgTSO_id(tso), switch_reason) [];
+					}
+      	}
+			}
     }
   }
+
   #endif
 
 

@@ -258,7 +258,7 @@ setOwningCapability (Capability *cap USED_IF_DEBUG,
 
    ------------------------------------------------------------------------- */
 
-  void
+void
 tryWakeupThread (Capability *cap, StgTSO *tso)
 {
   traceEventThreadWakeup (cap, tso, tso->cap->no);
@@ -314,10 +314,7 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
       goto unblock1;
 
     case BlockedOnSTM:
-      if (hasHaskellScheduler (tso))
-        goto unblock1;
-      else
-        goto unblock2;
+      goto unblock2;
 
     case ThreadMigrating:
       goto unblock2;

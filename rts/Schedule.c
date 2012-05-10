@@ -1338,15 +1338,8 @@ scheduleHandleYield( Capability *cap, StgTSO *t, nat prev_what_next )
     static void
 scheduleHandleThreadBlocked(Capability *cap, StgTSO *t)
 {
-
-    if (hasHaskellScheduler (t))
+    if (hasHaskellScheduler (t) && !t->why_blocked == BlockedOnSTM)
         pushUpcallNonReturning (cap, getSwitchToNextThreadUpcall (cap, t));
-
-    // ASSERT(t->why_blocked != NotBlocked);
-    // Not true: for example,
-    //    - the thread may have woken itself up already, because
-    //      threadPaused() might have raised a blocked throwTo
-    //      exception, see maybePerformBlockedException().
 
 #ifdef DEBUG
     traceThreadStatus(DEBUG_sched, t);
@@ -2514,7 +2507,9 @@ retry:
     }
 
     if (!done) goto retry;
+
     tso->cap = cap0;
+    tso->why_blocked = NotBlocked;
 
     appendToRunQueue (cap0, tso);
     releaseAndWakeupCapability (cap0);

@@ -96,12 +96,12 @@ PTM
 ------------------------------------------------------------------------------
 
 , getNumCapabilities      -- IO Int
-, getCurrentCapability 		-- PTM Int
+, getCurrentCapability     -- PTM Int
 
 , setSContCapability      -- SCont -> Int -> IO ()
 , getSContCapability      -- SCont -> PTM Int
 
-, sleepCapability					-- PTM a
+, sleepCapability          -- PTM a
 
 ------------------------------------------------------------------------------
 -- Experimental
@@ -114,7 +114,7 @@ PTM
 -- cannot find it otherwise. TODO: Hide them. - KC
 ------------------------------------------------------------------------------
 
-, initSContStatus 				-- SContStatus
+, initSContStatus         -- SContStatus
 , unblockThreadRts        -- PTM () -> IO ()
 , switchToNextThreadRts   -- PTM () -> Int -> IO ()
 ) where
@@ -157,7 +157,7 @@ instance  Monad PTM  where
     {-# INLINE (>>)   #-}
     {-# INLINE (>>=)  #-}
     m >> k      = thenPTM m k
-    return x	= returnPTM x
+    return x  = returnPTM x
     m >>= k     = bindPTM m k
 
 {-# INLINE bindPTM  #-}
@@ -209,14 +209,14 @@ pvarTc = mkTyCon3 "ghc-prim" "LwConc.Substrate" "PVar"
 instance Typeable1 PVar where { typeOf1 _ = mkTyConApp pvarTc [] }
 
 instance Eq (PVar a) where
-	(PVar tvar1#) == (PVar tvar2#) = sameTVar# tvar1# tvar2#
+  (PVar tvar1#) == (PVar tvar2#) = sameTVar# tvar1# tvar2#
 
 {-# INLINE newPVar  #-}
 -- |Create a new PVar holding a value supplied
 newPVar :: a -> PTM (PVar a)
 newPVar val = PTM $ \s1# ->
     case newTVar# val s1# of
-	 (# s2#, tvar# #) -> (# s2#, PVar tvar# #)
+   (# s2#, tvar# #) -> (# s2#, PVar tvar# #)
 
 -- |@IO@ version of 'newPVar'.  This is useful for creating top-level
 -- 'PVar's using 'System.IO.Unsafe.unsafePerformIO', because using
@@ -226,7 +226,7 @@ newPVar val = PTM $ \s1# ->
 newPVarIO :: a -> IO (PVar a)
 newPVarIO val = IO $ \s1# ->
     case newTVar# val s1# of
-	 (# s2#, tvar# #) -> (# s2#, PVar tvar# #)
+   (# s2#, tvar# #) -> (# s2#, PVar tvar# #)
 
 -- |Return the current value stored in a PVar
 {-# INLINE readPVar #-}
@@ -238,20 +238,20 @@ readPVar (PVar tvar#) = PTM $ \s# -> readTVar# tvar# s#
 writePVar :: PVar a -> a -> PTM ()
 writePVar (PVar tvar#) val = PTM $ \s1# ->
     case writeTVar# tvar# val s1# of
-    	 s2# -> (# s2#, () #)
+       s2# -> (# s2#, () #)
 
 ---------------------------------------------------------------------------------
 -- SContStatus
 ---------------------------------------------------------------------------------
 
 data SContStatus = SContRunning |
-									 SContKilled |
-									 SContSwitched SContSwitchReason
+                   SContKilled |
+                   SContSwitched SContSwitchReason
 
 data SContSwitchReason = Yielded |
-		                     BlockedInHaskell |
+                         BlockedInHaskell |
                          BlockedInRTS |
-												 Completed
+                         Completed
 
 
 getStatusFromInt x | x == 0 = SContRunning
@@ -266,6 +266,7 @@ getIntFromStatus x = case x of
                           SContSwitched BlockedInHaskell -> 2#
                           SContSwitched BlockedInRTS -> 3#
                           SContSwitched Completed -> 4#
+                          otherwise -> 5#
 
 {-# INLINE getSContStatus #-}
 getSContStatus :: SCont -> PTM SContStatus
@@ -468,9 +469,9 @@ newBoundSCont action0
                         MaskedUninterruptible -> uninterruptibleMask_ action0
             action2 = switchback >> action1
                       where switchback = atomically $ do {
-											                      setSContSwitchReason Yielded;
-																						switchTo callingSCont
-																				 }
+                                            setSContSwitchReason Yielded;
+                                            switchTo callingSCont
+                                         }
             action_plus = Exception.catch action2 childHandler
         s <- newSCont action_plus
         entry <- newStablePtr s
@@ -512,7 +513,7 @@ newBoundSCont action0
 
 scheduleSContOnFreeCap :: SCont -> IO ()
 scheduleSContOnFreeCap (SCont s) = IO $
-	\st -> case scheduleThreadOnFreeCap# s st of st -> (# st, () #)
+  \st -> case scheduleThreadOnFreeCap# s st of st -> (# st, () #)
 
 ------------------------------------------------------------------------------
 -- Capability Management
@@ -545,11 +546,11 @@ getSContCapabilityIO (SCont sc) = IO $
 -- will throw a runtime error.
 setSContCapability :: SCont -> Int -> IO ()
 setSContCapability (SCont sc) (I# i) = do
-	cc <- getCurrentCapabilityIO
-	scc <- getSContCapabilityIO $ SCont sc
-	if cc == scc
-		then IO $ \s -> case setSContCapability# sc i s of s -> (# s, () #)
-		else error "setSContCapability: SCont must belong to the current capability"
+  cc <- getCurrentCapabilityIO
+  scc <- getSContCapabilityIO $ SCont sc
+  if cc == scc
+    then IO $ \s -> case setSContCapability# sc i s of s -> (# s, () #)
+    else error "setSContCapability: SCont must belong to the current capability"
 
 -- Is PTM retry
 sleepCapability :: PTM a
