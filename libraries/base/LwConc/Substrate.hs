@@ -4,6 +4,7 @@
            , MagicHash
            , UnboxedTuples
            , ScopedTypeVariables
+					 , DeriveDataTypeable
   #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports -w -XBangPatterns #-}
 
@@ -102,6 +103,13 @@ PTM
 , getSContCapability      -- SCont -> PTM Int
 
 , sleepCapability          -- PTM a
+
+------------------------------------------------------------------------------
+-- Exceptions
+------------------------------------------------------------------------------
+
+, BlockedIndefinitelyOnConcDS(..)
+, blockedIndefinitelyOnConcDS
 
 ------------------------------------------------------------------------------
 -- Experimental
@@ -555,3 +563,18 @@ setSContCapability (SCont sc) (I# i) = do
 -- Is PTM retry
 sleepCapability :: PTM a
 sleepCapability = PTM $ \s -> retry# s
+
+------------------------------------------------------------------------------
+-- Exceptions
+------------------------------------------------------------------------------
+
+data BlockedIndefinitelyOnConcDS = BlockedIndefinitelyOnConcDS
+    deriving Typeable
+
+instance Exception BlockedIndefinitelyOnConcDS
+
+instance Show BlockedIndefinitelyOnConcDS where
+    showsPrec _ BlockedIndefinitelyOnConcDS = showString "thread blocked indefinitely in an STM transaction"
+
+blockedIndefinitelyOnConcDS :: SomeException -- for the RTS
+blockedIndefinitelyOnConcDS = toException BlockedIndefinitelyOnConcDS
