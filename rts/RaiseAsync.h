@@ -29,6 +29,10 @@ StgTSO* suspendComputation (Capability *cap,
                             StgTSO *tso,
                             StgUpdateFrame *stop_here);
 
+rtsBool suspendAllComputation (Capability *cap,
+                            StgClosure *bh);
+
+
 MessageThrowTo *throwTo (Capability *cap,      // the Capability we hold
                          StgTSO *source,
                          StgTSO *target,
@@ -65,6 +69,8 @@ interruptible(StgTSO *t)
       return 0;
   }
 }
+
+StgUpdateFrame* findLastUpdateFrame (StgTSO* tso);
 
 #include "EndPrivate.h"
 

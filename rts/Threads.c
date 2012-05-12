@@ -66,8 +66,8 @@ createThread(Capability *cap, nat size)
   /* sched_mutex is *not* required */
 
   /* catch ridiculously small stack sizes */
-    if (size < MIN_STACK_WORDS + sizeofW(StgStack) + sizeofW(StgTSO)) {
-        size = MIN_STACK_WORDS + sizeofW(StgStack) + sizeofW(StgTSO);
+  if (size < MIN_STACK_WORDS + sizeofW(StgStack) + sizeofW(StgTSO)) {
+    size = MIN_STACK_WORDS + sizeofW(StgStack) + sizeofW(StgTSO);
   }
 
   /* The size argument we are given includes all the per-thread
@@ -129,7 +129,7 @@ createThread(Capability *cap, nat size)
           (StgInfoTable *)&stg_stop_thread_info,CCS_SYSTEM);
 
   /* Link the new thread on the global thread list.
-   */
+  */
   ACQUIRE_LOCK(&sched_mutex);
   tso->id = next_thread_id++;  // while we have the mutex
   tso->global_link = g0->threads;
@@ -258,7 +258,7 @@ setOwningCapability (Capability *cap USED_IF_DEBUG,
 
    ------------------------------------------------------------------------- */
 
-void
+  void
 tryWakeupThread (Capability *cap, StgTSO *tso)
 {
   traceEventThreadWakeup (cap, tso, tso->cap->no);
@@ -312,9 +312,9 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
 
     case BlockedOnBlackHole:
       if (hasHaskellScheduler (tso)) //Note: Upcall threads do not have a user-level scheduler
-          goto unblock1;
+        goto unblock1;
       else
-          goto unblock2;
+        goto unblock2;
 
     case BlockedOnSTM:
       goto unblock2;
@@ -386,7 +386,7 @@ pushCallToClosure (Capability *cap, StgTSO *tso, StgClosure *closure) {
    migrateThread
    ------------------------------------------------------------------------- */
 
-void
+  void
 migrateThread (Capability *from, StgTSO *tso, Capability *to)
 {
   traceEventMigrateThread (from, tso, to->no);
@@ -437,7 +437,7 @@ wakeBlockingQueue(Capability *cap, StgBlockingQueue *bq)
 // an orphaned BLOCKING_QUEUE closure with blocked threads attached to
 // it.  We therefore traverse the BLOCKING_QUEUEs attached to the
 // current TSO to see if any can now be woken up.
-  void
+void
 checkBlockingQueues (Capability *cap, StgTSO *tso)
 {
   StgBlockingQueue *bq, *next;
@@ -494,16 +494,16 @@ updateThunk (Capability *cap, StgTSO *tso, StgClosure *thunk, StgClosure *val)
 
   updateWithIndirection(cap, thunk, val);
 
-    // sometimes the TSO is locked when we reach here, so its header
-    // might be WHITEHOLE.  Hence check for the correct owner using
-    // pointer equality first.
-    if ((StgTSO*)v == tso) {
-        return;
-    }
+  // sometimes the TSO is locked when we reach here, so its header
+  // might be WHITEHOLE.  Hence check for the correct owner using
+  // pointer equality first.
+  if ((StgTSO*)v == tso) {
+    return;
+  }
 
   i = v->header.info;
   if (i == &stg_TSO_info) {
-      checkBlockingQueues(cap, tso);
+    checkBlockingQueues(cap, tso);
     return;
   }
 
@@ -646,8 +646,8 @@ threadStackOverflow (Capability *cap, StgTSO *tso)
   //
   if (old_stack->sp > old_stack->stack + old_stack->stack_size / 2)
   {
-        chunk_size = stg_max(2 * (old_stack->stack_size + sizeofW(StgStack)),
-                             RtsFlags.GcFlags.stkChunkSize);
+    chunk_size = stg_max(2 * (old_stack->stack_size + sizeofW(StgStack)),
+                         RtsFlags.GcFlags.stkChunkSize);
   }
   else
   {
@@ -695,27 +695,27 @@ threadStackOverflow (Capability *cap, StgTSO *tso)
       sp += size;
     }
 
-        if (sp == old_stack->stack + old_stack->stack_size) {
-            //
-            // the old stack chunk is now empty, so we do *not* insert
-            // an underflow frame pointing back to it.  There are two
-            // cases: either the old stack chunk was the last one, in
-            // which case it ends with a STOP_FRAME, or it is not the
-            // last one, and it already ends with an UNDERFLOW_FRAME
-            // pointing to the previous chunk.  In the latter case, we
-            // will copy the UNDERFLOW_FRAME into the new stack chunk.
-            // In both cases, the old chunk will be subsequently GC'd.
-            //
-            // With the default settings, -ki1k -kb1k, this means the
-            // first stack chunk will be discarded after the first
-            // overflow, being replaced by a non-moving 32k chunk.
-            //
-        } else {
-            new_stack->sp -= sizeofW(StgUnderflowFrame);
-            frame = (StgUnderflowFrame*)new_stack->sp;
-            frame->info = &stg_stack_underflow_frame_info;
-            frame->next_chunk  = old_stack;
-        }
+    if (sp == old_stack->stack + old_stack->stack_size) {
+      //
+      // the old stack chunk is now empty, so we do *not* insert
+      // an underflow frame pointing back to it.  There are two
+      // cases: either the old stack chunk was the last one, in
+      // which case it ends with a STOP_FRAME, or it is not the
+      // last one, and it already ends with an UNDERFLOW_FRAME
+      // pointing to the previous chunk.  In the latter case, we
+      // will copy the UNDERFLOW_FRAME into the new stack chunk.
+      // In both cases, the old chunk will be subsequently GC'd.
+      //
+      // With the default settings, -ki1k -kb1k, this means the
+      // first stack chunk will be discarded after the first
+      // overflow, being replaced by a non-moving 32k chunk.
+      //
+    } else {
+      new_stack->sp -= sizeofW(StgUnderflowFrame);
+      frame = (StgUnderflowFrame*)new_stack->sp;
+      frame->info = &stg_stack_underflow_frame_info;
+      frame->next_chunk  = old_stack;
+    }
 
     // copy the stack chunk between tso->sp and sp to
     //   new_tso->sp + (tso->sp - sp)
@@ -853,11 +853,11 @@ printThreadBlockage(StgTSO *tso)
 }
 
 
-  void
+void
 printThreadStatus(StgTSO *t)
 {
-  debugBelch("\tthread %4lu @ %p with stack %p ",
-             (unsigned long)t->id, (void *)t, t->stackobj);
+  debugBelch("\tthread %4lu @ %p ",
+             (unsigned long)t->id, (void *)t);
   {
     void *label = lookupThreadLabel(t->id);
     if (label) debugBelch("[\"%s\"] ",(char *)label);
@@ -914,6 +914,78 @@ printThreadQueue(StgTSO *t)
     i++;
   }
   debugBelch("%d threads on queue\n", i);
+}
+
+void
+printStackFrames (StgTSO* tso) {
+  StgRetInfoTable *info;
+  StgPtr sp, frame;
+  StgStack *stack;
+  rtsBool done;
+
+  done = rtsFalse;
+  stack = tso->stackobj;
+  sp = stack->sp;
+
+  if (sp[0] == (W_)&stg_enter_info) {
+    sp++;
+  } else {
+    sp--;
+    sp[0] = (W_)&stg_dummy_ret_closure;
+  }
+
+  frame = sp + 1;
+
+  while (1) {
+    info = get_ret_itbl((StgClosure *)frame);
+
+    switch (info->i.type) {
+
+      case UPDATE_FRAME: {
+                           fprintf (stderr, "UPDATE\t\tframe %p\n", frame);
+                           break;
+                         }
+
+      case UNDERFLOW_FRAME: {
+                              fprintf (stderr, "UNDERFLOW\tframe %p\n", frame);
+                              break;
+                            }
+
+      case STOP_FRAME: {
+                         fprintf (stderr, "STOP\t\tframe %p\n", frame);
+                         done = rtsTrue;
+                         break;
+                       }
+
+      case CATCH_FRAME: {
+                          fprintf (stderr, "CATCH\t\tframe %p\n", frame);
+                          break;
+                        }
+
+      case ATOMICALLY_FRAME: {
+                               fprintf (stderr, "ATOMICALLY\tframe %p\n", frame);
+                               break;
+                             }
+
+      case CATCH_STM_FRAME: {
+                              fprintf (stderr, "CATCH_STM\tframe %p\n", frame);
+                              break;
+                            }
+
+      case CATCH_RETRY_FRAME: {
+                                fprintf (stderr, "CATCH_RETRY\tframe %p\n", frame);
+                                break;
+                              }
+
+      default:
+                              break;
+    }
+
+    if (done)
+      break;
+    // move on to the next stack frame
+    frame += stack_frame_sizeW((StgClosure *)frame);
+  }
 }
 
 #endif /* DEBUG */

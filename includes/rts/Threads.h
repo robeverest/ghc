@@ -48,6 +48,10 @@ StgRegTable * resumeThread  (void *);
 //
 int    cmp_thread      (StgPtr tso1, StgPtr tso2);
 int    rts_getThreadId (StgPtr tso);
+void   labelThread          (Capability *cap,
+                             StgTSO     *tso,
+                             char       *label);
+
 
 #if !defined(mingw32_HOST_OS)
 pid_t  forkProcess     (HsStablePtr *entry);

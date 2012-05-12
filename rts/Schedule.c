@@ -563,8 +563,7 @@ run_thread:
             if (t->what_next == ThreadKilled)
                 barf ("Schedule: Upcall thread killed");
 
-            if (ret == ThreadFinished ||
-                (ret == ThreadBlocked && t->why_blocked == BlockedOnBlackHole)) {
+            if (ret == ThreadFinished) {
                 t->what_next = ThreadComplete;
                 t->why_blocked = NotBlocked;
                 ret = ThreadSwitch;
@@ -949,7 +948,7 @@ scheduleCheckBlockedThreads(Capability *cap USED_IF_NOT_THREADS)
  * -------------------------------------------------------------------------- */
 
 #if defined(THREADED_RTS)
-    static void
+static void
 scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
 {
     //Unsafely check
@@ -975,7 +974,7 @@ scheduleResumeBlockedOnForeignCall(Capability *cap USED_IF_THREADS)
         relegateTask (cap, incall->task);
     }
     else {
-        debugTrace (DEBUG_sched, "scheduleResumedBlockedOnForeignCall: Skipping incall %p\n",
+        debugTrace (DEBUG_sched, "scheduleResumedBlockedOnForeignCall: Skipping incall %p",
                     incall);
     }
     RELEASE_LOCK (&cap->lock);
@@ -1332,7 +1331,7 @@ scheduleHandleYield( Capability *cap, StgTSO *t, nat prev_what_next )
  * Handle a thread that returned to the scheduler with ThreadBlocked
  * -------------------------------------------------------------------------- */
 
-    static void
+static void
 scheduleHandleThreadBlocked(Capability *cap, StgTSO *t)
 {
     if (hasHaskellScheduler (t) && t->why_blocked != BlockedOnSTM)

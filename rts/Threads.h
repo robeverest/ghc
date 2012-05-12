@@ -50,6 +50,7 @@ void printThreadBlockage (StgTSO *tso);
 void printThreadStatus (StgTSO *t);
 void printAllThreads (void);
 void printThreadQueue (StgTSO *t);
+void printStackFrames (StgTSO *t);
 #endif
 
 #include "EndPrivate.h"

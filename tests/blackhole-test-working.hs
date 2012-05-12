@@ -16,8 +16,8 @@ data State = State {
 
 -- XXX KC loopmax=0 numthread=2 -N2 will enter blackhole consistently
 
-loopmax = 0
-numthreads = 2
+loopmax = 1000
+numthreads = 200
 
 main
   = do t <- atomically (newPVar 0)
