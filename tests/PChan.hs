@@ -56,7 +56,7 @@ readPChan (PChan ref) = do
   st <- readPVar ref
   case st of
        (Seq.viewl -> Seq.EmptyL) -> do
-			   readPChan (PChan ref)
+         readPChan (PChan ref)
        (Seq.viewl -> x Seq.:< tl) -> do
          writePVar ref $ tl
          return x
