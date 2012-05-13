@@ -4,7 +4,7 @@
            , MagicHash
            , UnboxedTuples
            , ScopedTypeVariables
-					 , DeriveDataTypeable
+           , DeriveDataTypeable
   #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports -w -XBangPatterns #-}
 
