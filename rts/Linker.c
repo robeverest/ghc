@@ -304,8 +304,6 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(__hscore_get_saved_termios) \
       SymI_HasProto(__hscore_set_saved_termios) \
       SymI_HasProto(shutdownHaskellAndSignal)   \
-      SymI_HasProto(lockFile)                   \
-      SymI_HasProto(unlockFile)                 \
       SymI_HasProto(signal_handlers)            \
       SymI_HasProto(stg_sig_install)            \
       SymI_HasProto(rtsTimerSignal)             \
@@ -986,7 +984,7 @@ typedef struct _RtsSymbolVal {
 // We don't do this when compiling to Windows DLLs at the moment because
 //      it doesn't support cross package data references well.
 //
-#if defined(__PIC__) && defined(mingw32_HOST_OS) && defined(i386_HOST_ARCH)
+#if defined(COMPILING_WINDOWS_DLL)
 #define RTS_INTCHAR_SYMBOLS
 #else
 #define RTS_INTCHAR_SYMBOLS                             \
@@ -1287,6 +1285,9 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(n_capabilities)                     \
       SymI_HasProto(stg_traceCcszh)                     \
       SymI_HasProto(stg_traceEventzh)                   \
+      SymI_HasProto(getMonotonicNSec)                   \
+      SymI_HasProto(lockFile)                           \
+      SymI_HasProto(unlockFile)                         \
       RTS_USER_SIGNALS_SYMBOLS                          \
       RTS_INTCHAR_SYMBOLS
 
@@ -1318,9 +1319,13 @@ typedef struct _RtsSymbolVal {
 
 /* entirely bogus claims about types of these symbols */
 #define SymI_NeedsProto(vvv)  extern void vvv(void);
-#if defined(__PIC__) && defined(mingw32_HOST_OS) && defined(i386_HOST_ARCH)
+#if defined(COMPILING_WINDOWS_DLL)
 #define SymE_HasProto(vvv)    SymE_HasProto(vvv);
-#define SymE_NeedsProto(vvv)    extern void _imp__ ## vvv (void);
+#  if defined(x86_64_HOST_ARCH)
+#    define SymE_NeedsProto(vvv)    extern void __imp_ ## vvv (void);
+#  else
+#    define SymE_NeedsProto(vvv)    extern void _imp__ ## vvv (void);
+#  endif
 #else
 #define SymE_NeedsProto(vvv)  SymI_NeedsProto(vvv);
 #define SymE_HasProto(vvv)    SymI_HasProto(vvv)
@@ -2283,8 +2288,23 @@ loadArchive( pathchar *path )
 #elif defined(mingw32_HOST_OS)
         // TODO: We would like to use allocateExec here, but allocateExec
         //       cannot currently allocate blocks large enough.
-            image = VirtualAlloc(NULL, memberSize, MEM_RESERVE | MEM_COMMIT,
-                                 PAGE_EXECUTE_READWRITE);
+            {
+                int offset;
+#if defined(x86_64_HOST_ARCH)
+                /* We get back 8-byte aligned memory (is that guaranteed?), but
+                   the offsets to the sections within the file are all 4 mod 8
+                   (is that guaranteed?). We therefore need to offset the image
+                   by 4, so that all the pointers are 8-byte aligned, so that
+                   pointer tagging works. */
+                offset = 4;
+#else
+                offset = 0;
+#endif
+                image = VirtualAlloc(NULL, memberSize + offset,
+                                     MEM_RESERVE | MEM_COMMIT,
+                                     PAGE_EXECUTE_READWRITE);
+                image += offset;
+            }
 #elif defined(darwin_HOST_OS)
             /* See loadObj() */
             misalignment = machoGetMisalignment(f);
@@ -3592,6 +3612,7 @@ ocGetNames_PEi386 ( ObjectCode* oc )
 #     endif
 
       if (0==strcmp(".text",(char*)secname) ||
+          0==strcmp(".text.startup",(char*)secname) ||
           0==strcmp(".rdata",(char*)secname)||
           0==strcmp(".rodata",(char*)secname))
          kind = SECTIONKIND_CODE_OR_RODATA;
@@ -3628,6 +3649,10 @@ ocGetNames_PEi386 ( ObjectCode* oc )
       }
 
       if (kind != SECTIONKIND_OTHER && end >= start) {
+          if ((((size_t)(start)) % (size_t)sizeof(void *)) != 0) {
+              barf("Misaligned section: %p", start);
+          }
+
          addSection(oc, kind, start, end);
          addProddableBlock(oc, start, end - start + 1);
       }
