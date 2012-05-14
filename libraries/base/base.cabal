@@ -188,8 +188,6 @@ Library {
         Foreign.StablePtr,
         Foreign.Storable,
         LwConc.Substrate,
-        LwConc.MVar,
-        LwConc.Schedulers.ConcRRSched,
         Numeric,
         Prelude,
         System.Console.GetOpt

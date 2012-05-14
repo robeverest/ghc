@@ -110,50 +110,21 @@ void maperrno (void)
 			errno = EINVAL;
 }
 
-// Number of ticks per second used by the QueryPerformanceFrequency
-// implementaiton, represented by a 64-bit union type.
-static LARGE_INTEGER qpc_frequency = {.QuadPart = 0};
-
-// Initialize qpc_frequency. This function should be called before any call to
-// getMonotonicUSec.  If QPC is not supported on this system, qpc_frequency is
-// set to 0.
-void initializeTimer()
+int get_unique_file_info(int fd, HsWord64 *dev, HsWord64 *ino)
 {
-    BOOL qpc_supported = QueryPerformanceFrequency(&qpc_frequency);
-    if (!qpc_supported)
+    HANDLE h = (HANDLE)_get_osfhandle(fd);
+    BY_HANDLE_FILE_INFORMATION info;
+
+    if (GetFileInformationByHandle(h, &info))
     {
-        qpc_frequency.QuadPart = 0;
+        *dev = info.dwVolumeSerialNumber;
+        *ino = info.nFileIndexLow
+             | ((HsWord64)info.nFileIndexHigh << 32);
+
+        return 0;
     }
-}
 
-HsWord64 getMonotonicUSec()
-{
-    if (qpc_frequency.QuadPart)
-    {
-        // system_time is a 64-bit union type used to represent the
-        // tick count returned by QueryPerformanceCounter
-        LARGE_INTEGER system_time;
-
-        // get the tick count.
-        QueryPerformanceCounter(&system_time);
-
-        // compute elapsed seconds as double
-        double secs = (double)system_time.QuadPart /
-                      (double)qpc_frequency.QuadPart;
-
-        // return elapsed time in microseconds
-        return (HsWord64)(secs * 1e6);
-    }
-    else // fallback to GetTickCount
-    {
-        // NOTE: GetTickCount is a 32-bit millisecond value, so it wraps around
-        // every 49 days.
-        DWORD count = GetTickCount();
-
-        // getTickCount is in milliseconds, so multiply it by 1000 to get
-        // microseconds.
-        return (HsWord64)count * 1000;
-    }
+    return -1;
 }
 
 #endif
