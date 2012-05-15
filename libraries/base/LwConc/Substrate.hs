@@ -83,8 +83,8 @@ PTM
 -- Upcall actions
 ------------------------------------------------------------------------------
 
-, setUnblockThread         -- SCont -> PTM () -> IO ()
-, getUnblockThread         -- PTM (PTM ())
+, setUnblockThread         -- SCont -> (SCont -> PTM ()) -> IO ()
+, getUnblockThread         -- PTM (SCont -> PTM ())
 
 , setSwitchToNextThread   -- SCont -> PTM () -> IO ()
 , getSwitchToNextThread   -- PTM (PTM ())
@@ -392,20 +392,20 @@ unblockThreadRts :: SCont -> IO () -- used by RTS
 unblockThreadRts sc = atomically $ do
   setSContStatus sc $ SContSwitched Yielded
   unblock <- getUnblockThreadSCont sc
-  unblock
+  unblock sc
 
 {-# INLINE setUnblockThread #-}
-setUnblockThread :: SCont -> PTM () -> IO ()
+setUnblockThread :: SCont -> (SCont -> PTM ()) -> IO ()
 setUnblockThread (SCont sc) r = IO $ \s ->
   case (setUnblockThread# sc r s) of s -> (# s, () #)
 
 {-# INLINE getUnblockThreadSCont #-}
-getUnblockThreadSCont :: SCont -> PTM(PTM ())
+getUnblockThreadSCont :: SCont -> PTM(SCont -> PTM ())
 getUnblockThreadSCont (SCont sc) =
   PTM $ \s -> getUnblockThread# sc s
 
 {-# INLINE getUnblockThread #-}
-getUnblockThread :: PTM (PTM ())
+getUnblockThread :: PTM (SCont -> PTM ())
 getUnblockThread = do
   currentSCont <- getSCont
   u <- getUnblockThreadSCont currentSCont

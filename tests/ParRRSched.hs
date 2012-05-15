@@ -41,7 +41,7 @@ newParRRSched = do
   rl <- createPVarList nc []
   let sched = ParRRSched (listArray (0, nc-1) rl) token
   (b,u) <- getSchedActionPairPrim sched
-  setUnblockThread s $ u s
+  setUnblockThread s u
   setSwitchToNextThread s b
    -- Exn.catch (atomically (b s)) (\e -> putStrLn $ show (e::Exn.Exception));
   return sched
@@ -73,7 +73,7 @@ newVProc sched = do
   }
   s <- newSCont loop
   (b,u) <- getSchedActionPairPrim sched;
-  setUnblockThread s $ u s;
+  setUnblockThread s u;
   setSwitchToNextThread s b;
   scheduleSContOnFreeCap s
 
@@ -105,7 +105,7 @@ fork sched task kind = do
                     Unbound -> newSCont
   s <- makeSCont yieldingTask;
   (b,u) <- getSchedActionPairPrim sched;
-  setUnblockThread s $ u s;
+  setUnblockThread s u;
   setSwitchToNextThread s b;
   t <- atomically $ readPVar token
   nc <- Conc.getNumCapabilities
