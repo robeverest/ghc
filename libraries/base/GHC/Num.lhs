@@ -83,18 +83,36 @@ subtract x y = y - x
 
 \begin{code}
 instance  Num Int  where
-    (+)    = plusInt
-    (-)    = minusInt
-    negate = negateInt
-    (*)    = timesInt
-    abs n  = if n `geInt` 0 then n else negateInt n
+    I# x + I# y = I# (x +# y)
+    I# x - I# y = I# (x -# y)
+    negate (I# x) = I# (negateInt# x)
+    I# x * I# y = I# (x *# y)
+    abs n  = if n `geInt` 0 then n else negate n
 
-    signum n | n `ltInt` 0 = negateInt 1
+    signum n | n `ltInt` 0 = negate 1
              | n `eqInt` 0 = 0
              | otherwise   = 1
 
     {-# INLINE fromInteger #-}	 -- Just to be sure!
     fromInteger i = I# (integerToInt i)
+\end{code}
+
+%*********************************************************
+%*                                                      *
+\subsection{Instances for @Word@}
+%*                                                      *
+%*********************************************************
+
+\begin{code}
+instance Num Word where
+    (W# x#) + (W# y#)      = W# (x# `plusWord#` y#)
+    (W# x#) - (W# y#)      = W# (x# `minusWord#` y#)
+    (W# x#) * (W# y#)      = W# (x# `timesWord#` y#)
+    negate (W# x#)         = W# (int2Word# (negateInt# (word2Int# x#)))
+    abs x                  = x
+    signum 0               = 0
+    signum _               = 1
+    fromInteger i          = W# (integerToWord i)
 \end{code}
 
 %*********************************************************

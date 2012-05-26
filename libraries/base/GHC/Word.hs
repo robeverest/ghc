@@ -43,140 +43,6 @@ import GHC.Err
 import GHC.Float ()     -- for RealFrac methods
 
 ------------------------------------------------------------------------
--- type Word
-------------------------------------------------------------------------
-
--- |A 'Word' is an unsigned integral type, with the same size as 'Int'.
-data {-# CTYPE "HsWord" #-} Word = W# Word# deriving (Eq, Ord)
-
-instance Show Word where
-    showsPrec _ (W# w) = showWord w
-
-showWord :: Word# -> ShowS
-showWord w# cs
- | w# `ltWord#` 10## = C# (chr# (ord# '0'# +# word2Int# w#)) : cs
- | otherwise = case chr# (ord# '0'# +# word2Int# (w# `remWord#` 10##)) of
-               c# ->
-                   showWord (w# `quotWord#` 10##) (C# c# : cs)
-
-instance Num Word where
-    (W# x#) + (W# y#)      = W# (x# `plusWord#` y#)
-    (W# x#) - (W# y#)      = W# (x# `minusWord#` y#)
-    (W# x#) * (W# y#)      = W# (x# `timesWord#` y#)
-    negate (W# x#)         = W# (int2Word# (negateInt# (word2Int# x#)))
-    abs x                  = x
-    signum 0               = 0
-    signum _               = 1
-    fromInteger i          = W# (integerToWord i)
-
-instance Real Word where
-    toRational x = toInteger x % 1
-
-instance Enum Word where
-    succ x
-        | x /= maxBound = x + 1
-        | otherwise     = succError "Word"
-    pred x
-        | x /= minBound = x - 1
-        | otherwise     = predError "Word"
-    toEnum i@(I# i#)
-        | i >= 0        = W# (int2Word# i#)
-        | otherwise     = toEnumError "Word" i (minBound::Word, maxBound::Word)
-    fromEnum x@(W# x#)
-        | x <= fromIntegral (maxBound::Int)
-                        = I# (word2Int# x#)
-        | otherwise     = fromEnumError "Word" x
-    enumFrom            = integralEnumFrom
-    enumFromThen        = integralEnumFromThen
-    enumFromTo          = integralEnumFromTo
-    enumFromThenTo      = integralEnumFromThenTo
-
-instance Integral Word where
-    quot    (W# x#) y@(W# y#)
-        | y /= 0                = W# (x# `quotWord#` y#)
-        | otherwise             = divZeroError
-    rem     (W# x#) y@(W# y#)
-        | y /= 0                = W# (x# `remWord#` y#)
-        | otherwise             = divZeroError
-    div     (W# x#) y@(W# y#)
-        | y /= 0                = W# (x# `quotWord#` y#)
-        | otherwise             = divZeroError
-    mod     (W# x#) y@(W# y#)
-        | y /= 0                = W# (x# `remWord#` y#)
-        | otherwise             = divZeroError
-    quotRem (W# x#) y@(W# y#)
-        | y /= 0                = case x# `quotRemWord#` y# of
-                                  (# q, r #) ->
-                                      (W# q, W# r)
-        | otherwise             = divZeroError
-    divMod  (W# x#) y@(W# y#)
-        | y /= 0                = (W# (x# `quotWord#` y#), W# (x# `remWord#` y#))
-        | otherwise             = divZeroError
-    toInteger (W# x#)
-        | i# >=# 0#             = smallInteger i#
-        | otherwise             = wordToInteger x#
-        where
-        !i# = word2Int# x#
-
-instance Bounded Word where
-    minBound = 0
-
-    -- use unboxed literals for maxBound, because GHC doesn't optimise
-    -- (fromInteger 0xffffffff :: Word).
-#if WORD_SIZE_IN_BITS == 32
-    maxBound = W# (int2Word# 0xFFFFFFFF#)
-#else
-    maxBound = W# (int2Word# 0xFFFFFFFFFFFFFFFF#)
-#endif
-
-instance Ix Word where
-    range (m,n)         = [m..n]
-    unsafeIndex (m,_) i = fromIntegral (i - m)
-    inRange (m,n) i     = m <= i && i <= n
-
-instance Read Word where
-    readsPrec p s = [(fromInteger x, r) | (x, r) <- readsPrec p s]
-
-instance Bits Word where
-    {-# INLINE shift #-}
-    {-# INLINE bit #-}
-    {-# INLINE testBit #-}
-
-    (W# x#) .&.   (W# y#)    = W# (x# `and#` y#)
-    (W# x#) .|.   (W# y#)    = W# (x# `or#`  y#)
-    (W# x#) `xor` (W# y#)    = W# (x# `xor#` y#)
-    complement (W# x#)       = W# (x# `xor#` mb#)
-        where !(W# mb#) = maxBound
-    (W# x#) `shift` (I# i#)
-        | i# >=# 0#          = W# (x# `shiftL#` i#)
-        | otherwise          = W# (x# `shiftRL#` negateInt# i#)
-    (W# x#) `shiftL` (I# i#) = W# (x# `shiftL#` i#)
-    (W# x#) `unsafeShiftL` (I# i#) = W# (x# `uncheckedShiftL#` i#)
-    (W# x#) `shiftR` (I# i#) = W# (x# `shiftRL#` i#)
-    (W# x#) `unsafeShiftR` (I# i#) = W# (x# `uncheckedShiftRL#` i#)
-    (W# x#) `rotate` (I# i#)
-        | i'# ==# 0# = W# x#
-        | otherwise  = W# ((x# `uncheckedShiftL#` i'#) `or#` (x# `uncheckedShiftRL#` (wsib -# i'#)))
-        where
-        !i'# = word2Int# (int2Word# i# `and#` int2Word# (wsib -# 1#))
-        !wsib = WORD_SIZE_IN_BITS#  {- work around preprocessor problem (??) -}
-    bitSize  _               = WORD_SIZE_IN_BITS
-    isSigned _               = False
-    popCount (W# x#)         = I# (word2Int# (popCnt# x#))
-    bit                      = bitDefault
-    testBit                  = testBitDefault
-
-{-# RULES
-"fromIntegral/Int->Word"  fromIntegral = \(I# x#) -> W# (int2Word# x#)
-"fromIntegral/Word->Int"  fromIntegral = \(W# x#) -> I# (word2Int# x#)
-"fromIntegral/Word->Word" fromIntegral = id :: Word -> Word
-  #-}
-
--- No RULES for RealFrac unfortunately.
--- Going through Int isn't possible because Word's range is not
--- included in Int's, going through Integer may or may not be slower.
-
-------------------------------------------------------------------------
 -- type Word8
 ------------------------------------------------------------------------
 
@@ -275,7 +141,7 @@ instance Bits Word8 where
         | otherwise  = W8# (narrow8Word# ((x# `uncheckedShiftL#` i'#) `or#`
                                           (x# `uncheckedShiftRL#` (8# -# i'#))))
         where
-        !i'# = word2Int# (int2Word# i# `and#` int2Word# 7#)
+        !i'# = word2Int# (int2Word# i# `and#` 7##)
     bitSize  _                = 8
     isSigned _                = False
     popCount (W8# x#)         = I# (word2Int# (popCnt8# x#))
@@ -418,7 +284,7 @@ instance Bits Word16 where
         | otherwise  = W16# (narrow16Word# ((x# `uncheckedShiftL#` i'#) `or#`
                                             (x# `uncheckedShiftRL#` (16# -# i'#))))
         where
-        !i'# = word2Int# (int2Word# i# `and#` int2Word# 15#)
+        !i'# = word2Int# (int2Word# i# `and#` 15##)
     bitSize  _                = 16
     isSigned _                = False
     popCount (W16# x#)        = I# (word2Int# (popCnt16# x#))
@@ -602,7 +468,7 @@ instance Bits Word32 where
         | otherwise  = W32# (narrow32Word# ((x# `uncheckedShiftL#` i'#) `or#`
                                             (x# `uncheckedShiftRL#` (32# -# i'#))))
         where
-        !i'# = word2Int# (int2Word# i# `and#` int2Word# 31#)
+        !i'# = word2Int# (int2Word# i# `and#` 31##)
     bitSize  _                = 32
     isSigned _                = False
     popCount (W32# x#)        = I# (word2Int# (popCnt32# x#))
@@ -735,7 +601,7 @@ instance Bits Word64 where
         | otherwise  = W64# ((x# `uncheckedShiftL64#` i'#) `or64#`
                              (x# `uncheckedShiftRL64#` (64# -# i'#)))
         where
-        !i'# = word2Int# (int2Word# i# `and#` int2Word# 63#)
+        !i'# = word2Int# (int2Word# i# `and#` 63##)
     bitSize  _                = 64
     isSigned _                = False
     popCount (W64# x#)        = I# (word2Int# (popCnt64# x#))
@@ -749,10 +615,10 @@ instance Bits Word64 where
 
 shiftL64#, shiftRL64# :: Word64# -> Int# -> Word64#
 
-a `shiftL64#` b  | b >=# 64#  = wordToWord64# (int2Word# 0#)
+a `shiftL64#` b  | b >=# 64#  = wordToWord64# 0##
                  | otherwise  = a `uncheckedShiftL64#` b
 
-a `shiftRL64#` b | b >=# 64#  = wordToWord64# (int2Word# 0#)
+a `shiftRL64#` b | b >=# 64#  = wordToWord64# 0##
                  | otherwise  = a `uncheckedShiftRL64#` b
 
 {-# RULES
@@ -850,7 +716,7 @@ instance Bits Word64 where
         | otherwise  = W64# ((x# `uncheckedShiftL#` i'#) `or#`
                              (x# `uncheckedShiftRL#` (64# -# i'#)))
         where
-        !i'# = word2Int# (int2Word# i# `and#` int2Word# 63#)
+        !i'# = word2Int# (int2Word# i# `and#` 63##)
     bitSize  _                = 64
     isSigned _                = False
     popCount (W64# x#)        = I# (word2Int# (popCnt64# x#))

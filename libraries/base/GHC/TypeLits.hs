@@ -11,7 +11,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}    -- for kind parameters
 {-# LANGUAGE MultiParamTypeClasses #-}  -- for <=, singRep, SingE
 {-# LANGUAGE FunctionalDependencies #-} -- for SingRep and SingE
-{-# OPTIONS_GHC -XFunctionalDependencies -XNoImplicitPrelude #-}
+{-# OPTIONS_GHC -XNoImplicitPrelude #-}
 {-| This module is an internal GHC module.  It declares the constants used
 in the implementation of type-level natural numbers.  The programmer interface
 for workin with type-level naturals should be defined in a separate library. -}

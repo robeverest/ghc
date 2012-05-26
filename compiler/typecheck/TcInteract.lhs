@@ -593,6 +593,11 @@ solveWithIdentity :: SubGoalDepth
 --     must work for Derived as well as Wanted
 -- Returns: workItem where 
 --        workItem = the new Given constraint
+--
+-- NB: No need for an occurs check here, because solveWithIdentity always 
+--     arises from a CTyEqCan, a *canonical* constraint.  Its invariants
+--     say that in (a ~ xi), the type variable a does not appear in xi.
+--     See TcRnTypes.Ct invariants.
 solveWithIdentity d wd tv xi 
   = do { let tv_ty = mkTyVarTy tv
        ; traceTcS "Sneaky unification:" $ 
@@ -1320,11 +1325,9 @@ rewriteWithFunDeps eqn_pred_locs xis wloc
 
 instFunDepEqn :: WantedLoc -> Equation -> TcS [(Int,CtEvidence)]
 -- Post: Returns the position index as well as the corresponding FunDep equality
-instFunDepEqn wl (FDEqn { fd_qtvs = qtvs, fd_eqs = eqs
+instFunDepEqn wl (FDEqn { fd_qtvs = tvs, fd_eqs = eqs
                         , fd_pred1 = d1, fd_pred2 = d2 })
-  = do { let tvs = varSetElems qtvs
-       ; tys' <- mapM instFlexiTcS tvs  -- IA0_TODO: we might need to do kind substitution
-       ; let subst = zipTopTvSubst tvs tys'
+  = do { (subst, _) <- instFlexiTcS tvs  -- Takes account of kind substitution
        ; foldM (do_one subst) [] eqs }
   where 
     do_one subst ievs (FDEq { fd_pos = i, fd_ty_left = ty1, fd_ty_right = ty2 })

@@ -161,6 +161,10 @@ if test "$BootingFromHc" = "NO"; then
      or --with-ghc to specify a different GHC to use.])
      fi
   fi
+
+  GHC_PACKAGE_DB_FLAG=package-db
+  FP_COMPARE_VERSIONS([$GhcVersion],[-lt],[7.5],GHC_PACKAGE_DB_FLAG=package-conf)
+  AC_SUBST(GHC_PACKAGE_DB_FLAG)
 fi;
 
 # GHC is passed to Cabal, so we need a native path
@@ -333,7 +337,7 @@ then
     CC="${mingwbin}gcc.exe"
     LD="${mingwbin}ld.exe"
     NM="${mingwbin}nm.exe"
-    fp_prog_ar_raw="${mingwbin}ar.exe"
+    fp_prog_ar="${mingwbin}ar.exe"
 
     if ! test -d inplace/perl ||
          test inplace/perl -ot ghc-tarballs/perl/ghc-perl*.tar.gz

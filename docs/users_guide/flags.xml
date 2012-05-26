@@ -1520,7 +1520,99 @@
             <entry>dynamic</entry>
             <entry><option>-fno-avoid-vect</option></entry>
           </row>
+        </tbody>
+      </tgroup>
+    </informaltable>
+  </sect2>
 
+  <sect2>
+    <title>Packages</title>
+
+    <para><xref linkend="packages"/></para>
+
+    <informaltable>
+      <tgroup cols="4" align="left" colsep="1" rowsep="1">
+        <thead>
+          <row>
+            <entry>Flag</entry>
+            <entry>Description</entry>
+            <entry>Static/Dynamic</entry>
+            <entry>Reverse</entry>
+          </row>
+        </thead>
+        <tbody>
+          <row>
+            <entry><option>-package-name</option> <replaceable>P</replaceable></entry>
+            <entry>Compile to be part of package <replaceable>P</replaceable></entry>
+            <entry>static</entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-package</option> <replaceable>P</replaceable></entry>
+            <entry>Expose package <replaceable>P</replaceable></entry>
+            <entry>static/<literal>:set</literal></entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-hide-all-packages</option></entry>
+            <entry>Hide all packages by default</entry>
+            <entry>static</entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-hide-package</option> <replaceable>name</replaceable></entry>
+            <entry>Hide package <replaceable>P</replaceable></entry>
+            <entry>static/<literal>:set</literal></entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-ignore-package</option> <replaceable>name</replaceable></entry>
+            <entry>Ignore package <replaceable>P</replaceable></entry>
+            <entry>static/<literal>:set</literal></entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-package-db</option> <replaceable>file</replaceable></entry>
+            <entry>Add <replaceable>file</replaceable> to the package db stack.</entry>
+            <entry>static</entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-clear-package-db</option></entry>
+            <entry>Clear the package db stack.</entry>
+            <entry>static</entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-no-global-package-db</option></entry>
+            <entry>Remove the global package db from the stack.</entry>
+            <entry>static</entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-global-package-db</option></entry>
+            <entry>Add the global package db to the stack.</entry>
+            <entry>static</entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-no-user-package-db</option></entry>
+            <entry>Remove the user's package db from the stack.</entry>
+            <entry>static</entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-user-package-db</option></entry>
+            <entry>Add the user's package db to the stack.</entry>
+            <entry>static</entry>
+            <entry>-</entry>
+          </row>
+          <row>
+            <entry><option>-no-auto-link-packages</option></entry>
+            <entry>Don't automatically link in the haskell98 package.</entry>
+            <entry>dynamic</entry>
+            <entry>-</entry>
+          </row>
           <row>
 	      <entry><option>-fexcess-precision</option></entry>
 	      <entry>Enable excess intermediate precision</entry>

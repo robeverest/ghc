@@ -206,6 +206,16 @@ instance  Show Char  where
 instance Show Int where
     showsPrec = showSignedInt
 
+instance Show Word where
+    showsPrec _ (W# w) = showWord w
+
+showWord :: Word# -> ShowS
+showWord w# cs
+ | w# `ltWord#` 10## = C# (chr# (ord# '0'# +# word2Int# w#)) : cs
+ | otherwise = case chr# (ord# '0'# +# word2Int# (w# `remWord#` 10##)) of
+               c# ->
+                   showWord (w# `quotWord#` 10##) (C# c# : cs)
+
 instance Show a => Show (Maybe a) where
     showsPrec _p Nothing s = showString "Nothing" s
     showsPrec p (Just x) s
@@ -315,7 +325,7 @@ show_tuple ss = showChar '('
 \begin{code}
 -- | equivalent to 'showsPrec' with a precedence of 0.
 shows           :: (Show a) => a -> ShowS
-shows           =  showsPrec zeroInt
+shows           =  showsPrec 0
 
 -- | utility function converting a 'Char' to a show function that
 -- simply prepends the character unchanged.
@@ -416,12 +426,9 @@ Code specific for Ints.
 -- lower-case hexadecimal digits.
 intToDigit :: Int -> Char
 intToDigit (I# i)
-    | i >=# 0#  && i <=#  9# =  unsafeChr (ord '0' `plusInt` I# i)
-    | i >=# 10# && i <=# 15# =  unsafeChr (ord 'a' `minusInt` ten `plusInt` I# i)
+    | i >=# 0#  && i <=#  9# =  unsafeChr (ord '0' + I# i)
+    | i >=# 10# && i <=# 15# =  unsafeChr (ord 'a' + I# i - 10)
     | otherwise           =  error ("Char.intToDigit: not a digit " ++ show (I# i))
-
-ten :: Int
-ten = I# 10#
 
 showSignedInt :: Int -> Int -> ShowS
 showSignedInt (I# p) (I# n) r

@@ -58,7 +58,8 @@ import System.Console.Haskeline as Haskeline
 
 import Control.Applicative hiding (empty)
 import Control.Monad as Monad
-import Control.Monad.Trans
+import Control.Monad.Trans.Class
+import Control.Monad.IO.Class
 
 import Data.Array
 import qualified Data.ByteString.Char8 as BS
@@ -993,7 +994,7 @@ pprInfo pefas (thing, fixity, insts)
   where
     show_fixity fix
         | fix == GHC.defaultFixity = empty
-        | otherwise                = ppr fix <+> ppr (GHC.getName thing)
+        | otherwise                = ppr fix <+> pprInfixName (GHC.getName thing)
 
 -----------------------------------------------------------------------------
 -- :main
