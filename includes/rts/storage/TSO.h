@@ -149,13 +149,13 @@ typedef struct StgTSO_ {
      * A reference to the resume function. This will enque this thread into its
      * scheduler.
      */
-    StgClosure* resume_thread;
+    StgClosure* schedule_scont_action;
 
     /*
-     * A reference to the switch_to_next function. This will switch to the next
+     * A reference to the yield_control_action function. This will switch to the next
      * thread picked from the scheduler.
      */
-    StgClosure* switch_to_next;
+    StgClosure* yield_control_action;
 
     /*
      * A reference to this threads finalizer. If the thread becomes unreachable

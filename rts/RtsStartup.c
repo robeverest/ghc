@@ -210,8 +210,8 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
 
     getStablePtr((StgPtr)defaultUpcall_closure);
     getStablePtr((StgPtr)initSContStatus_closure);
-    getStablePtr((StgPtr)unblockThreadRts_closure);
-    getStablePtr((StgPtr)switchToNextThreadRts_closure);
+    getStablePtr((StgPtr)scheduleSContActionRts_closure);
+    getStablePtr((StgPtr)yieldControlActionRts_closure);
 #ifndef mingw32_HOST_OS
     getStablePtr((StgPtr)runHandlers_closure);
 #endif

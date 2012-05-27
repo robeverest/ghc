@@ -41,16 +41,16 @@ pushUpcallNonReturning (Capability* cap, Upcall uc)
               (void*)uc, upcallQueueSize (cap->upcall_queue_non_returning));
 }
 
-//See libraries/base/LwConc/Substrate.hs:unblockThreadRts
+//See libraries/base/LwConc/Substrate.hs:scheduleSContActionRts
 Upcall
 getResumeThreadUpcall (Capability* cap, StgTSO* t)
 {
   Upcall p;
 
   ASSERT (!t->is_upcall_thread);
-  ASSERT (t->resume_thread != (StgClosure*)defaultUpcall_closure);
+  ASSERT (t->schedule_scont_action != (StgClosure*)defaultUpcall_closure);
 
-  p = rts_apply (cap, (StgClosure*)unblockThreadRts_closure,
+  p = rts_apply (cap, (StgClosure*)scheduleSContActionRts_closure,
                  rts_mkSCont (cap, t));
 
   debugTrace (DEBUG_sched, "cap %d: getResumeThreadUpcall(%p) for thread %d",
@@ -58,16 +58,16 @@ getResumeThreadUpcall (Capability* cap, StgTSO* t)
   return p;
 }
 
-//See libraries/base/LwConc/Substrate.hs:switchToNextThread
+//See libraries/base/LwConc/Substrate.hs:yieldControlAction
 Upcall
 getSwitchToNextThreadUpcall (Capability* cap, StgTSO* t)
 {
   Upcall p;
 
   ASSERT (!t->is_upcall_thread);
-  ASSERT (t->switch_to_next != (StgClosure*)defaultUpcall_closure);
+  ASSERT (t->yield_control_action != (StgClosure*)defaultUpcall_closure);
 
-  p = rts_apply (cap, (StgClosure*)switchToNextThreadRts_closure,
+  p = rts_apply (cap, (StgClosure*)yieldControlActionRts_closure,
                  rts_mkSCont (cap, t));
 
   debugTrace (DEBUG_sched, "cap %d: getSwitchToNextThreadupcall(%p) for thread %d",

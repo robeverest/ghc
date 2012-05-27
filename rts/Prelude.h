@@ -30,8 +30,8 @@ PRELUDE_CLOSURE(base_GHCziPack_unpackCString_closure);
 PRELUDE_CLOSURE(base_GHCziWeak_runFinalizzerBatch_closure);
 PRELUDE_CLOSURE(base_LwConcziSubstrate_initSContStatus_closure);
 PRELUDE_CLOSURE(base_LwConcziSubstrate_defaultUpcall_closure);
-PRELUDE_CLOSURE(base_LwConcziSubstrate_unblockThreadRts_closure);
-PRELUDE_CLOSURE(base_LwConcziSubstrate_switchToNextThreadRts_closure);
+PRELUDE_CLOSURE(base_LwConcziSubstrate_scheduleSContActionRts_closure);
+PRELUDE_CLOSURE(base_LwConcziSubstrate_yieldControlActionRts_closure);
 
 #ifdef IN_STG_CODE
 extern W_ ZCMain_main_closure[];
@@ -95,8 +95,8 @@ PRELUDE_INFO(base_LwConcziSubstrate_SCont_con_info);
 #define False_closure             DLL_IMPORT_DATA_REF(ghczmprim_GHCziTypes_False_closure)
 #define initSContStatus_closure   DLL_IMPORT_DATA_REF(base_LwConcziSubstrate_initSContStatus_closure)
 #define defaultUpcall_closure     DLL_IMPORT_DATA_REF(base_LwConcziSubstrate_defaultUpcall_closure)
-#define unblockThreadRts_closure   DLL_IMPORT_DATA_REF(base_LwConcziSubstrate_unblockThreadRts_closure)
-#define switchToNextThreadRts_closure DLL_IMPORT_DATA_REF(base_LwConcziSubstrate_switchToNextThreadRts_closure)
+#define scheduleSContActionRts_closure   DLL_IMPORT_DATA_REF(base_LwConcziSubstrate_scheduleSContActionRts_closure)
+#define yieldControlActionRts_closure DLL_IMPORT_DATA_REF(base_LwConcziSubstrate_yieldControlActionRts_closure)
 #define unpackCString_closure     DLL_IMPORT_DATA_REF(base_GHCziPack_unpackCString_closure)
 #define runFinalizerBatch_closure DLL_IMPORT_DATA_REF(base_GHCziWeak_runFinalizzerBatch_closure)
 #define mainIO_closure            (&ZCMain_main_closure)

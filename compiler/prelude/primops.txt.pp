@@ -1836,24 +1836,24 @@ primop GetStatusTVarOp "getStatusTVar#" GenPrimOp
   with
   out_of_line = True
 
-primop SetUnblockThreadOp "setUnblockThread#" GenPrimOp
+primop SetScheduleSContActionOp "setScheduleSContAction#" GenPrimOp
   SCont# -> a -> State# RealWorld -> State# RealWorld
   with
   out_of_line = True
   has_side_effects = True
 
-primop GetUnblockThreadOp "getUnblockThread#" GenPrimOp
+primop GetScheduleSContActionOp "getScheduleSContAction#" GenPrimOp
   SCont# -> State# RealWorld -> (# State# RealWorld, a #)
   with
   out_of_line = True
 
-primop SetSwitchToNextThreadOp "setSwitchToNextThread#" GenPrimOp
+primop SetYieldControlActionOp "setYieldControlAction#" GenPrimOp
   SCont# -> a -> State# RealWorld -> State# RealWorld
   with
   out_of_line = True
   has_side_effects = True
 
-primop GetSwitchToNextThreadOp "getSwitchToNextThread#" GenPrimOp
+primop GetYieldControlActionOp "getYieldControlAction#" GenPrimOp
   SCont# -> State# RealWorld -> (# State# RealWorld, a #)
   with
   out_of_line = True

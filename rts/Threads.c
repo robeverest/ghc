@@ -98,8 +98,8 @@ createThread(Capability *cap, nat size)
   tso->why_blocked  = NotBlocked;
   tso->block_info.closure = (StgClosure *)END_TSO_QUEUE;
 
-  tso->resume_thread  = (StgClosure*)defaultUpcall_closure;
-  tso->switch_to_next = (StgClosure*)defaultUpcall_closure;
+  tso->schedule_scont_action  = (StgClosure*)defaultUpcall_closure;
+  tso->yield_control_action = (StgClosure*)defaultUpcall_closure;
   tso->finalizer      = (StgClosure*)defaultUpcall_closure;
   tso->scont_status   = stmNewTVar (cap, (StgClosure*)initSContStatus_closure);
 
@@ -559,9 +559,9 @@ hasHaskellScheduler (StgTSO* tso) {
   return (//Not upcall thread
           tso->is_upcall_thread == rtsFalse &&
           //has switch to next action
-          tso->switch_to_next != (StgClosure*)defaultUpcall_closure &&
+          tso->yield_control_action != (StgClosure*)defaultUpcall_closure &&
           //has unblock thread actions
-          tso->resume_thread != (StgClosure*)defaultUpcall_closure);
+          tso->schedule_scont_action != (StgClosure*)defaultUpcall_closure);
 }
 
 /* -----------------------------------------------------------------------------

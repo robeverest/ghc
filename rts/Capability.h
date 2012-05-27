@@ -102,10 +102,10 @@ struct Capability_ {
     int interrupt;
 
     //Upcall thread -- Every capability has a upcall thread attached to it,
-    //which is used to execute the upcalls (resume_thread actions, finalizers,
+    //which is used to execute the upcalls (schedule_scont_action actions, finalizers,
     //etc). upcall_thread picks up work from upcall_queue, and evaluates each
     //upcall until they are finished or get blocked. Also, for an upcall thread,
-    //resume_thread == switch_to_next == scont_state == END_TSO_QUEUE.
+    //schedule_scont_action == yield_control_action == scont_state == END_TSO_QUEUE.
     StgTSO* upcall_thread;
 
     UpcallQueue* upcall_queue_returning;

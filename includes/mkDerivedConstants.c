@@ -298,8 +298,8 @@ main(int argc, char *argv[])
     closure_field(StgTSO, id);
     closure_field(StgTSO, cap);
     closure_field(StgTSO, saved_errno);
-    closure_field(StgTSO, resume_thread);
-    closure_field(StgTSO, switch_to_next);
+    closure_field(StgTSO, schedule_scont_action);
+    closure_field(StgTSO, yield_control_action);
     closure_field(StgTSO, finalizer);
     closure_field(StgTSO, scont_status);
     closure_field(StgTSO, trec);

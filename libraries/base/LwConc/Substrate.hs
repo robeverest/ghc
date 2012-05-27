@@ -83,11 +83,11 @@ PTM
 -- Upcall actions
 ------------------------------------------------------------------------------
 
-, setUnblockThread         -- SCont -> (SCont -> PTM ()) -> IO ()
-, getUnblockThread         -- PTM (SCont -> PTM ())
+, setScheduleSContAction         -- SCont -> (SCont -> PTM ()) -> IO ()
+, getScheduleSContAction         -- PTM (SCont -> PTM ())
 
-, setSwitchToNextThread   -- SCont -> PTM () -> IO ()
-, getSwitchToNextThread   -- PTM (PTM ())
+, setYieldControlAction   -- SCont -> PTM () -> IO ()
+, getYieldControlAction   -- PTM (PTM ())
 
 , setFinalizer            -- SCont -> IO () -> IO ()
 , defaultUpcall           -- IO ()
@@ -123,8 +123,8 @@ PTM
 ------------------------------------------------------------------------------
 
 , initSContStatus         -- SContStatus
-, unblockThreadRts        -- PTM () -> IO ()
-, switchToNextThreadRts   -- PTM () -> Int -> IO ()
+, scheduleSContActionRts        -- PTM () -> IO ()
+, yieldControlActionRts   -- PTM () -> Int -> IO ()
 ) where
 
 
@@ -351,64 +351,64 @@ getSContId (SCont sc) = PTM $ \s ->
 
 
 -----------------------------------------------------------------------------------
--- switchToNextThread and friends..
+-- yieldControlAction and friends..
 -----------------------------------------------------------------------------------
 
-{-# INLINE setSwitchToNextThread #-}
-setSwitchToNextThread :: SCont -> PTM () -> IO ()
-setSwitchToNextThread (SCont sc) b = IO $ \s ->
-  case (setSwitchToNextThread# sc b s) of s -> (# s, () #)
+{-# INLINE setYieldControlAction #-}
+setYieldControlAction :: SCont -> PTM () -> IO ()
+setYieldControlAction (SCont sc) b = IO $ \s ->
+  case (setYieldControlAction# sc b s) of s -> (# s, () #)
 
-{-# INLINE getSwitchToNextThreadSCont #-}
-getSwitchToNextThreadSCont :: SCont -> PTM (PTM ())
-getSwitchToNextThreadSCont (SCont sc) =
-  PTM $ \s -> getSwitchToNextThread# sc s
+{-# INLINE getYieldControlActionSCont #-}
+getYieldControlActionSCont :: SCont -> PTM (PTM ())
+getYieldControlActionSCont (SCont sc) =
+  PTM $ \s -> getYieldControlAction# sc s
 
-{-# INLINE getSwitchToNextThread #-}
-getSwitchToNextThread :: PTM (PTM ())
-getSwitchToNextThread = do
+{-# INLINE getYieldControlAction #-}
+getYieldControlAction :: PTM (PTM ())
+getYieldControlAction = do
   currentSCont <- getSCont
-  s <- getSwitchToNextThreadSCont currentSCont
+  s <- getYieldControlActionSCont currentSCont
   return s
 
-{-# INLINE switchToNextThreadRts #-}
-switchToNextThreadRts :: SCont -> IO () -- used by RTS
-switchToNextThreadRts sc = atomically $ do
+{-# INLINE yieldControlActionRts #-}
+yieldControlActionRts :: SCont -> IO () -- used by RTS
+yieldControlActionRts sc = atomically $ do
   setSContSwitchReason Completed
   stat <- getSContStatus sc
   case stat of
       SContRunning -> setSContStatus sc $ SContSwitched BlockedInRTS -- Hasn't been unblocked yet
       SContSwitched Yielded -> return () -- Has been unblocked and put on the run queue
-      otherwise -> error "switchToNextThread: Impossible status"
-  switch <- getSwitchToNextThreadSCont sc
+      otherwise -> error "yieldControlAction: Impossible status"
+  switch <- getYieldControlActionSCont sc
   switch
 
 -----------------------------------------------------------------------------------
--- unblockThread and friends..
+-- scheduleSContAction and friends..
 -----------------------------------------------------------------------------------
 
-{-# INLINE unblockThreadRts #-}
-unblockThreadRts :: SCont -> IO () -- used by RTS
-unblockThreadRts sc = atomically $ do
+{-# INLINE scheduleSContActionRts #-}
+scheduleSContActionRts :: SCont -> IO () -- used by RTS
+scheduleSContActionRts sc = atomically $ do
   setSContStatus sc $ SContSwitched Yielded
-  unblock <- getUnblockThreadSCont sc
+  unblock <- getScheduleSContActionSCont sc
   unblock sc
 
-{-# INLINE setUnblockThread #-}
-setUnblockThread :: SCont -> (SCont -> PTM ()) -> IO ()
-setUnblockThread (SCont sc) r = IO $ \s ->
-  case (setUnblockThread# sc r s) of s -> (# s, () #)
+{-# INLINE setScheduleSContAction #-}
+setScheduleSContAction :: SCont -> (SCont -> PTM ()) -> IO ()
+setScheduleSContAction (SCont sc) r = IO $ \s ->
+  case (setScheduleSContAction# sc r s) of s -> (# s, () #)
 
-{-# INLINE getUnblockThreadSCont #-}
-getUnblockThreadSCont :: SCont -> PTM(SCont -> PTM ())
-getUnblockThreadSCont (SCont sc) =
-  PTM $ \s -> getUnblockThread# sc s
+{-# INLINE getScheduleSContActionSCont #-}
+getScheduleSContActionSCont :: SCont -> PTM(SCont -> PTM ())
+getScheduleSContActionSCont (SCont sc) =
+  PTM $ \s -> getScheduleSContAction# sc s
 
-{-# INLINE getUnblockThread #-}
-getUnblockThread :: PTM (SCont -> PTM ())
-getUnblockThread = do
+{-# INLINE getScheduleSContAction #-}
+getScheduleSContAction :: PTM (SCont -> PTM ())
+getScheduleSContAction = do
   currentSCont <- getSCont
-  u <- getUnblockThreadSCont currentSCont
+  u <- getScheduleSContActionSCont currentSCont
   return u
 
 

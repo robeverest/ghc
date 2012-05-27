@@ -64,8 +64,8 @@ scavengeTSO (StgTSO *tso)
     evacuate((StgClosure **)&tso->blocked_exceptions);
     evacuate((StgClosure **)&tso->bq);
 
-    evacuate((StgClosure **)&tso->resume_thread);
-    evacuate((StgClosure **)&tso->switch_to_next);
+    evacuate((StgClosure **)&tso->schedule_scont_action);
+    evacuate((StgClosure **)&tso->yield_control_action);
     evacuate((StgClosure **)&tso->finalizer);
     evacuate((StgClosure **)&tso->scont_status);
 

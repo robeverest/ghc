@@ -845,56 +845,56 @@ stg_iCanRunSContzh
 /* Set the resume thread closure for the given TSO. This closure, when
  * evaluated, will add the given thread to its user-level scheduler.
  */
-stg_setUnblockThreadzh
+stg_setScheduleSContActionzh
 {
   /* args: R1 = SCont, R2 = closure to resume this spark */
 
-  MAYBE_GC (R1_PTR & R2_PTR, stg_setUnblockThreadzh);
+  MAYBE_GC (R1_PTR & R2_PTR, stg_setScheduleSContActionzh);
 
-  W_ threadid, resume_thread;
+  W_ threadid, schedule_scont_action;
   threadid = R1;
-  resume_thread = R2;
+  schedule_scont_action = R2;
 
-  StgTSO_resume_thread(threadid) = resume_thread;
+  StgTSO_schedule_scont_action(threadid) = schedule_scont_action;
   foreign "C" dirty_TSO (MyCapability () "ptr", threadid "ptr") [];
   jump %ENTRY_CODE(Sp(0));
 }
 
-stg_getUnblockThreadzh
+stg_getScheduleSContActionzh
 {
   /* args: R1 = SCont */
-  MAYBE_GC (R1_PTR, stg_getUnblockThreadzh);
+  MAYBE_GC (R1_PTR, stg_getScheduleSContActionzh);
 
-  W_ threadid, resume_thread;
+  W_ threadid, schedule_scont_action;
   threadid = R1;
-  resume_thread = StgTSO_resume_thread(threadid);
-  RET_P (resume_thread);
+  schedule_scont_action = StgTSO_schedule_scont_action(threadid);
+  RET_P (schedule_scont_action);
 }
 
-stg_setSwitchToNextThreadzh
+stg_setYieldControlActionzh
 {
   /* args: R1 = SCont, R2 = closure to resume this spark */
 
-  MAYBE_GC (R1_PTR & R2_PTR, stg_setSwitchToNextThreadzh);
+  MAYBE_GC (R1_PTR & R2_PTR, stg_setYieldControlActionzh);
 
-  W_ threadid, switch_to_next;
+  W_ threadid, yield_control_action;
   threadid = R1;
-  switch_to_next = R2;
+  yield_control_action = R2;
 
-  StgTSO_switch_to_next (threadid) = switch_to_next;
+  StgTSO_yield_control_action (threadid) = yield_control_action;
   foreign "C" dirty_TSO (MyCapability () "ptr", threadid "ptr") [];
   jump %ENTRY_CODE(Sp(0));
 }
 
-stg_getSwitchToNextThreadzh
+stg_getYieldControlActionzh
 {
   /* args: R1 = SCont */
-  MAYBE_GC (R1_PTR, stg_getSwitchToNextThreadzh);
+  MAYBE_GC (R1_PTR, stg_getYieldControlActionzh);
 
-  W_ threadid, switch_to_next;
+  W_ threadid, yield_control_action;
   threadid = R1;
-  switch_to_next = StgTSO_switch_to_next (threadid);
-  RET_P (switch_to_next);
+  yield_control_action = StgTSO_yield_control_action (threadid);
+  RET_P (yield_control_action);
 }
 
 stg_setFinalizzerzh
