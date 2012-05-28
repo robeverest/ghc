@@ -1836,6 +1836,18 @@ primop GetStatusTVarOp "getStatusTVar#" GenPrimOp
   with
   out_of_line = True
 
+primop SetTLSOp "setTLS#" GenPrimOp
+  SCont# -> a -> State# RealWorld -> State# RealWorld
+  with
+  out_of_line = True
+  has_side_effects = True
+
+primop GetTLSOp "getTLS#" GenPrimOp
+  SCont# -> State# RealWorld -> (# State# RealWorld, a #)
+  with
+  out_of_line = True
+  has_side_effects = True
+
 primop SetScheduleSContActionOp "setScheduleSContAction#" GenPrimOp
   SCont# -> a -> State# RealWorld -> State# RealWorld
   with

@@ -897,6 +897,28 @@ stg_getYieldControlActionzh
   RET_P (yield_control_action);
 }
 
+stg_setTLSzh
+{
+  /* args: R1 = scont, R2 = tls */
+  MAYBE_GC (R1_PTR & R2_PTR, stg_setTLSzh);
+
+  W_ tso, tls;
+  tso = R1;
+  tls = R2;
+  StgTSO_tls(tso) = tls;
+  foreign "C" dirty_TSO (StgTSO_cap(tso) "ptr", tso "ptr") [];
+  jump %ENTRY_CODE(Sp(0));
+}
+
+stg_getTLSzh
+{
+ /* args: R1 = scont */
+ W_ tso, tls;
+ tso = R1;
+ tls = StgTSO_tls(tso);
+ RET_P (tls);
+}
+
 stg_setFinalizzerzh
 {
   /* args: R1 = SCont, R2 = finalizer */

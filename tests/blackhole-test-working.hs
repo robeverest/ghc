@@ -1,3 +1,4 @@
+{-# Language ScopedTypeVariables #-}
 module Main where
 
 import LwConc.ParRRSched
@@ -16,8 +17,8 @@ data State = State {
 
 -- XXX KC loopmax=0 numthread=2 -N2 will enter blackhole consistently
 
-loopmax = 1000
-numthreads = 200
+loopmax = 10
+numthreads = 20
 
 main
   = do t <- atomically (newPVar 0)
@@ -29,9 +30,19 @@ main
        nc <- C.getNumCapabilities
        spawnScheds sched $ nc-1
        let st = State t m c cnt
+       sc <- atomically $getSCont
+       --
+       np <- newPVarIO 0
+       setTLS sc np
+       --
        forkIter sched numthreads (proc st domv loopmax)
        takeMVar c
        yield sched
+       --
+       np :: PVar Int <- atomically $ getTLS sc
+       v <- atomically $ readPVar np
+       print $ "VALUE: " ++ (show v)
+       --
        return ()
 
 spawnScheds _ 0 = return ()

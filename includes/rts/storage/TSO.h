@@ -175,6 +175,11 @@ typedef struct StgTSO_ {
      */
     rtsBool is_upcall_thread;
 
+    /*
+     * thread-local storage
+     */
+    StgClosure* tls;
+
 #ifdef TICKY_TICKY
     /* TICKY-specific stuff would go here. */
 #endif

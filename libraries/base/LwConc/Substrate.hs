@@ -96,13 +96,22 @@ PTM
 -- Capability Management
 ------------------------------------------------------------------------------
 
-, getNumCapabilities      -- IO Int
+, getNumCapabilities       -- IO Int
 , getCurrentCapability     -- PTM Int
 
-, setSContCapability      -- SCont -> Int -> IO ()
-, getSContCapability      -- SCont -> PTM Int
+, setSContCapability       -- SCont -> Int -> IO ()
+, getSContCapability       -- SCont -> PTM Int
 
 , sleepCapability          -- PTM a
+, scheduleSContOnFreeCap   -- SCont -> IO ()
+
+
+------------------------------------------------------------------------------
+-- Thread-local Storage
+------------------------------------------------------------------------------
+
+, setTLS -- SCont -> a -> IO ()
+, getTLS -- SCont -> IO a
 
 ------------------------------------------------------------------------------
 -- Exceptions
@@ -112,18 +121,12 @@ PTM
 , blockedIndefinitelyOnConcDS
 
 ------------------------------------------------------------------------------
--- Experimental
-------------------------------------------------------------------------------
-
-, scheduleSContOnFreeCap  -- SCont -> IO ()
-
-------------------------------------------------------------------------------
 -- XXX The following should not be used directly. Only exposed since the RTS
 -- cannot find it otherwise. TODO: Hide them. - KC
 ------------------------------------------------------------------------------
 
 , initSContStatus         -- SContStatus
-, scheduleSContActionRts        -- PTM () -> IO ()
+, scheduleSContActionRts  -- PTM () -> IO ()
 , yieldControlActionRts   -- PTM () -> Int -> IO ()
 ) where
 
@@ -300,7 +303,7 @@ initSContStatus = SContSwitched Yielded
 
 -----------------------------------------------------------------------------------
 -- One-shot continuations (SCont)
----------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------
 
 data SCont = SCont SCont#
 
@@ -349,6 +352,18 @@ getSContId :: SCont -> PTM Int
 getSContId (SCont sc) = PTM $ \s ->
   case getSContId# sc s of (# s, i #) -> (# s, (I# i) #)
 
+-----------------------------------------------------------------------------------
+-- Thread-local Storage (TLS)
+-----------------------------------------------------------------------------------
+
+setTLS :: SCont -> a -> IO ()
+setTLS (SCont sc) v = IO $ \s ->
+  case setTLS# sc v s of s -> (# s, () #)
+
+getTLS :: SCont -> PTM a
+getTLS (SCont sc) = PTM $ \s -> getTLS# sc s
+
+tlsPair = (setTLS, getTLS)
 
 -----------------------------------------------------------------------------------
 -- yieldControlAction and friends..

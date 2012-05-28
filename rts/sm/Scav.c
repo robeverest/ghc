@@ -68,6 +68,7 @@ scavengeTSO (StgTSO *tso)
     evacuate((StgClosure **)&tso->yield_control_action);
     evacuate((StgClosure **)&tso->finalizer);
     evacuate((StgClosure **)&tso->scont_status);
+    evacuate((StgClosure **)&tso->tls);
 
     // scavange current transaction record
     evacuate((StgClosure **)&tso->trec);

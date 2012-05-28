@@ -302,6 +302,7 @@ main(int argc, char *argv[])
     closure_field(StgTSO, yield_control_action);
     closure_field(StgTSO, finalizer);
     closure_field(StgTSO, scont_status);
+    closure_field(StgTSO, tls);
     closure_field(StgTSO, trec);
     closure_field(StgTSO, flags);
     closure_field(StgTSO, dirty);
