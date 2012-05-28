@@ -16,7 +16,7 @@ endif
 
 GHC_OPTS = -rtsopts --make
 
-GHC    := $(HOME)/ghc-working/inplace/bin/ghc-stage1 $(DEBUG_FLG) $(PROFILE_FLG) $(GHC_OPTS) $(GHC_OPTS_EXTRA)
+GHC    := ../inplace/bin/ghc-stage1 $(DEBUG_FLG) $(PROFILE_FLG) $(GHC_OPTS) $(GHC_OPTS_EXTRA)
 
 all: $(TARGETS)
 

@@ -1,8 +1,8 @@
 module Main where
 
-import ParRRSched
+import LwConc.ParRRSched
 import PChan
-import MVar
+import LwConc.MVar
 import LwConc.Substrate
 import qualified GHC.Conc as C
 

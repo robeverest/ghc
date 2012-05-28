@@ -1,7 +1,7 @@
 {-# LANGUAGE ViewPatterns #-}
 -----------------------------------------------------------------------------
 -- |
--- Module      :  LwConc.Schedulers.ParRRSched
+-- Module      :  LwConc.ParRRSched
 -- Copyright   :  (c) The University of Glasgow 2001
 -- License     :  BSD-style (see the file libraries/base/LICENSE)
 -- 
@@ -18,10 +18,10 @@ module LwConc.ParRRSched
 (ParRRSched
 , SContStatus
 , newParRRSched      -- IO (ParRRSched)
-, forkIO             -- ParRRSched -> IO () -> IO ()
-, forkOS             -- ParRRSched -> IO () -> IO ()
-, yield              -- ParRRSched -> IO ()
-, newVProc           -- ParRRSched -> IO ()
+, newCapability      -- ParRRSched -> IO ()
+, forkIO             -- IO () -> IO SCont
+, forkOS             -- IO () -> IO SCont
+, yield              -- IO ()
 ) where
 
 import LwConc.Substrate
@@ -52,8 +52,8 @@ createPVarList n l = do {
   createPVarList (n-1) $ ref:l
 }
 
-newVProc :: ParRRSched -> IO ()
-newVProc sched = do
+newCapability :: ParRRSched -> IO ()
+newCapability sched = do
   let ParRRSched pa _ = sched
   let body = do {
     s <- getSCont;
@@ -92,8 +92,8 @@ switchToNextAndFinish (ParRRSched pa _) = atomically $ do
 
 data SContKind = Bound | Unbound
 
-fork :: ParRRSched -> IO () -> SContKind -> IO ()
-fork sched task kind = do
+fork :: IO () -> SContKind -> IO SCont
+fork task kind = do
   let ParRRSched pa token = sched
   let yieldingTask = do {
     {-Exn.try-} task;
@@ -118,8 +118,8 @@ fork sched task kind = do
     writePVar ref $ contents Seq.|> s
     writePVar token $ (t + 1) `mod` nc
 
-forkIO :: ParRRSched -> IO () -> IO ()
-forkIO sched task = fork sched task Unbound
+forkIO :: IO () -> IO SCont
+forkIO task = fork task Unbound
 
 
 forkOS :: ParRRSched -> IO () -> IO ()
