@@ -144,6 +144,7 @@ import Control.Monad    ( when )
 
 import GHC.Conc (yield, childHandler, getNumCapabilities)
 import Data.Typeable
+import Data.Dynamic
 import Foreign.StablePtr
 import Foreign.C.Types
 
@@ -356,11 +357,11 @@ getSContId (SCont sc) = PTM $ \s ->
 -- Thread-local Storage (TLS)
 -----------------------------------------------------------------------------------
 
-setTLS :: SCont -> a -> IO ()
+setTLS :: SCont -> Dynamic -> IO ()
 setTLS (SCont sc) v = IO $ \s ->
   case setTLS# sc v s of s -> (# s, () #)
 
-getTLS :: SCont -> PTM a
+getTLS :: SCont -> PTM Dynamic
 getTLS (SCont sc) = PTM $ \s -> getTLS# sc s
 
 tlsPair = (setTLS, getTLS)

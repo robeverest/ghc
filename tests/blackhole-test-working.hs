@@ -5,6 +5,7 @@ import LwConc.ParRRSched
 import PChan
 import LwConc.MVar
 import LwConc.Substrate
+import Data.Dynamic
 import qualified GHC.Conc as C
 
 data State = State {
@@ -30,16 +31,19 @@ main
        nc <- C.getNumCapabilities
        spawnScheds sched $ nc-1
        let st = State t m c cnt
-       sc <- atomically $getSCont
+       sc <- atomically $ getSCont
        --
-       np <- newPVarIO 0
-       setTLS sc np
+       np <- newPVarIO (0::Int)
+       setTLS sc $ toDyn np
        --
        forkIter sched numthreads (proc st domv loopmax)
        takeMVar c
        yield sched
        --
-       np :: PVar Int <- atomically $ getTLS sc
+       d <- atomically $ getTLS sc
+       let np::PVar Int = case fromDynamic d of
+                            Nothing -> error "dynamic"
+                            Just x -> x
        v <- atomically $ readPVar np
        print $ "VALUE: " ++ (show v)
        --
