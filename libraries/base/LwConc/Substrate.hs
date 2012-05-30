@@ -66,8 +66,8 @@ PTM
 
 , SContStatus (..)
 , SContSwitchReason (..)
-, getSContStatus -- SCont -> PTM SContStatus
-, setSContSwitchReason -- SContSwitchReason -> PTM ()
+, getSContStatus       -- SCont -> PTM SContStatus
+, setSContSwitchReason -- SCont -> SContSwitchReason -> PTM ()
 
 ------------------------------------------------------------------------------
 -- Bound SConts
@@ -83,10 +83,10 @@ PTM
 -- Upcall actions
 ------------------------------------------------------------------------------
 
-, setScheduleSContAction         -- SCont -> (SCont -> PTM ()) -> IO ()
-, getScheduleSContAction         -- PTM (SCont -> PTM ())
+, setScheduleSContAction  -- SCont -> (SCont -> PTM ()) -> PTM ()
+, getScheduleSContAction  -- PTM (SCont -> PTM ())
 
-, setYieldControlAction   -- SCont -> PTM () -> IO ()
+, setYieldControlAction   -- SCont -> PTM () -> PTM ()
 , getYieldControlAction   -- PTM (PTM ())
 
 , setFinalizer            -- SCont -> IO () -> IO ()
@@ -110,8 +110,8 @@ PTM
 -- Thread-local Storage
 ------------------------------------------------------------------------------
 
-, setTLS -- SCont -> a -> IO ()
-, getTLS -- SCont -> IO a
+, setTLS -- SCont -> Data.Dynamic -> IO ()
+, getTLS -- SCont -> IO Data.Dynamic
 
 ------------------------------------------------------------------------------
 -- Exceptions
@@ -293,9 +293,8 @@ setSContStatus (SCont sc) status = do
   writePVar st status
 
 {-# INLINE setSContSwitchReason #-}
-setSContSwitchReason :: SContSwitchReason -> PTM ()
-setSContSwitchReason reason = do
-  s <- getSCont
+setSContSwitchReason :: SCont -> SContSwitchReason -> PTM ()
+setSContSwitchReason s reason = do
   setSContStatus s $ SContSwitched reason
 
 initSContStatus :: SContStatus
@@ -371,8 +370,8 @@ tlsPair = (setTLS, getTLS)
 -----------------------------------------------------------------------------------
 
 {-# INLINE setYieldControlAction #-}
-setYieldControlAction :: SCont -> PTM () -> IO ()
-setYieldControlAction (SCont sc) b = IO $ \s ->
+setYieldControlAction :: SCont -> PTM () -> PTM ()
+setYieldControlAction (SCont sc) b = PTM $ \s ->
   case (setYieldControlAction# sc b s) of s -> (# s, () #)
 
 {-# INLINE getYieldControlActionSCont #-}
@@ -390,7 +389,8 @@ getYieldControlAction = do
 {-# INLINE yieldControlActionRts #-}
 yieldControlActionRts :: SCont -> IO () -- used by RTS
 yieldControlActionRts sc = atomically $ do
-  setSContSwitchReason Completed
+  mySC <- getSCont
+  setSContSwitchReason mySC Completed
   stat <- getSContStatus sc
   case stat of
       SContRunning -> setSContStatus sc $ SContSwitched BlockedInRTS -- Hasn't been unblocked yet
@@ -403,16 +403,9 @@ yieldControlActionRts sc = atomically $ do
 -- scheduleSContAction and friends..
 -----------------------------------------------------------------------------------
 
-{-# INLINE scheduleSContActionRts #-}
-scheduleSContActionRts :: SCont -> IO () -- used by RTS
-scheduleSContActionRts sc = atomically $ do
-  setSContStatus sc $ SContSwitched Yielded
-  unblock <- getScheduleSContActionSCont sc
-  unblock sc
-
 {-# INLINE setScheduleSContAction #-}
-setScheduleSContAction :: SCont -> (SCont -> PTM ()) -> IO ()
-setScheduleSContAction (SCont sc) r = IO $ \s ->
+setScheduleSContAction :: SCont -> (SCont -> PTM ()) -> PTM ()
+setScheduleSContAction (SCont sc) r = PTM $ \s ->
   case (setScheduleSContAction# sc r s) of s -> (# s, () #)
 
 {-# INLINE getScheduleSContActionSCont #-}
@@ -426,6 +419,13 @@ getScheduleSContAction = do
   currentSCont <- getSCont
   u <- getScheduleSContActionSCont currentSCont
   return u
+
+{-# INLINE scheduleSContActionRts #-}
+scheduleSContActionRts :: SCont -> IO () -- used by RTS
+scheduleSContActionRts sc = atomically $ do
+  setSContStatus sc $ SContSwitched Yielded
+  unblock <- getScheduleSContActionSCont sc
+  unblock sc
 
 
 -----------------------------------------------------------------------------------
@@ -493,7 +493,8 @@ newBoundSCont action0
                         MaskedUninterruptible -> uninterruptibleMask_ action0
             action2 = switchback >> action1
                       where switchback = atomically $ do {
-                                            setSContSwitchReason Yielded;
+                                            mySC <- getSCont;
+                                            setSContSwitchReason mySC Yielded;
                                             switchTo callingSCont
                                          }
             action_plus = Exception.catch action2 childHandler
@@ -519,7 +520,8 @@ newBoundSCont action0
         -- () loop and has yielded the capability. Hence, we switch to and
         -- switch back (see action2 above) from the new bound task.
         atomically $ do {
-          setSContSwitchReason Yielded;
+          mySC <- getSCont;
+          setSContSwitchReason mySC Yielded;
           switchTo s
         }
         -- We are back.

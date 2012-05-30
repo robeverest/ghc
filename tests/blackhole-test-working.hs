@@ -1,7 +1,7 @@
 {-# Language ScopedTypeVariables #-}
 module Main where
 
-import LwConc.ParRRSched
+import LwConc.Concurrent
 import PChan
 import LwConc.MVar
 import LwConc.Substrate
@@ -27,32 +27,20 @@ main
        putMVar m 0
        c <- newEmptyMVar
        cnt <- atomically (newPVar 0)
-       sched <- newParRRSched
+       newSched
        nc <- C.getNumCapabilities
-       spawnScheds sched $ nc-1
+       spawnScheds $ nc-1
        let st = State t m c cnt
        sc <- atomically $ getSCont
-       --
-       np <- newPVarIO (0::Int)
-       setTLS sc $ toDyn np
-       --
-       forkIter sched numthreads (proc st domv loopmax)
+       forkIter numthreads (proc st domv loopmax)
        takeMVar c
-       yield sched
-       --
-       d <- atomically $ getTLS sc
-       let np::PVar Int = case fromDynamic d of
-                            Nothing -> error "dynamic"
-                            Just x -> x
-       v <- atomically $ readPVar np
-       print $ "VALUE: " ++ (show v)
-       --
+       yield
        return ()
 
-spawnScheds _ 0 = return ()
-spawnScheds s n = do
-  newVProc s
-  spawnScheds s $ n-1
+spawnScheds 0 = return ()
+spawnScheds n = do
+  newCapability
+  spawnScheds $ n-1
 
 proc :: State -> (State -> IO ()) -> Int -> IO ()
 proc st w 0 = do c <- atomically (do cnt <- readPVar (count st)
@@ -79,9 +67,9 @@ domv st
        putMVar (vm st) (n+1)
        return ()
 
-forkIter :: ParRRSched -> Int -> IO () -> IO ()
-forkIter s n p
-  = iter n (do forkIO s p
+forkIter :: Int -> IO () -> IO ()
+forkIter n p
+  = iter n (do forkIO p
                return ())
 
 iter :: Int -> IO () -> IO ()
