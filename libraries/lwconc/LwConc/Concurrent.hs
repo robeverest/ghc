@@ -92,8 +92,6 @@ newSched = do
       createPVarList (n-1) $ ref:l
     }
 
-
-
 newCapability :: IO ()
 newCapability = do
  -- Initial task body

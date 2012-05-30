@@ -60,14 +60,23 @@ PTM
 , switch                  -- (SCont -> PTM SCont) -> IO ()
 , switchTo                -- SCont -> PTM ()
 
+
+------------------------------------------------------------------------------
+-- Switch
+------------------------------------------------------------------------------
+
+, ResumeToken
+, newResumeToken          -- PTM ResumeToken
+, isResumeTokenValid      -- ResumeToken -> PTM Bool
+
 ------------------------------------------------------------------------------
 -- SContStatus
 ------------------------------------------------------------------------------
 
 , SContStatus (..)
 , SContSwitchReason (..)
-, getSContStatus       -- SCont -> PTM SContStatus
-, setSContSwitchReason -- SCont -> SContSwitchReason -> PTM ()
+, getSContStatus          -- SCont -> PTM SContStatus
+, setSContSwitchReason    -- SCont -> SContSwitchReason -> PTM ()
 
 ------------------------------------------------------------------------------
 -- Bound SConts
@@ -252,6 +261,24 @@ writePVar (PVar tvar#) val = PTM $ \s1# ->
     case writeTVar# tvar# val s1# of
        s2# -> (# s2#, () #)
 
+
+---------------------------------------------------------------------------------
+-- BlockValid
+---------------------------------------------------------------------------------
+
+newtype ResumeToken = ResumeToken (PVar Bool)
+
+newResumeToken :: PTM ResumeToken
+newResumeToken = do
+  t <- newPVar True
+  return $ ResumeToken t
+
+isResumeTokenValid :: ResumeToken -> PTM Bool
+isResumeTokenValid (ResumeToken t) = do
+  v <- readPVar t
+  return v
+
+
 ---------------------------------------------------------------------------------
 -- SContStatus
 ---------------------------------------------------------------------------------
@@ -261,21 +288,14 @@ data SContStatus = SContRunning |
                    SContSwitched SContSwitchReason
 
 data SContSwitchReason = Yielded |
-                         BlockedInHaskell |
+                         BlockedInHaskell ResumeToken |
                          BlockedInRTS |
                          Completed
-
-
-getStatusFromInt x | x == 0 = SContRunning
-                   | x == 1 = SContSwitched Yielded
-                   | x == 2 = SContSwitched BlockedInHaskell
-                   | x == 3 = SContSwitched BlockedInRTS
-                   | x == 4 = SContSwitched Completed
 
 getIntFromStatus x = case x of
                           SContRunning -> 0#
                           SContSwitched Yielded -> 1#
-                          SContSwitched BlockedInHaskell -> 2#
+                          SContSwitched (BlockedInHaskell _) -> 2#
                           SContSwitched BlockedInRTS -> 3#
                           SContSwitched Completed -> 4#
                           otherwise -> 5#

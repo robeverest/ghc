@@ -81,9 +81,18 @@ putMVar (MVar ref) x = atomically $ do
          blockAct <- getYieldControlAction
          sc <- getSCont
          unblockAct <- getScheduleSContAction
-         writePVar ref $ Full x' $ ts Seq.|> (x, unblockAct sc)
-         setSContSwitchReason sc BlockedInHaskell
+         token <- newResumeToken
+         let wakeup = do {
+           v <- isResumeTokenValid token;
+           if v then
+             unblockAct sc
+           else
+             return ()
+         }
+         writePVar ref $ Full x' $ ts Seq.|> (x, wakeup)
+         setSContSwitchReason sc $ BlockedInHaskell token
          blockAct
+
 
 {-# INLINE takeMVar #-}
 takeMVar :: MVar a -> IO a
@@ -96,8 +105,16 @@ takeMVar (MVar ref) = do
            blockAct <- getYieldControlAction
            sc <- getSCont
            unblockAct <- getScheduleSContAction
-           writePVar ref $ Empty $ ts Seq.|> (hole, unblockAct sc)
-           setSContSwitchReason sc BlockedInHaskell
+           token <- newResumeToken
+           let wakeup = do {
+             v <- isResumeTokenValid token;
+             if v then
+               unblockAct sc
+             else
+               return ()
+           }
+           writePVar ref $ Empty $ ts Seq.|> (hole, wakeup)
+           setSContSwitchReason sc $ BlockedInHaskell token
            blockAct
          Full x (Seq.viewl -> Seq.EmptyL) -> do
            writePVar ref $ Empty Seq.empty
