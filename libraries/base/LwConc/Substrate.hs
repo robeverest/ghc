@@ -111,7 +111,7 @@ PTM
 ------------------------------------------------------------------------------
 
 , setTLS -- SCont -> Data.Dynamic -> IO ()
-, getTLS -- SCont -> IO Data.Dynamic
+, getTLS -- SCont -> PTM Data.Dynamic
 
 ------------------------------------------------------------------------------
 -- Exceptions

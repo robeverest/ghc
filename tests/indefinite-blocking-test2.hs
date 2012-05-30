@@ -44,4 +44,4 @@ main = do
   -- invoke loop
   loop 0 n
   yield
-  -- print "Main done"
+  print "Main done"
