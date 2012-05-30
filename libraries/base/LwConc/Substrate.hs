@@ -119,8 +119,8 @@ PTM
 -- Thread-local Storage
 ------------------------------------------------------------------------------
 
-, setTLS -- SCont -> Data.Dynamic -> IO ()
-, getTLS -- SCont -> PTM Data.Dynamic
+, setSLS -- SCont -> Data.Dynamic -> IO ()
+, getSLS -- SCont -> PTM Data.Dynamic
 
 ------------------------------------------------------------------------------
 -- Exceptions
@@ -376,14 +376,14 @@ getSContId (SCont sc) = PTM $ \s ->
 -- Thread-local Storage (TLS)
 -----------------------------------------------------------------------------------
 
-setTLS :: SCont -> Dynamic -> IO ()
-setTLS (SCont sc) v = IO $ \s ->
-  case setTLS# sc v s of s -> (# s, () #)
+setSLS :: SCont -> Dynamic -> IO ()
+setSLS (SCont sc) v = IO $ \s ->
+  case setSLS# sc v s of s -> (# s, () #)
 
-getTLS :: SCont -> PTM Dynamic
-getTLS (SCont sc) = PTM $ \s -> getTLS# sc s
+getSLS :: SCont -> PTM Dynamic
+getSLS (SCont sc) = PTM $ \s -> getSLS# sc s
 
-tlsPair = (setTLS, getTLS)
+tlsPair = (setSLS, getSLS)
 
 -----------------------------------------------------------------------------------
 -- yieldControlAction and friends..

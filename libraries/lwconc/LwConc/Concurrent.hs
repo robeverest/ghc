@@ -73,7 +73,7 @@ newSched = do
   token <- newPVarIO (0::Int)
   -- Save the token in the Thread-local State (TLS)
   s <- getSContIO
-  setTLS s $ toDyn token
+  setSLS s $ toDyn token
   -- Create the scheduler data structure
   nc <- getNumCapabilities
   rl <- createPVarList nc []
@@ -129,8 +129,8 @@ fork task kind = do
                     Unbound -> newSCont
   newSC <- makeSCont (task >> epilogue)
   -- Initialize TLS
-  tls <- atomically $ getTLS currentSC
-  setTLS newSC $ tls
+  tls <- atomically $ getSLS currentSC
+  setSLS newSC $ tls
   let token::PVar Int = case fromDynamic tls of
                           Nothing -> error "TLS"
                           Just x -> x

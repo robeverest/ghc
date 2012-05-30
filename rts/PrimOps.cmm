@@ -897,10 +897,10 @@ stg_getYieldControlActionzh
   RET_P (yield_control_action);
 }
 
-stg_setTLSzh
+stg_setSLSzh
 {
   /* args: R1 = scont, R2 = tls */
-  MAYBE_GC (R1_PTR & R2_PTR, stg_setTLSzh);
+  MAYBE_GC (R1_PTR & R2_PTR, stg_setSLSzh);
 
   W_ tso, tls;
   tso = R1;
@@ -910,7 +910,7 @@ stg_setTLSzh
   jump %ENTRY_CODE(Sp(0));
 }
 
-stg_getTLSzh
+stg_getSLSzh
 {
  /* args: R1 = scont */
  W_ tso, tls;
