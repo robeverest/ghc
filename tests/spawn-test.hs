@@ -1,27 +1,40 @@
-import Control.Concurrent
-import Control.Concurrent.MVar
+import LwConc.Concurrent
+import LwConc.Substrate
 import System.Environment
-import System.Exit
 
-task n v = if n==1 then do
-                        putMVar v ()
-                 else return () -- print "RUNNING"
+task n = do
+  print $ "Running" ++ show n
+  return ()
+
+loop tick (0, maxTick) = return ()
+loop tick (n, maxTick) = do
+  forkIO $ task n
+  tick <- if tick == maxTick
+             then do {
+              print "Main yield";
+              yield;
+              return 0
+             }
+             else return (tick+1)
+  loop tick (n-1, maxTick)
 
 
-loop _ 0 = return ()
-loop v n = do
-  forkIO $ task n v
-  loop v $ n-1
-
-
-parse [] = "1"
-parse (a:_) = a
+parse (a:b:_) = (rInt a, rInt b)
+parse otherwise = undefined
 
 rInt :: String -> Int
 rInt = read
 
 main = do
   args <- getArgs
-  v <- newEmptyMVar
-  loop v $ rInt $ parse args
-  readMVar v
+  newSched
+  n <- getNumCapabilities
+  spawnScheds $ n-1
+  loop 0 $ parse args
+  yield
+  print "Main Done"
+
+spawnScheds 0 = return ()
+spawnScheds n = do
+  newCapability
+  spawnScheds $ n-1

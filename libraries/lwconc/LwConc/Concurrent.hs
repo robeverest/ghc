@@ -19,11 +19,15 @@ module LwConc.Concurrent
 (
   Sched
 , SCont
-, newSched      -- IO (Sched)
+
+, newSched           -- IO (Sched)
 , newCapability      -- IO ()
 , forkIO             -- IO () -> IO SCont
 , forkOS             -- IO () -> IO SCont
 , yield              -- IO ()
+
+, BlockedIndefinitelyOnConcDS(..)
+, blockedIndefinitelyOnConcDS
 ) where
 
 import LwConc.Substrate

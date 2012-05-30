@@ -1,37 +1,79 @@
-{-# LANGUAGE BangPatterns #-}
+{-# Language ScopedTypeVariables #-}
+module Main where
 
-import ParRRSched
-import Data.IORef (atomicModifyIORef, newIORef)
+import LwConc.Concurrent
+import PChan
+import LwConc.MVar
+import LwConc.Substrate
+import Data.Dynamic
 import qualified GHC.Conc as C
-import System.Environment
 
-task _ 0 = return ()
-task p n = do
-  atomicModifyIORef p $ \a -> let !b = a+1 in (b,b)
-  task p $ n - 1
+data State = State {
+  vt :: PVar Int,
+  vm :: MVar Int,
+  chan :: MVar (),
+  count :: PVar Int
+  }
 
-loop _ p 0 = return ()
-loop sched p n = do
-  forkIO sched $ task p 100000
-  loop sched p $ n-1
 
-spawnScheds _ 0 = return ()
-spawnScheds s n = do
-  newVProc s
-  spawnScheds s $ n-1
+-- XXX KC loopmax=0 numthread=2 -N2 will enter blackhole consistently
 
-parse (a:_) = rInt a
-parse otherwise = undefined
+loopmax = 10
+numthreads = 20
 
-rInt :: String -> Int
-rInt = read
+main
+  = do t <- atomically (newPVar 0)
+       m <- newEmptyMVar
+       putMVar m 0
+       c <- newEmptyMVar
+       cnt <- atomically (newPVar 0)
+       newSched
+       nc <- C.getNumCapabilities
+       spawnScheds $ nc-1
+       let st = State t m c cnt
+       sc <- atomically $ getSCont
+       forkIter numthreads (proc st domv loopmax)
+       takeMVar c
+       yield
+       return ()
 
-main = do
-  args <- getArgs
-  sched <- newParRRSched
-  n <- C.getNumCapabilities
-  spawnScheds sched $ n-1
-  p <- newIORef 0
-  loop sched p $ parse args
-  yield sched
-  print "Main done"
+spawnScheds 0 = return ()
+spawnScheds n = do
+  newCapability
+  spawnScheds $ n-1
+
+proc :: State -> (State -> IO ()) -> Int -> IO ()
+proc st w 0 = do c <- atomically (do cnt <- readPVar (count st)
+                                     writePVar (count st) (cnt+1)
+                                     return cnt)
+                 if (c+1) >= numthreads
+                    then atomically $ asyncPutMVar (chan st) ()
+                    else return ()
+                 return ()
+proc st w i
+  = do w st
+       proc st w (i-1)
+
+dotv :: State -> IO ()
+dotv st
+  = do n <- atomically (do n <- readPVar (vt st)
+                           writePVar (vt st) (n+1)
+                           return n)
+       return ()
+
+domv :: State -> IO ()
+domv st
+  = do n <- takeMVar (vm st)
+       putMVar (vm st) (n+1)
+       return ()
+
+forkIter :: Int -> IO () -> IO ()
+forkIter n p
+  = iter n (do forkIO p
+               return ())
+
+iter :: Int -> IO () -> IO ()
+iter 0 _ = return ()
+iter n f
+  = do f
+       iter (n-1) f

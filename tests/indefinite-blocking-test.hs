@@ -1,6 +1,5 @@
-import ConcRRSched
-import qualified LwConc.Substrate as Substrate
-import MVar
+import LwConc.Concurrent
+import LwConc.MVar
 import System.Environment
 
 task n = do
@@ -16,7 +15,7 @@ rInt = read
 main = do
   -- Initialize
   args <- getArgs
-  sched <- newConcRRSched
+  newSched
   let (n, maxTick) = parse args
   -- Define zombie task
   let zombie = do {
@@ -28,11 +27,11 @@ main = do
   let loop tick 0 = return ()
       loop tick n = do {
         -- create Zombie
-        z <- forkIO sched zombie;
+        z <- forkIO zombie;
         nextTick <- (if tick == maxTick
                         then do {
                               print "Main yield";
-                              yield sched;
+                              yield;
                               return 0
                             }
                        else return (tick+1));
@@ -40,5 +39,5 @@ main = do
       }
   -- invoke loop
   loop 0 n
-  yield sched
+  yield
   print "Main done"

@@ -1,5 +1,4 @@
 import LwConc.Substrate
-import GHC.Conc
 
 main = do
   let task = print "TASK DONE"

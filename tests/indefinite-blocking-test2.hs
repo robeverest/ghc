@@ -1,8 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
-import ConcRRSched
-import qualified LwConc.Substrate as Substrate
-import LwConc.MVarPrim
+import LwConc.Concurrent
+import LwConc.MVar
 import System.Environment
 import Control.Exception
 
@@ -19,26 +18,24 @@ rInt = read
 main = do
   -- Initialize
   args <- getArgs
-  sched <- newConcRRSched
+  newSched
   let (n, maxTick) = parse args
   -- Define zombie task
   let zombie = do {
-    mv :: MVarPrim () <- newEmptyMVarPrim;
-    s <- Substrate.atomically $ Substrate.getSCont;
-    (b, u) <- getSchedActionPair sched s;
+    mv <- newEmptyMVar;
     let mask :: IO () -> IO (Either BlockedIndefinitelyOnConcDS ()) = try
-    in mask $ takeMVarPrim b u mv;
+    in mask $ takeMVar mv;
     print "Zombie: caught exception"
   }
   -- Define loop
   let loop tick 0 = return ()
       loop tick n = do {
         -- create Zombie
-        z <- forkIO sched zombie;
+        z <- forkIO zombie;
         nextTick <- (if tick == maxTick
                         then do {
                               print "Main yield";
-                              yield sched;
+                              yield;
                               return 0
                             }
                        else return (tick+1));
@@ -46,5 +43,5 @@ main = do
       }
   -- invoke loop
   loop 0 n
-  yield sched
+  yield
   -- print "Main done"
