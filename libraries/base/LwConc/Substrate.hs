@@ -99,7 +99,6 @@ PTM
 , getYieldControlAction   -- PTM (PTM ())
 
 , setFinalizer            -- SCont -> IO () -> IO ()
-, defaultUpcall           -- IO ()
 
 ------------------------------------------------------------------------------
 -- Capability Management
@@ -127,6 +126,7 @@ PTM
 ------------------------------------------------------------------------------
 
 , throwTo                  -- Exeception e => SCont -> e -> IO ()
+
 , BlockedIndefinitelyOnConcDS(..)
 , blockedIndefinitelyOnConcDS
 
@@ -138,6 +138,9 @@ PTM
 , initSContStatus         -- SContStatus
 , scheduleSContActionRts  -- PTM () -> IO ()
 , yieldControlActionRts   -- PTM () -> Int -> IO ()
+
+, defaultUpcall           -- IO ()
+, defaultExceptionHandler  -- SomeException -> IO ()
 ) where
 
 
@@ -333,14 +336,7 @@ data SCont = SCont SCont#
 newSCont :: IO () -> IO SCont
 newSCont x = do
   IO $ \s ->
-   case (newSCont# x_wrapped s) of (# s1, scont #) -> (# s1, SCont scont #)
-  where
-    x_wrapped = Exception.catch x handler
-    handler (_::Exception.SomeException) = atomically $ do
-      s <- getSCont
-      setSContStatus s SContKilled
-      yca <- getYieldControlAction
-      yca
+   case (newSCont# x s) of (# s1, scont #) -> (# s1, SCont scont #)
 
 {-# INLINE switchTo #-}
 switchTo :: SCont -> PTM ()
@@ -472,6 +468,14 @@ setFinalizer (SCont sc) b = IO $ \s ->
 
 defaultUpcall :: IO ()
 defaultUpcall = IO $ \s-> (# defaultUpcallError# s, () #)
+
+defaultExceptionHandler :: Exception.SomeException -> IO ()
+defaultExceptionHandler _ = atomically $ do
+  s <- getSCont
+  setSContStatus s SContKilled
+  yca <- getYieldControlAction
+  yca
+
 
 ----------------------------------------------------------------------------
 -- Bound threads

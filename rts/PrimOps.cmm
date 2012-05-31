@@ -739,7 +739,6 @@ stg_atomicSwitchzh
       //been committed and mucking with CurrentTSO info violates atomicity.
 
       if (CurrentTSO != tso) {
-        ASSERT (StgTSO_what_next(tso) == ThreadRunGHC::I16); //Thread is alive
         ASSERT (StgTSO_why_blocked(tso) != NotBlocked::I16); //Thread is blocked
 
         //Set the current thread status
@@ -956,7 +955,7 @@ stg_newSContzh
   W_ closure, threadid;
   closure = R1;
 
-  ("ptr" threadid) = foreign "C" createIOThread( MyCapability() "ptr",
+  ("ptr" threadid) = foreign "C" createUserLevelThread( MyCapability() "ptr",
 				RtsFlags_GcFlags_initialStkSize(RtsFlags),
 				closure "ptr") [];
   StgTSO_why_blocked (threadid) = Yielded::I16;

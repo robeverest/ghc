@@ -271,8 +271,6 @@ stg_killThreadzh
 {
   /* args: R1 = TSO to kill, R2 = Exception */
 
-  foreign "C" barf ("LwConc: stg_killThreadzh not tested!\n");
-
   W_ why_blocked;
   W_ target;
   W_ exception;

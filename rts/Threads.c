@@ -56,7 +56,7 @@ static StgThreadID next_thread_id = 1;
 
    currently pri (priority) is only used in a GRAN setup -- HWL
    ------------------------------------------------------------------------ */
-  StgTSO *
+StgTSO *
 createThread(Capability *cap, nat size)
 {
   StgTSO *tso;

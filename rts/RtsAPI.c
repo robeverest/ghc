@@ -418,11 +418,26 @@ createIOThread (Capability *cap, nat stack_size,  StgClosure *closure)
   return t;
 }
 
-  StgTSO *
+StgTSO *
 createUserLevelThread (Capability *cap, nat stack_size,  StgClosure *closure)
 {
   StgTSO *t;
+  StgStack* stack;
+  StgCatchFrame* catch_frame;
+
   t = createThread (cap, stack_size);
+
+  //Push defaultExceptionHandler that would switch control to the next thread on
+  //the scheduler.
+  stack = t->stackobj;
+  stack->sp -= sizeofW(StgCatchFrame);
+  catch_frame = (StgCatchFrame*)stack->sp;
+  SET_HDR((StgClosure*)catch_frame,
+          (StgInfoTable *)&stg_catch_frame_info,CCS_SYSTEM);
+  catch_frame->handler = (StgClosure*)defaultExceptionHandler_closure;
+  catch_frame->exceptions_blocked = 0;
+
+  //Push the closure to evaluate
   pushClosure(t, (W_)&stg_ap_v_info);
   pushClosure(t, (W_)closure);
   pushClosure(t, (W_)&stg_enter_info);

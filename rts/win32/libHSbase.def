@@ -44,5 +44,6 @@ EXPORTS
 
   base_LwConcziSubstrate_initSContStatus_closure
   base_LwConcziSubstrate_defaultUpcall_closure
+  base_LwConcziSubstrate_defaultExceptionHandler_closure
   base_LwConcziSubstrate_scheduleSContActionRts_closure
   base_LwConcziSubstrate_yieldControlActionRts_closure
