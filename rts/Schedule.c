@@ -2996,7 +2996,7 @@ findRetryFrameHelper (Capability *cap, StgTSO *tso)
 Locks: assumes we hold *all* the capabilities.
 -------------------------------------------------------------------------- */
 
-    void
+void
 resurrectThreads (StgTSO *threads)
 {
     StgTSO *tso, *next;

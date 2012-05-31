@@ -261,69 +261,75 @@ stg_getMaskingStatezh
           ((TO_W_(StgTSO_flags(CurrentTSO)) & TSO_INTERRUPTIBLE) != 0));
 }
 
+stg_killSContzh
+{
+  /* args: R1 = SCont to kill, R2 = Exception */
+  jump stg_killThreadzh;
+}
+
 stg_killThreadzh
 {
-    /* args: R1 = TSO to kill, R2 = Exception */
+  /* args: R1 = TSO to kill, R2 = Exception */
 
-    foreign "C" barf ("LwConc: stg_killThreadzh not tested!\n");
+  foreign "C" barf ("LwConc: stg_killThreadzh not tested!\n");
 
-    W_ why_blocked;
-    W_ target;
-    W_ exception;
+  W_ why_blocked;
+  W_ target;
+  W_ exception;
 
-    target = R1;
-    exception = R2;
+  target = R1;
+  exception = R2;
 
-    /* Needs 3 words because throwToSingleThreaded uses some stack */
-    STK_CHK_GEN( WDS(3), R1_PTR & R2_PTR, stg_killThreadzh);
-    /* We call allocate in throwTo(), so better check for GC */
-    MAYBE_GC(R1_PTR & R2_PTR, stg_killThreadzh);
+  /* Needs 3 words because throwToSingleThreaded uses some stack */
+  STK_CHK_GEN( WDS(3), R1_PTR & R2_PTR, stg_killThreadzh);
+  /* We call allocate in throwTo(), so better check for GC */
+  MAYBE_GC(R1_PTR & R2_PTR, stg_killThreadzh);
 
+  /*
+   * We might have killed ourselves.  In which case, better be *very*
+   * careful.  If the exception killed us, then return to the scheduler.
+   * If the exception went to a catch frame, we'll just continue from
+   * the handler.
+   */
+  if (target == CurrentTSO) {
     /*
-     * We might have killed ourselves.  In which case, better be *very*
-     * careful.  If the exception killed us, then return to the scheduler.
-     * If the exception went to a catch frame, we'll just continue from
-     * the handler.
+     * So what should happen if a thread calls "throwTo self" inside
+     * unsafePerformIO, and later the closure is evaluated by another
+     * thread?  Presumably it should behave as if throwTo just returned,
+     * and then continue from there.  See #3279, #3288.  This is what
+     * happens: on resumption, we will just jump to the next frame on
+     * the stack, which is the return point for stg_killThreadzh.
      */
-    if (target == CurrentTSO) {
-        /*
-         * So what should happen if a thread calls "throwTo self" inside
-         * unsafePerformIO, and later the closure is evaluated by another
-         * thread?  Presumably it should behave as if throwTo just returned,
-         * and then continue from there.  See #3279, #3288.  This is what
-         * happens: on resumption, we will just jump to the next frame on
-         * the stack, which is the return point for stg_killThreadzh.
-         */
-	SAVE_THREAD_STATE();
-	/* ToDo: what if the current thread is blocking exceptions? */
-	foreign "C" throwToSingleThreaded(MyCapability() "ptr",
-					  target "ptr", exception "ptr")[R1,R2];
-	if (StgTSO_what_next(CurrentTSO) == ThreadKilled::I16) {
-            jump stg_threadFinished;
-	} else {
-	    LOAD_THREAD_STATE();
-	    ASSERT(StgTSO_what_next(CurrentTSO) == ThreadRunGHC::I16);
-	    jump %ENTRY_CODE(Sp(0));
-	}
+    SAVE_THREAD_STATE();
+    /* ToDo: what if the current thread is blocking exceptions? */
+    foreign "C" throwToSingleThreaded(MyCapability() "ptr",
+                                      target "ptr", exception "ptr")[R1,R2];
+    if (StgTSO_what_next(CurrentTSO) == ThreadKilled::I16) {
+      jump stg_threadFinished;
     } else {
-	W_ out;
-	W_ msg;
-	out = Sp - WDS(1); /* ok to re-use stack space here */
-
-	(msg) = foreign "C" throwTo(MyCapability() "ptr",
-                                    CurrentTSO "ptr",
-                                    target "ptr",
-                                    exception "ptr") [R1,R2];
-
-        if (msg == NULL) {
-	    jump %ENTRY_CODE(Sp(0));
-	} else {
-            StgTSO_why_blocked(CurrentTSO) = BlockedOnMsgThrowTo;
-            StgTSO_block_info(CurrentTSO) = msg;
-	    // we must block, and unlock the message before returning
-	    jump stg_block_throwto;
-	}
+      LOAD_THREAD_STATE();
+      ASSERT(StgTSO_what_next(CurrentTSO) == ThreadRunGHC::I16);
+      jump %ENTRY_CODE(Sp(0));
     }
+  } else {
+    W_ out;
+    W_ msg;
+    out = Sp - WDS(1); /* ok to re-use stack space here */
+
+    (msg) = foreign "C" throwTo(MyCapability() "ptr",
+                                CurrentTSO "ptr",
+                                target "ptr",
+                                exception "ptr") [R1,R2];
+
+    if (msg == NULL) {
+      jump %ENTRY_CODE(Sp(0));
+    } else {
+      StgTSO_why_blocked(CurrentTSO) = BlockedOnMsgThrowTo;
+      StgTSO_block_info(CurrentTSO) = msg;
+      // we must block, and unlock the message before returning
+      jump stg_block_throwto;
+    }
+  }
 }
 
 /* -----------------------------------------------------------------------------

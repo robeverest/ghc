@@ -119,13 +119,14 @@ PTM
 -- Thread-local Storage
 ------------------------------------------------------------------------------
 
-, setSLS -- SCont -> Data.Dynamic -> IO ()
-, getSLS -- SCont -> PTM Data.Dynamic
+, setSLS                   -- SCont -> Data.Dynamic -> IO ()
+, getSLS                   -- SCont -> PTM Data.Dynamic
 
 ------------------------------------------------------------------------------
 -- Exceptions
 ------------------------------------------------------------------------------
 
+, throwTo                  -- Exeception e => SCont -> e -> IO ()
 , BlockedIndefinitelyOnConcDS(..)
 , blockedIndefinitelyOnConcDS
 
@@ -141,7 +142,7 @@ PTM
 
 
 import Prelude
-import Control.Exception.Base as Exception
+import Control.Exception.Base as Exception hiding (throwTo)
 
 #ifdef __GLASGOW_HASKELL__
 import GHC.Exception
@@ -331,7 +332,12 @@ data SCont = SCont SCont#
 newSCont :: IO () -> IO SCont
 newSCont x = do
   IO $ \s ->
-   case (newSCont# x s) of (# s1, scont #) -> (# s1, SCont scont #)
+   case (newSCont# x_wrapped s) of (# s1, scont #) -> (# s1, SCont scont #)
+  where
+    x_wrapped = Exception.catch x handler
+    handler (_::Exception.SomeException) = atomically $ do
+      yca <- getYieldControlAction
+      yca
 
 {-# INLINE switchTo #-}
 switchTo :: SCont -> PTM ()
@@ -443,6 +449,10 @@ getScheduleSContAction = do
 {-# INLINE scheduleSContActionRts #-}
 scheduleSContActionRts :: SCont -> IO () -- used by RTS
 scheduleSContActionRts sc = atomically $ do
+  stat <- getSContStatus sc
+  case stat of
+    SContSwitched (BlockedInHaskell (ResumeToken t)) -> writePVar t False
+    otherwise -> return ()
   setSContStatus sc $ SContSwitched Yielded
   unblock <- getScheduleSContActionSCont sc
   unblock sc
@@ -605,6 +615,11 @@ sleepCapability = PTM $ \s -> retry# s
 ------------------------------------------------------------------------------
 -- Exceptions
 ------------------------------------------------------------------------------
+
+
+throwTo :: Exception e => SCont -> e -> IO ()
+throwTo (SCont sc) ex = IO $ \s ->
+  case (killSCont# sc (toException ex) s) of s -> (# s, () #)
 
 data BlockedIndefinitelyOnConcDS = BlockedIndefinitelyOnConcDS
     deriving Typeable

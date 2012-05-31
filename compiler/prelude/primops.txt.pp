@@ -1814,6 +1814,12 @@ section "Lightweight concurrency primitives"
 
 primtype SCont#
 
+primop  KillSContOp "killSCont#"  GenPrimOp
+   SCont# -> a -> State# RealWorld -> State# RealWorld
+   with
+   has_side_effects = True
+   out_of_line      = True
+
 primop NewSContOp "newSCont#" GenPrimOp
   a -> State# RealWorld -> (# State# RealWorld, SCont# #)
   with

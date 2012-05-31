@@ -257,7 +257,7 @@ suspendAllComputation (Capability *cap, StgClosure* bh) {
 
  * ------------------------------------------------------------------------ */
 
-    MessageThrowTo *
+MessageThrowTo *
 throwTo (Capability *cap,	// the Capability we hold
          StgTSO *source,	// the TSO sending the exception (or NULL)
          StgTSO *target,        // the TSO receiving the exception
@@ -556,7 +556,7 @@ check_target:
     barf("throwTo");
 }
 
-    static void
+static void
 throwToSendMsg (Capability *cap STG_UNUSED,
                 Capability *target_cap USED_IF_THREADS,
                 MessageThrowTo *msg USED_IF_THREADS)
@@ -572,7 +572,7 @@ throwToSendMsg (Capability *cap STG_UNUSED,
 // Block a throwTo message on the target TSO's blocked_exceptions
 // queue.  The current Capability must own the target TSO in order to
 // modify the blocked_exceptions queue.
-    static void
+static void
 blockedThrowTo (Capability *cap, StgTSO *target, MessageThrowTo *msg)
 {
     debugTraceCap(DEBUG_sched, cap, "throwTo: blocking on thread %lu",
@@ -682,7 +682,7 @@ Precondition: we have exclusive access to the TSO, via the same set
 of conditions as throwToSingleThreaded() (c.f.).
 -------------------------------------------------------------------------- */
 
-    static void
+static void
 removeFromMVarBlockedQueue (StgTSO *tso)
 {
     StgMVar *mvar = (StgMVar*)tso->block_info.closure;
@@ -724,7 +724,7 @@ removeFromMVarBlockedQueue (StgTSO *tso)
     tso->_link = END_TSO_QUEUE;
 }
 
-    static void
+static void
 removeFromQueues(Capability *cap, StgTSO *tso)
 {
     switch (tso->why_blocked) {

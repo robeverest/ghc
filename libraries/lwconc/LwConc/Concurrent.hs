@@ -26,6 +26,7 @@ module LwConc.Concurrent
 , forkOS             -- IO () -> IO SCont
 , yield              -- IO ()
 
+, throwTo            -- Exception e => SCont -> e -> IO ()
 , BlockedIndefinitelyOnConcDS(..)
 , blockedIndefinitelyOnConcDS
 ) where
