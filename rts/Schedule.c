@@ -1280,7 +1280,7 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
  * Handle a thread that returned to the scheduler with ThreadYielding
  * -------------------------------------------------------------------------- */
 
-    static rtsBool
+static rtsBool
 scheduleHandleYield( Capability *cap, StgTSO *t, nat prev_what_next )
 {
     /* put the thread back on the run queue.  Then, if we're ready to
@@ -1290,6 +1290,10 @@ scheduleHandleYield( Capability *cap, StgTSO *t, nat prev_what_next )
      */
 
     ASSERT(t->_link == END_TSO_QUEUE);
+
+    // If we are an upcall thread (executing a scheduler action), don's switch.
+    if (isUpcallThread (t))
+      return rtsTrue;
 
     // Shortcut if we're just switching evaluators: don't bother
     // doing stack squeezing (which can be expensive), just run the
@@ -3021,24 +3025,18 @@ resurrectThreads (StgTSO *threads)
                     pushUpcallReturning (cap, getFinalizerUpcall (cap, tso));
                 break;
             case BlockedInHaskell:
-                tso = throwToSingleThreaded (cap, tso,
+                throwToSingleThreaded (cap, tso,
                                              (StgClosure*)blockedIndefinitelyOnConcDS_closure);
-                if (tso->what_next == ThreadRunGHC)
-                    pushUpcallNonReturning (cap, getResumeThreadUpcall (cap, tso));
-                break;
             case BlockedOnMVar:
-                barf ("resurrectThreads: BlockedOnMVar not implemented!");
                 /* Called by GC - sched_mutex lock is currently held. */
                 throwToSingleThreaded(cap, tso,
                                       (StgClosure *)blockedIndefinitelyOnMVar_closure);
                 break;
             case BlockedOnBlackHole:
-                barf ("resurrectThreads: BlockedOnMVar not implemented!");
                 throwToSingleThreaded(cap, tso,
                                       (StgClosure *)nonTermination_closure);
                 break;
             case BlockedOnSTM:
-                barf ("resurrectThreads: BlockedOnMVar not implemented!");
                 throwToSingleThreaded(cap, tso,
                                       (StgClosure *)blockedIndefinitelyOnSTM_closure);
                 break;

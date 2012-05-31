@@ -611,6 +611,7 @@ STRING(stg_switch_reason_1, "Yielded")
 STRING(stg_switch_reason_2, "BlockedInHaskell")
 STRING(stg_switch_reason_3, "BlockedInRTS")
 STRING(stg_switch_reason_4, "ThreadComplete")
+STRING(stg_switch_reason_5, "ThreadKilled")
 
 stg_scheduleThreadOnFreeCapzh
 {
@@ -654,7 +655,7 @@ stg_atomicSwitchzh
                             Capability_no(cap)) [];
   }
   else {
-    if (switch_reason == 2) {
+   if (switch_reason == 2) {
       foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
                               stg_switch_reason_2, StgTSO_id(tso),
                               Capability_no(cap)) [];
@@ -672,13 +673,20 @@ stg_atomicSwitchzh
 																	Capability_no(cap)) [];
 				}
 				else {
-					if (switch_reason == 0 && StgTSO_id(CurrentTSO) == StgTSO_id(tso)) {
-						tso = CurrentTSO;
-					}
-					else {
-						foreign "C" barf ("Unexpected: Switching from thread %d to %d - switch reason %d\n",
-															StgTSO_id(CurrentTSO), StgTSO_id(tso), switch_reason) [];
-					}
+          if (switch_reason == 5) {
+            foreign "C" debugBelch (stg_switch_msg, StgTSO_id(CurrentTSO),
+                                    stg_switch_reason_5, StgTSO_id(tso),
+                                    Capability_no(cap)) [];
+          }
+          else {
+            if (switch_reason == 0 && StgTSO_id(CurrentTSO) == StgTSO_id(tso)) {
+              tso = CurrentTSO;
+            }
+            else {
+              foreign "C" barf ("Unexpected: Switching from thread %d to %d - switch reason %d\n",
+                                StgTSO_id(CurrentTSO), StgTSO_id(tso), switch_reason) [];
+            }
+          }
       	}
 			}
     }
@@ -747,8 +755,13 @@ stg_atomicSwitchzh
               StgTSO_what_next(CurrentTSO) = ThreadComplete::I16;
             }
             else {
-              foreign "C" barf ("atomicSwitch: Unknown switch reason %d",
-                                switch_reason) never returns;
+              if (switch_reason == 5) {
+                StgTSO_what_next(CurrentTSO) = ThreadKilled::I16;
+              }
+              else {
+                foreign "C" barf ("atomicSwitch: Unknown switch reason %d",
+                                  switch_reason) never returns;
+              }
             }
           }
         }

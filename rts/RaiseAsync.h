@@ -16,21 +16,21 @@
 
 #include "BeginPrivate.h"
 
-StgTSO* throwToSingleThreaded (Capability *cap,
-                               StgTSO *tso,
-                               StgClosure *exception);
-
-StgTSO* throwToSingleThreaded_ (Capability *cap,
-                                StgTSO *tso,
-                                StgClosure *exception,
-                                rtsBool stop_at_atomically);
-
-StgTSO* suspendComputation (Capability *cap,
+void throwToSingleThreaded (Capability *cap,
                             StgTSO *tso,
-                            StgUpdateFrame *stop_here);
+                            StgClosure *exception);
+
+void throwToSingleThreaded_ (Capability *cap,
+                             StgTSO *tso,
+                             StgClosure *exception,
+                             rtsBool stop_at_atomically);
+
+void suspendComputation (Capability *cap,
+                         StgTSO *tso,
+                         StgUpdateFrame *stop_here);
 
 rtsBool suspendAllComputation (Capability *cap,
-                            StgClosure *bh);
+                               StgClosure *bh);
 
 
 MessageThrowTo *throwTo (Capability *cap,      // the Capability we hold
@@ -60,11 +60,11 @@ interruptible(StgTSO *t)
     case BlockedOnDoProc:
 #endif
     case BlockedOnDelay:
+    case Yielded:
+    case BlockedInHaskell:
       return 1;
       // NB. Threaded blocked on foreign calls (BlockedOnCCall) are
       // *not* interruptible.  We can't send these threads an exception.
-    case Yielded:
-    case BlockedInHaskell:
     default:
       return 0;
   }

@@ -299,7 +299,8 @@ getIntFromStatus x = case x of
                           SContSwitched (BlockedInHaskell _) -> 2#
                           SContSwitched BlockedInRTS -> 3#
                           SContSwitched Completed -> 4#
-                          otherwise -> 5#
+                          SContKilled -> 5#
+                          otherwise -> 6#
 
 {-# INLINE getSContStatus #-}
 getSContStatus :: SCont -> PTM SContStatus
@@ -336,6 +337,8 @@ newSCont x = do
   where
     x_wrapped = Exception.catch x handler
     handler (_::Exception.SomeException) = atomically $ do
+      s <- getSCont
+      setSContStatus s SContKilled
       yca <- getYieldControlAction
       yca
 

@@ -41,9 +41,9 @@ static void throwToSendMsg (Capability *cap USED_IF_THREADS,
                             Capability *target_cap USED_IF_THREADS,
                             MessageThrowTo *msg USED_IF_THREADS);
 
-static StgTSO* suspendComputationIncluding (Capability *cap,
-                                            StgTSO *tso,
-                                            StgUpdateFrame *stop_here);
+static void suspendComputationIncluding (Capability *cap,
+                                         StgTSO *tso,
+                                         StgUpdateFrame *stop_here);
 
 
 /* -----------------------------------------------------------------------------
@@ -63,45 +63,45 @@ static StgTSO* suspendComputationIncluding (Capability *cap,
    has been raised.
    -------------------------------------------------------------------------- */
 
-static StgTSO*
+static void
 throwToSingleThreaded__ (Capability *cap, StgTSO *tso, StgClosure *exception,
                          rtsBool stop_at_atomically, StgUpdateFrame *stop_here_excluding,
                          StgUpdateFrame* stop_here_including)
 {
     // Thread already dead?
     if (tso->what_next == ThreadComplete || tso->what_next == ThreadKilled)
-        return (StgTSO*)END_TSO_QUEUE;
+        return;
 
     // Remove it from any blocking queues
     removeFromQueues(cap,tso);
 
-    return raiseAsync(cap, tso, exception, stop_at_atomically,
+    raiseAsync(cap, tso, exception, stop_at_atomically,
                       stop_here_excluding, stop_here_including);
 }
 
-    StgTSO*
+void
 throwToSingleThreaded (Capability *cap, StgTSO *tso, StgClosure *exception)
 {
-    return throwToSingleThreaded__(cap, tso, exception, rtsFalse, NULL, NULL);
+    throwToSingleThreaded__(cap, tso, exception, rtsFalse, NULL, NULL);
 }
 
-    StgTSO*
+void
 throwToSingleThreaded_ (Capability *cap, StgTSO *tso, StgClosure *exception,
                         rtsBool stop_at_atomically)
 {
-    return throwToSingleThreaded__ (cap, tso, exception, stop_at_atomically, NULL, NULL);
+    throwToSingleThreaded__ (cap, tso, exception, stop_at_atomically, NULL, NULL);
 }
 
-StgTSO* // This is suspendComputationExcluding to be precise...
+void // This is suspendComputationExcluding to be precise...
 suspendComputation (Capability *cap, StgTSO *tso, StgUpdateFrame *stop_here)
 {
-    return throwToSingleThreaded__ (cap, tso, NULL, rtsFalse, stop_here, NULL);
+    throwToSingleThreaded__ (cap, tso, NULL, rtsFalse, stop_here, NULL);
 }
 
-StgTSO*
+void
 suspendComputationIncluding (Capability *cap, StgTSO *tso, StgUpdateFrame *stop_here)
 {
-    return throwToSingleThreaded__ (cap, tso, NULL, rtsFalse, NULL, stop_here);
+    throwToSingleThreaded__ (cap, tso, NULL, rtsFalse, NULL, stop_here);
 }
 
 
@@ -518,12 +518,15 @@ check_target:
             blockedThrowTo(cap,target,msg);
             return THROWTO_BLOCKED;
 
+        case BlockedInHaskell:
+        case Yielded:
 #ifndef THREADEDED_RTS
         case BlockedOnRead:
         case BlockedOnWrite:
         case BlockedOnDelay:
 #if defined(mingw32_HOST_OS)
         case BlockedOnDoProc:
+#endif
 #endif
             if ((target->flags & TSO_BLOCKEX) &&
                 ((target->flags & TSO_INTERRUPTIBLE) == 0)) {
@@ -534,7 +537,6 @@ check_target:
                 raiseAsync(cap, target, msg->exception, rtsFalse, NULL, NULL);
                 return THROWTO_SUCCESS;
             }
-#endif
 
         case ThreadMigrating:
             // if is is ThreadMigrating and tso->cap is ours, then it
@@ -548,8 +550,6 @@ check_target:
             // and now retry, the thread should be runnable.
             goto retry;
 
-        case BlockedInHaskell:
-        case Yielded:
         default:
             barf("throwTo: unrecognised why_blocked (%d)", target->why_blocked);
     }
@@ -1175,5 +1175,23 @@ raiseAsync(Capability *cap, StgTSO *tso, StgClosure *exception,
 
 done:
     IF_DEBUG(sanity, checkTSO(tso));
+
+    if (hasHaskellScheduler (tso)) {
+      switch (tso->why_blocked) {
+        case NotBlocked:
+        case Yielded:
+          break;
+        default:
+          if (tso->what_next == ThreadRunGHC) {
+            tso->why_blocked = Yielded;
+            pushUpcallReturning (cap, getResumeThreadUpcall (cap, tso));
+          }
+          break;
+      }
+    }
+    else if (tso->why_blocked != NotBlocked) {
+      tso->why_blocked = NotBlocked;
+      appendToRunQueue (cap, tso);
+    }
     return tso;
 }
