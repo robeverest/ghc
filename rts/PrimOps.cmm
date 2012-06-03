@@ -993,6 +993,12 @@ stg_getStatusTVarzh
   RET_P(tvar);
 }
 
+stg_sleepCapabilityzh
+{
+  StgTSO_is_sleeping (CurrentTSO) = 1::I32;
+  jump stg_retryzh;
+}
+
 
 /* -----------------------------------------------------------------------------
  * Concurrency primitives

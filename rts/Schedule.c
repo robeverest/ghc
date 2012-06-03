@@ -1338,7 +1338,7 @@ scheduleHandleYield( Capability *cap, StgTSO *t, nat prev_what_next )
 static void
 scheduleHandleThreadBlocked(Capability *cap, StgTSO *t)
 {
-    if (hasHaskellScheduler (t) && t->why_blocked != BlockedOnSTM)
+    if (hasHaskellScheduler (t) && !isThreadSleeping (t))
         pushUpcallNonReturning (cap, getSwitchToNextThreadUpcall (cap, t));
 
 #ifdef DEBUG

@@ -307,6 +307,7 @@ main(int argc, char *argv[])
     closure_field(StgTSO, flags);
     closure_field(StgTSO, dirty);
     closure_field(StgTSO, bq);
+    closure_field(StgTSO, is_sleeping);
     closure_field_("StgTSO_cccs", StgTSO, prof.cccs);
     closure_field(StgTSO, stackobj);
     closure_field(StgTSO, is_upcall_thread);

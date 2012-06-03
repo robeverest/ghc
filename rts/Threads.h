@@ -21,7 +21,9 @@ void wakeBlockingQueue   (Capability *cap, StgBlockingQueue *bq);
 void tryWakeupThread     (Capability *cap, StgTSO *tso);
 void migrateThread       (Capability *from, StgTSO *tso, Capability *to);
 void pushCallToClosure   (Capability *cap, StgTSO *tso, StgClosure* closure);
+
 rtsBool hasHaskellScheduler (StgTSO* tso);
+rtsBool isThreadSleeping (StgTSO* tso);
 
 
 // Wakes up a thread on a Capability (probably a different Capability

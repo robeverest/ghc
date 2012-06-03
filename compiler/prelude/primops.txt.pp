@@ -1558,7 +1558,7 @@ primop	AtomicallyOp "atomically#" GenPrimOp
    out_of_line = True
    has_side_effects = True
 
-primop  RetryOp "retry#" GenPrimOp
+primop RetryOp "retry#" GenPrimOp
    State# RealWorld -> (# State# RealWorld, a #)
    with
    out_of_line = True
@@ -1924,6 +1924,12 @@ primop GetSContId "getSContId#" GenPrimOp
   SCont# -> State# RealWorld -> (# State# RealWorld, Int# #)
   with
   out_of_line = True
+
+primop SleepCapabilityOp "sleepCapability#" GenPrimOp
+   State# RealWorld -> (# State# RealWorld, a #)
+   with
+   out_of_line = True
+   has_side_effects = True
 
 ------------------------------------------------------------------------
 section "Weak pointers"

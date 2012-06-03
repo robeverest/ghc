@@ -129,6 +129,8 @@ typedef struct StgTSO_ {
     StgThreadID             id;
     StgWord32               saved_errno;
     StgWord32               dirty;          /* non-zero => dirty */
+    StgWord32               is_sleeping;
+    StgWord32               is_upcall_thread;
     struct InCall_*         bound;
     struct Capability_*     cap;
 
@@ -169,11 +171,6 @@ typedef struct StgTSO_ {
      * necessary to change state of the thread transactionally.
      */
     StgTVar* scont_status;
-
-    /*
-     * whether this TSO is a upcall_thread.
-     */
-    rtsBool is_upcall_thread;
 
     /*
      * thread-local storage

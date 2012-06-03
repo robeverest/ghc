@@ -18,17 +18,22 @@
 -- Stability   :  experimental
 -- Portability :  non-portable (concurrency)
 --
--- An implementation of MVar with pluggable scheduler.
+-- An implementation of MVar. This implementation is scheduler agnostic.
 --
 -----------------------------------------------------------------------------
 
 module LwConc.MVar
-( MVar
+(
+  MVar
 , newMVar       -- a -> IO (MVar a)
 , newEmptyMVar  -- IO (MVar a)
+
 , putMVar       -- MVar a -> a -> IO ()
 , asyncPutMVar  -- MVar a -> a -> PTM ()
 , takeMVar      -- MVar a -> IO a
+
+, readMVar      -- MVar a -> a
+, swapMVar      -- MVar a -> a -> IO a
 ) where
 
 import LwConc.Substrate
@@ -51,6 +56,65 @@ newEmptyMVar = do
   ref <- newPVarIO $ Empty Seq.empty
   return $ MVar ref
 
+{-# INLINE readMVar #-}
+readMVar :: MVar a -> IO a
+readMVar (MVar ref) = do
+  hole <- newIORef undefined
+  atomically $ do
+    st <- readPVar ref
+    case st of
+         Empty ts -> do
+           blockAct <- getYieldControlAction
+           sc <- getSCont
+           unblockAct <- getScheduleSContAction
+           token <- newResumeToken
+           let wakeup = do {
+             value <- unsafeIOToPTM $ readIORef hole;
+             -- put value back into the MVar
+             putMVarPTM (MVar ref) value;
+             -- Should I resume?
+             v <- isResumeTokenValid token;
+             if v then
+               unblockAct sc
+             else
+               return ()
+           }
+           writePVar ref $ Empty $ ts Seq.|> (hole, wakeup)
+           setSContSwitchReason sc $ BlockedInHaskell token
+           blockAct
+         Full x _ -> unsafeIOToPTM $ writeIORef hole x
+  readIORef hole
+
+{-# INLINE readMVar #-}
+swapMVar :: MVar a -> a -> IO a
+swapMVar (MVar ref) newValue = do
+  hole <- newIORef undefined
+  atomically $ do
+    st <- readPVar ref
+    case st of
+         Empty ts -> do
+           blockAct <- getYieldControlAction
+           sc <- getSCont
+           unblockAct <- getScheduleSContAction
+           token <- newResumeToken
+           let wakeup = do {
+             oldValue <- unsafeIOToPTM $ readIORef hole;
+             -- put value back into the MVar
+             putMVarPTM (MVar ref) newValue;
+             -- Should I resume?
+             v <- isResumeTokenValid token;
+             if v then
+               unblockAct sc
+             else
+               return ()
+           }
+           writePVar ref $ Empty $ ts Seq.|> (hole, wakeup)
+           setSContSwitchReason sc $ BlockedInHaskell token
+           blockAct
+         Full x _ -> unsafeIOToPTM $ writeIORef hole x
+  readIORef hole
+
+
 {-# INLINE asyncPutMVar #-}
 asyncPutMVar :: MVar a -> a -> PTM ()
 asyncPutMVar (MVar ref) x = do
@@ -66,9 +130,9 @@ asyncPutMVar (MVar ref) x = do
          writePVar ref $ Full x' $ ts Seq.|> (x, return ())
 
 
-{-# INLINE putMVar #-}
-putMVar :: MVar a -> a -> IO ()
-putMVar (MVar ref) x = atomically $ do
+{-# INLINE putMVarPTM #-}
+putMVarPTM :: MVar a -> a -> PTM ()
+putMVarPTM (MVar ref) x = do
   st <- readPVar ref
   case st of
        Empty (Seq.viewl -> Seq.EmptyL) -> do
@@ -92,6 +156,10 @@ putMVar (MVar ref) x = atomically $ do
          writePVar ref $ Full x' $ ts Seq.|> (x, wakeup)
          setSContSwitchReason sc $ BlockedInHaskell token
          blockAct
+
+{-# INLINE putMVar #-}
+putMVar :: MVar a -> a -> IO ()
+putMVar mv x = atomically $ putMVarPTM mv x
 
 
 {-# INLINE takeMVar #-}

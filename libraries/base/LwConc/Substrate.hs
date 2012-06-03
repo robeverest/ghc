@@ -30,9 +30,10 @@ module LwConc.Substrate
 -- PTM
 ------------------------------------------------------------------------------
 
-PTM
+  PTM
 , unsafeIOToPTM           -- IO a -> PTM a
 , atomically              -- PTM a -> IO a
+, retry                   -- PTM a
 
 ------------------------------------------------------------------------------
 -- PVar
@@ -223,6 +224,10 @@ atomically :: PTM a -> IO a
 -- atomically = undefined
 atomically (PTM c) = IO $ \s10 ->
   atomically# c s10
+
+{-# INLINE retry #-}
+retry :: PTM a
+retry = PTM $ \s -> retry# s
 
 ---------------------------------------------------------------------------------
 -- PVar
@@ -615,9 +620,8 @@ setSContCapability (SCont sc) (I# i) = do
     then IO $ \s -> case setSContCapability# sc i s of s -> (# s, () #)
     else error "setSContCapability: SCont must belong to the current capability"
 
--- Is PTM retry
 sleepCapability :: PTM a
-sleepCapability = PTM $ \s -> retry# s
+sleepCapability = PTM $ \s -> sleepCapability# s
 
 ------------------------------------------------------------------------------
 -- Exceptions

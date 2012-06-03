@@ -108,7 +108,8 @@ createThread(Capability *cap, nat size)
   tso->bq = (StgBlockingQueue *)END_TSO_QUEUE;
   tso->flags = 0;
   tso->dirty = 1;
-  tso->is_upcall_thread = rtsFalse;
+  tso->is_upcall_thread = 0;
+  tso->is_sleeping = 0;
   tso->_link = END_TSO_QUEUE;
 
   tso->saved_errno = 0;
@@ -318,7 +319,12 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
         goto unblock2;
 
     case BlockedOnSTM:
-      goto unblock2;
+      if (tso->is_sleeping != 0) {
+        tso->is_sleeping = 0;
+        goto unblock2;
+      }
+      else
+        goto unblock1;
 
     case ThreadMigrating:
       goto unblock2;
@@ -331,13 +337,13 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
   }
 
 unblock1:
-  // just run the thread now, if the BH is not really available,
-  // we'll block again.
   tso->why_blocked = Yielded;
   pushUpcallReturning (cap, getResumeThreadUpcall (cap, tso));
   return;
 
 unblock2:
+  // just run the thread now, if the BH is not really available,
+  // we'll block again.
   tso->why_blocked = NotBlocked;
   appendToRunQueue(cap,tso);
   return;
@@ -563,6 +569,15 @@ hasHaskellScheduler (StgTSO* tso) {
           tso->yield_control_action != (StgClosure*)defaultUpcall_closure &&
           //has unblock thread actions
           tso->schedule_scont_action != (StgClosure*)defaultUpcall_closure);
+}
+
+/* -----------------------------------------------------------------------------
+ * Check if the capability is going to sleep inside a PTM action
+ * -------------------------------------------------------------------------- */
+
+rtsBool
+isThreadSleeping (StgTSO* tso) {
+  return tso->is_sleeping;
 }
 
 /* -----------------------------------------------------------------------------
