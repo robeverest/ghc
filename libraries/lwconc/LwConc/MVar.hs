@@ -85,7 +85,7 @@ readMVar (MVar ref) = do
          Full x _ -> unsafeIOToPTM $ writeIORef hole x
   readIORef hole
 
-{-# INLINE readMVar #-}
+{-# INLINE swapMVar #-}
 swapMVar :: MVar a -> a -> IO a
 swapMVar (MVar ref) newValue = do
   hole <- newIORef undefined
