@@ -13,8 +13,9 @@ module LlvmCodeGen.Base (
         maxSupportLlvmVersion,
 
         LlvmEnv, initLlvmEnv, clearVars, varLookup, varInsert,
-        funLookup, funInsert, getLlvmVer, setLlvmVer, getLlvmPlatform,
-        getDflags, ghcInternalFunctions,
+        funLookup, funInsert, aliasLookup, aliasInsert, 
+        getPointerRegister, reduceAlias, getLlvmVer, 
+        setLlvmVer, getLlvmPlatform, getDflags, ghcInternalFunctions,
 
         cmmToLlvmType, widthToLlvmFloat, widthToLlvmInt, llvmFunTy,
         llvmFunSig, llvmStdFunAttrs, llvmFunAlign, llvmInfAlign,
@@ -40,6 +41,8 @@ import qualified Outputable as Outp
 import Platform
 import UniqFM
 import Unique
+import Data.Maybe
+import OrdList
 
 -- ----------------------------------------------------------------------------
 -- * Some Data Types
@@ -157,14 +160,18 @@ maxSupportLlvmVersion = 31
 -- * Environment Handling
 --
 
--- two maps, one for functions and one for local vars.
-newtype LlvmEnv = LlvmEnv (LlvmEnvMap, LlvmEnvMap, LlvmVersion, DynFlags)
+-- Three maps, one for functions, one for local vars and one for the aliasing 
+-- information of local vars.
+newtype LlvmEnv = LlvmEnv (LlvmEnvMap, LlvmEnvMap, LlvmAliasMap, LlvmVersion, DynFlags)
 
 type LlvmEnvMap = UniqFM LlvmType
 
+-- A map for the alias information
+type LlvmAliasMap = UniqFM (OrdList GlobalReg)
+
 -- | Get initial Llvm environment.
 initLlvmEnv :: DynFlags -> LlvmEnv
-initLlvmEnv dflags = LlvmEnv (initFuncs, emptyUFM, defaultLlvmVersion, dflags)
+initLlvmEnv dflags = LlvmEnv (initFuncs, emptyUFM, emptyUFM, defaultLlvmVersion, dflags)
     where initFuncs = listToUFM $ [ (n, LMFunction ty) | (n, ty) <- ghcInternalFunctions ]
 
 -- | Here we pre-initialise some functions that are used internally by GHC
@@ -187,44 +194,73 @@ ghcInternalFunctions =
 
 -- | Clear variables from the environment.
 clearVars :: LlvmEnv -> LlvmEnv
-clearVars (LlvmEnv (e1, _, n, p)) = {-# SCC "llvm_env_clear" #-}
-    LlvmEnv (e1, emptyUFM, n, p)
+clearVars (LlvmEnv (e1, _, _, n, p)) = {-# SCC "llvm_env_clear" #-}
+    LlvmEnv (e1, emptyUFM, emptyUFM, n, p)
 
 -- | Insert local variables into the environment.
 varInsert :: Uniquable key => key -> LlvmType -> LlvmEnv -> LlvmEnv
-varInsert s t (LlvmEnv (e1, e2, n, p)) = {-# SCC "llvm_env_vinsert" #-}
-    LlvmEnv (e1, addToUFM e2 s t, n, p)
+varInsert s t (LlvmEnv (e1, e2, e3, n, p)) = {-# SCC "llvm_env_vinsert" #-}
+    LlvmEnv (e1, addToUFM e2 s t, e3, n, p)
 
 -- | Insert functions into the environment.
 funInsert :: Uniquable key => key -> LlvmType -> LlvmEnv -> LlvmEnv
-funInsert s t (LlvmEnv (e1, e2, n, p)) = {-# SCC "llvm_env_finsert" #-}
-    LlvmEnv (addToUFM e1 s t, e2, n, p)
+funInsert s t (LlvmEnv (e1, e2, e3, n, p)) = {-# SCC "llvm_env_finsert" #-}
+    LlvmEnv (addToUFM e1 s t, e2, e3, n, p)
 
 -- | Lookup local variables in the environment.
 varLookup :: Uniquable key => key -> LlvmEnv -> Maybe LlvmType
-varLookup s (LlvmEnv (_, e2, _, _)) = {-# SCC "llvm_env_vlookup" #-}
+varLookup s (LlvmEnv (_, e2, _, _, _)) = {-# SCC "llvm_env_vlookup" #-}
     lookupUFM e2 s
 
 -- | Lookup functions in the environment.
 funLookup :: Uniquable key => key -> LlvmEnv -> Maybe LlvmType
-funLookup s (LlvmEnv (e1, _, _, _)) = {-# SCC "llvm_env_flookup" #-}
+funLookup s (LlvmEnv (e1, _, _, _, _)) = {-# SCC "llvm_env_flookup" #-}
     lookupUFM e1 s
+
+-- | Get the "pointer" register.
+getPointerRegister :: OrdList GlobalReg -> GlobalReg
+getPointerRegister gs = fromMaybe Hp $ foldlOL getPointerRegister' Nothing gs 
+                         -- If a local variable is not derived from any STG pointer register
+                         -- then it must be of the form t = I32[X] or similiar. These pointers 
+                         -- can be classified as "heap"
+  where
+    getPointerRegister' (Just Hp) Sp = panic "Pointer is derived from both heap and stack pointer"
+    getPointerRegister' (Just Sp) Hp = panic "Pointer is derived from both heap and stack pointer"
+    getPointerRegister' _ Hp = Just Hp
+    getPointerRegister' _ Sp = Just Sp
+    getPointerRegister' _ BaseReg = Just BaseReg
+    getPointerRegister' Nothing (VanillaReg i p) = Just $ VanillaReg i p
+    getPointerRegister' a _ = a
+    
+-- | Reduce the alias information for each local variable down to just the "pointer" register
+reduceAlias :: LlvmEnv -> LlvmEnv
+reduceAlias (LlvmEnv (e1, e2, e3, n, p)) = let
+  e3' = (unitOL.getPointerRegister) `fmap` e3 
+  in LlvmEnv (e1, e2, e3', n, p)
+     
+-- | Lookup aliasing information of local variables in the environment.
+aliasLookup :: Uniquable key => key -> LlvmEnv -> Maybe (OrdList GlobalReg)
+aliasLookup s (LlvmEnv (_, _, e3, _, _)) = lookupUFM e3 s
+
+-- | Insert aliasing information of local variables into the environment.
+aliasInsert :: Uniquable key => key -> OrdList GlobalReg -> LlvmEnv -> LlvmEnv
+aliasInsert s gr (LlvmEnv (e1, e2, e3, n, p)) = LlvmEnv (e1, e2, addToUFM e3 s gr, n, p)
 
 -- | Get the LLVM version we are generating code for
 getLlvmVer :: LlvmEnv -> LlvmVersion
-getLlvmVer (LlvmEnv (_, _, n, _)) = n
+getLlvmVer (LlvmEnv (_, _, _, n, _)) = n
 
 -- | Set the LLVM version we are generating code for
 setLlvmVer :: LlvmVersion -> LlvmEnv -> LlvmEnv
-setLlvmVer n (LlvmEnv (e1, e2, _, p)) = LlvmEnv (e1, e2, n, p)
+setLlvmVer n (LlvmEnv (e1, e2, e3, _, p)) = LlvmEnv (e1, e2, e3, n, p)
 
 -- | Get the platform we are generating code for
 getLlvmPlatform :: LlvmEnv -> Platform
-getLlvmPlatform (LlvmEnv (_, _, _, d)) = targetPlatform d
+getLlvmPlatform (LlvmEnv (_, _, _, _, d)) = targetPlatform d
 
 -- | Get the DynFlags for this compilation pass
 getDflags :: LlvmEnv -> DynFlags
-getDflags (LlvmEnv (_, _, _, d)) = d
+getDflags (LlvmEnv (_, _, _, _, d)) = d
 
 -- ----------------------------------------------------------------------------
 -- * Label handling

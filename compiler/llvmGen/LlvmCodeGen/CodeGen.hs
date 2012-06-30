@@ -26,7 +26,9 @@ import Platform
 import OrdList
 import UniqSupply
 import Unique
+import UniqFM
 import Util
+import Data.Maybe
 
 import Data.List ( partition )
 
@@ -38,11 +40,31 @@ type LlvmStatements = OrdList LlvmStatement
 --
 genLlvmProc :: LlvmEnv -> RawCmmDecl -> UniqSM (LlvmEnv, [LlvmCmmDecl])
 genLlvmProc env (CmmProc info lbl (ListGraph blocks)) = do
-    (env', lmblocks, lmdata) <- basicBlocksCodeGen env blocks ([], [])
+    (env', lmblocks, lmdata) <- basicBlocksCodeGen (genAliasMap env blocks) blocks ([], [])
     let proc = CmmProc info lbl (ListGraph lmblocks)
     return (env', proc:lmdata)
 
 genLlvmProc _ _ = panic "genLlvmProc: case that shouldn't reach here!"
+
+-- | Generate aliasing information for local variables
+genAliasMap :: LlvmEnv -> [CmmBasicBlock] -> LlvmEnv
+genAliasMap env blocks = let
+    genAliasLists env' (BasicBlock _ stmts) = foldl stmtAlias env' stmts 
+    in reduceAlias $ foldl genAliasLists env blocks  
+
+stmtAlias :: LlvmEnv -> CmmStmt -> LlvmEnv
+stmtAlias env (CmmAssign (CmmLocal (LocalReg un _)) src) = aliasInsert un (getGlobalRegisters env src) env
+stmtAlias env _ = env
+
+-- | Get a list of global registers accessed by the CmmExpr
+getGlobalRegisters :: LlvmEnv -> CmmExpr -> OrdList GlobalReg
+getGlobalRegisters _ (CmmReg (CmmGlobal r)) = unitOL r
+getGlobalRegisters env (CmmReg (CmmLocal (LocalReg un _))) = case aliasLookup un env of 
+    Nothing -> nilOL
+    Just rs -> rs
+getGlobalRegisters env (CmmMachOp _ es) = concatOL $ map (getGlobalRegisters env) es 
+getGlobalRegisters _ (CmmRegOff (CmmGlobal r) _) = unitOL r
+getGlobalRegisters _ _ = nilOL
 
 -- -----------------------------------------------------------------------------
 -- * Block code generation
@@ -314,6 +336,7 @@ genCall env target res args ret = do
             let (creg, _) = ret_reg res
             let (env3, vreg, stmts3, top3) = getCmmReg env2 (CmmLocal creg)
             let allStmts = stmts `snocOL` s1 `appOL` stmts3
+            
             if retTy == pLower (getVarType vreg)
                 then do
                     let s2 = Store v1 vreg
@@ -532,7 +555,6 @@ genJump env expr live = do
     return (env', stmts `snocOL` s1 `appOL` stgStmts `snocOL` s2 `snocOL` s3,
             top)
 
-
 -- | CmmAssign operation
 --
 -- We use stack allocated variables for CmmReg. The optimiser will replace
@@ -582,7 +604,7 @@ genStore env addr@(CmmMachOp (MO_Sub _) [
     = genStore_fast env addr r (negate $ fromInteger n) val
 
 -- generic case
-genStore env addr val = genStore_slow env addr val [other]
+genStore env addr val = genStore_slow env addr val
 
 -- | CmmStore operation
 -- This is a special case for storing to a global register pointer
@@ -617,17 +639,17 @@ genStore_fast env addr r n val
 
             -- If its a bit type then we use the slow method since
             -- we can't avoid casting anyway.
-            False -> genStore_slow env addr val meta
-
-
+            False -> genStore_slow env addr val
+    
 -- | CmmStore operation
 -- Generic case. Uses casts and pointer arithmetic if needed.
-genStore_slow :: LlvmEnv -> CmmExpr -> CmmExpr -> [MetaData] -> UniqSM StmtData
-genStore_slow env addr val meta = do
+genStore_slow :: LlvmEnv -> CmmExpr -> CmmExpr -> UniqSM StmtData
+genStore_slow env addr val = do
     (env1, vaddr, stmts1, top1) <- exprToVar env addr
     (env2, vval,  stmts2, top2) <- exprToVar env1 val
 
     let stmts = stmts1 `appOL` stmts2
+        meta = [getTBAA $ (getPointerRegister . (getGlobalRegisters env2)) addr]
     case getVarType vaddr of
         -- sometimes we need to cast an int to a pointer before storing
         LMPointer ty@(LMPointer _) | getVarType vval == llvmWord -> do
@@ -1067,7 +1089,7 @@ genLoad env e@(CmmMachOp (MO_Sub _) [
     = genLoad_fast env e r (negate $ fromInteger n) ty
 
 -- generic case
-genLoad env e ty = genLoad_slow env e ty [other]
+genLoad env e ty = genLoad_slow env e ty
 
 -- | Handle CmmLoad expression.
 -- This is a special case for loading from a global register pointer
@@ -1102,14 +1124,15 @@ genLoad_fast env e r n ty =
 
             -- If its a bit type then we use the slow method since
             -- we can't avoid casting anyway.
-            False -> genLoad_slow env e ty meta
+            False -> genLoad_slow env e ty
 
 
 -- | Handle Cmm load expression.
 -- Generic case. Uses casts and pointer arithmetic if needed.
-genLoad_slow :: LlvmEnv -> CmmExpr -> CmmType -> [MetaData] -> UniqSM ExprData
-genLoad_slow env e ty meta = do
+genLoad_slow :: LlvmEnv -> CmmExpr -> CmmType -> UniqSM ExprData
+genLoad_slow env e ty = do
     (env', iptr, stmts, tops) <- exprToVar env e
+    let meta = [getTBAA $ (getPointerRegister . (getGlobalRegisters env')) e]
     case getVarType iptr of
          LMPointer _ -> do
                     (dvar, load) <- doExpr (cmmToLlvmType ty)

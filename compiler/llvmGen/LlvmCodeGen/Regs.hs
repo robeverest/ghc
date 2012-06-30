@@ -4,7 +4,7 @@
 
 module LlvmCodeGen.Regs (
         lmGlobalRegArg, lmGlobalRegVar, alwaysLive,
-        stgTBAA, top, base, stack, heap, rx, other, tbaa, getTBAA
+        stgTBAA, base, stack, heap, rx, other, tbaa, getTBAA
     ) where
 
 #include "HsVersions.h"
