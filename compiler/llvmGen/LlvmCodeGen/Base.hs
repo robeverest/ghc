@@ -154,7 +154,7 @@ minSupportLlvmVersion :: LlvmVersion
 minSupportLlvmVersion = 28
 
 maxSupportLlvmVersion :: LlvmVersion
-maxSupportLlvmVersion = 31
+maxSupportLlvmVersion = 32 --Change this before committing!
 
 -- ----------------------------------------------------------------------------
 -- * Environment Handling

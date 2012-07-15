@@ -619,10 +619,12 @@ genStore_fast env addr r n val
     in case isPointer grt && rem == 0 of
             True -> do
                 (env', vval,  stmts, top) <- exprToVar env val
+                let indices = if isArrayReg r then [toI32 0, toI32 ix] else [toI32 ix]
+                    grt' = if isArrayReg r then LMPointer llvmWord else grt
                 (gv,  s1) <- doExpr grt $ Load gr
-                (ptr, s2) <- doExpr grt $ GetElemPtr True gv [toI32 ix]
+                (ptr, s2) <- doExpr grt' $ GetElemPtr True gv indices
                 -- We might need a different pointer type, so check
-                case pLower grt == getVarType vval of
+                case pLower grt' == getVarType vval of
                      -- were fine
                      True  -> do
                          let s3 = MetaStmt meta $ Store vval ptr
@@ -902,7 +904,9 @@ genMachOp_fast env opt op r n e
     in case isPointer grt && rem == 0 of
             True -> do
                 (gv,  s1) <- doExpr grt $ Load gr
-                (ptr, s2) <- doExpr grt $ GetElemPtr True gv [toI32 ix]
+                let indices = if isArrayReg r then [toI32 0, toI32 ix] else [toI32 ix]
+                    grt' = if isArrayReg r then LMPointer llvmWord else grt
+                (ptr, s2) <- doExpr grt' $ GetElemPtr True gv indices
                 (var, s3) <- doExpr llvmWord $ Cast LM_Ptrtoint ptr llvmWord
                 return (env, var, unitOL s1 `snocOL` s2 `snocOL` s3, [])
 
@@ -1104,10 +1108,12 @@ genLoad_fast env e r n ty =
         (ix,rem) = n `divMod` ((llvmWidthInBits . pLower) grt  `div` 8)
     in case isPointer grt && rem == 0 of
             True  -> do
+                let indices = if isArrayReg r then [toI32 0, toI32 ix] else [toI32 ix]
+                    grt' = if isArrayReg r then LMPointer llvmWord else grt
                 (gv,  s1) <- doExpr grt $ Load gr
-                (ptr, s2) <- doExpr grt $ GetElemPtr True gv [toI32 ix]
+                (ptr, s2) <- doExpr grt' $ GetElemPtr True gv indices
                 -- We might need a different pointer type, so check
-                case grt == ty' of
+                case grt' == ty' of
                      -- were fine
                      True -> do
                          (var, s3) <- doExpr ty' (MetaExpr meta $ Load ptr)
@@ -1255,7 +1261,6 @@ funPrologue = concat $ map getReg activeStgRegs
                 arg   = lmGlobalRegArg rr
                 alloc = Assignment reg $ Alloca (pLower $ getVarType reg) 1
             in [alloc, Store arg reg]
-
 
 -- | Function epilogue. Load STG variables to use as argument for call.
 -- STG Liveness optimisation done here.

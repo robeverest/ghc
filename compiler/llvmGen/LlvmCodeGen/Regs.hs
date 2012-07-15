@@ -4,7 +4,8 @@
 
 module LlvmCodeGen.Regs (
         lmGlobalRegArg, lmGlobalRegVar, alwaysLive,
-        stgTBAA, base, stack, heap, rx, other, tbaa, getTBAA
+        stgTBAA, base, stack, heap, rx, other, tbaa, getTBAA,
+        isArrayReg
     ) where
 
 #include "HsVersions.h"
@@ -31,7 +32,7 @@ lmGlobalReg :: String -> GlobalReg -> LlvmVar
 lmGlobalReg suf reg
   = case reg of
         BaseReg        -> ptrGlobal $ "Base" ++ suf
-        Sp             -> ptrGlobal $ "Sp" ++ suf
+        Sp             -> ptrArrayGlobal $ "Sp" ++ suf
         Hp             -> ptrGlobal $ "Hp" ++ suf
         VanillaReg 1 _ -> wordGlobal $ "R1" ++ suf
         VanillaReg 2 _ -> wordGlobal $ "R2" ++ suf
@@ -57,6 +58,11 @@ lmGlobalReg suf reg
         ptrGlobal    name = LMNLocalVar (fsLit name) llvmWordPtr
         floatGlobal  name = LMNLocalVar (fsLit name) LMFloat
         doubleGlobal name = LMNLocalVar (fsLit name) LMDouble
+        ptrArrayGlobal name = LMNLocalVar (fsLit name) $ LMPointer $ LMArray 100 llvmWord
+
+isArrayReg :: GlobalReg -> Bool
+isArrayReg Sp = True
+isArrayReg _ = False
 
 -- | A list of STG Registers that should always be considered alive
 alwaysLive :: [GlobalReg]
