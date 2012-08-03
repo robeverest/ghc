@@ -26,9 +26,8 @@ import Platform
 import OrdList
 import UniqSupply
 import Unique
-import UniqFM
 import Util
-import Data.Maybe
+import qualified Data.Map as Map
 
 import Data.List ( partition )
 
@@ -40,9 +39,10 @@ type LlvmStatements = OrdList LlvmStatement
 --
 genLlvmProc :: LlvmEnv -> RawCmmDecl -> UniqSM (LlvmEnv, [LlvmCmmDecl])
 genLlvmProc env (CmmProc info lbl (ListGraph blocks)) = do
-    (env', lmblocks, lmdata) <- basicBlocksCodeGen (genAliasMap env blocks) blocks ([], [])
+    let env' = setStackOffsets (genStackOffsets blocks) env
+    (env'', lmblocks, lmdata) <- basicBlocksCodeGen (genAliasMap env' blocks) blocks ([], [])
     let proc = CmmProc info lbl (ListGraph lmblocks)
-    return (env', proc:lmdata)
+    return (env'', proc:lmdata)
 
 genLlvmProc _ _ = panic "genLlvmProc: case that shouldn't reach here!"
 
@@ -66,6 +66,38 @@ getGlobalRegisters env (CmmMachOp _ es) = concatOL $ map (getGlobalRegisters env
 getGlobalRegisters _ (CmmRegOff (CmmGlobal r) _) = unitOL r
 getGlobalRegisters _ _ = nilOL
 
+genStackOffsets :: [CmmBasicBlock] -> Map.Map Int StackAccess
+genStackOffsets blocks = unions $ map (\(BasicBlock _ stmts) -> unions $ map fromStmt stmts) blocks
+    where
+            fromStmt (CmmStore addr expr) = unions [fromAddr Write addr, fromExpr addr, fromExpr expr]
+            fromStmt (CmmAssign _ expr) = fromExpr expr
+            fromStmt (CmmCondBranch expr _) = fromExpr expr
+            fromStmt (CmmSwitch expr _) = fromExpr expr
+            fromStmt (CmmJump expr _) = fromExpr expr
+            fromStmt (CmmCall (CmmCallee expr _) _ _ _) = fromExpr expr
+            fromStmt _ = Map.empty
+
+            fromExpr (CmmLoad e _) = fromAddr Read e `union` fromExpr e
+            fromExpr (CmmMachOp _ es) = unions $ map fromExpr es
+            fromExpr _ = Map.empty
+
+            fromAddr a (CmmReg (CmmGlobal Sp)) = Map.singleton 0 a 
+            fromAddr a (CmmRegOff (CmmGlobal Sp) n) = Map.singleton n a
+            fromAddr a (CmmMachOp (MO_Add _) [
+                            (CmmReg (CmmGlobal Sp)),
+                            (CmmLit (CmmInt n _))]) = Map.singleton (fromInteger n) a 
+            fromAddr a (CmmMachOp (MO_Sub _) [
+                            (CmmReg (CmmGlobal Sp)),
+                            (CmmLit (CmmInt n _))]) = Map.singleton (negate $ fromInteger n) a 
+            fromAddr _ _ = Map.empty
+
+            unions = foldr union Map.empty
+            union = Map.unionWith access 
+            access Read Write = ReadWrite
+            access Write Read = ReadWrite
+            access _ ReadWrite = ReadWrite
+            access a _ = a 
+
 -- -----------------------------------------------------------------------------
 -- * Block code generation
 --
@@ -79,7 +111,8 @@ basicBlocksCodeGen env ([]) (blocks, tops)
   = do let (blocks', allocs) = mapAndUnzip dominateAllocs blocks
        let allocs' = concat allocs
        let ((BasicBlock id fstmts):rblks) = blocks'
-       let fblocks = (BasicBlock id $ funPrologue ++  allocs' ++ fstmts):rblks
+       prlg <- funPrologue env
+       let fblocks = (BasicBlock id $ prlg ++  allocs' ++ fstmts):rblks
        return (env, fblocks, tops)
 
 basicBlocksCodeGen env (block:blocks) (lblocks', ltops')
@@ -147,8 +180,12 @@ stmtToInstrs env stmt = case stmt of
 
     -- Foreign Call
     CmmCall target res args ret
-        -> genCall env target res args ret
+        -> do
+            stores <- storeIntoStack env
+            (env', stmts, top) <- genCall env target res args ret
+            loads <- storeIntoStackVars env'
 
+            return (env', (toOL stores) `appOL` stmts `appOL` (toOL loads), top)
     -- Tail call
     CmmJump arg live     -> genJump env arg live
 
@@ -156,7 +193,9 @@ stmtToInstrs env stmt = case stmt of
     -- Actually, there are a few return statements that occur because of hand
     -- written Cmm code.
     CmmReturn
-        -> return (env, unitOL $ Return Nothing, [])
+        -> do
+            stores <- storeIntoStack env
+            return (env, (toOL stores) `snocOL` Return Nothing, [])
 
 
 -- | Memory barrier instruction for LLVM >= 3.0
@@ -561,6 +600,12 @@ genJump env expr live = do
 -- these with registers when possible.
 genAssign :: LlvmEnv -> CmmReg -> CmmExpr -> UniqSM StmtData
 genAssign env reg val = do
+    (store, load) <- case reg of 
+        (CmmGlobal Sp) -> do
+            s <- storeIntoStack env
+            l <- storeIntoStackVars env
+            return (toOL s, toOL l)
+        _ -> return (nilOL, nilOL)
     let (env1, vreg, stmts1, top1) = getCmmReg env reg
     (env2, vval, stmts2, top2) <- exprToVar env1 val
     let stmts = stmts1 `appOL` stmts2
@@ -571,11 +616,11 @@ genAssign env reg val = do
          True -> do
              (v, s1) <- doExpr ty $ Cast LM_Inttoptr vval ty
              let s2 = Store v vreg
-             return (env2, stmts `snocOL` s1 `snocOL` s2, top1 ++ top2)
+             return (env2, store `appOL` (stmts `snocOL` s1 `snocOL` s2) `appOL` load, top1 ++ top2)
 
          False -> do
              let s1 = Store vval vreg
-             return (env2, stmts `snocOL` s1, top1 ++ top2)
+             return (env2, store `appOL` (stmts `snocOL` s1) `appOL` load, top1 ++ top2)
 
 
 -- | CmmStore operation
@@ -617,7 +662,17 @@ genStore_fast env addr r n val
         grt  = (pLower . getVarType) gr
         (ix,rem) = n `divMod` ((llvmWidthInBits . pLower) grt  `div` 8)
     in case isPointer grt && rem == 0 of
-            True -> do
+            True ->
+              if r == Sp then do
+                (env', vval,  stmts, top) <- exprToVar env val
+                case pLower grt == getVarType vval of
+                    True -> return (env', stmts `snocOL` (Store vval $ lmStackVar n), top)
+                
+                    False -> do
+                        let ty = (pLift . getVarType) vval
+                        (ptr', cast) <- doExpr ty $ Cast LM_Bitcast (lmStackVar n) ty
+                        return (env', stmts `snocOL` cast `snocOL` (Store vval $ ptr'), top)
+              else do
                 (env', vval,  stmts, top) <- exprToVar env val
                 (gv,  s1) <- doExpr grt $ Load gr
                 (ptr, s2) <- doExpr grt $ GetElemPtr True gv [toI32 ix]
@@ -649,7 +704,8 @@ genStore_slow env addr val = do
     (env2, vval,  stmts2, top2) <- exprToVar env1 val
 
     let stmts = stmts1 `appOL` stmts2
-        meta = [getTBAA $ (getPointerRegister . (getGlobalRegisters env2)) addr]
+        reg = (getPointerRegister . (getGlobalRegisters env2)) addr
+        meta = if (reg == Sp) then panic "slow store to Sp" else [getTBAA $ reg]
     case getVarType vaddr of
         -- sometimes we need to cast an int to a pointer before storing
         LMPointer ty@(LMPointer _) | getVarType vval == llvmWord -> do
@@ -1103,7 +1159,18 @@ genLoad_fast env e r n ty =
         ty'  = cmmToLlvmType ty
         (ix,rem) = n `divMod` ((llvmWidthInBits . pLower) grt  `div` 8)
     in case isPointer grt && rem == 0 of
-            True  -> do
+            True  -> 
+              if r == Sp then do
+                case grt == ty' of
+                    True -> do
+                        (var, s) <- doExpr ty' $ Load $ lmStackVar n
+                        return (env, var, unitOL s, [])
+                    False -> do
+                        let pty = pLift ty'
+                        (ptr, cast) <- doExpr pty $ Cast LM_Bitcast (lmStackVar n) pty
+                        (var, s) <- doExpr ty' $ Load ptr
+                        return (env, var, toOL [cast, s], [])
+              else do
                 (gv,  s1) <- doExpr grt $ Load gr
                 (ptr, s2) <- doExpr grt $ GetElemPtr True gv [toI32 ix]
                 -- We might need a different pointer type, so check
@@ -1132,7 +1199,8 @@ genLoad_fast env e r n ty =
 genLoad_slow :: LlvmEnv -> CmmExpr -> CmmType -> UniqSM ExprData
 genLoad_slow env e ty = do
     (env', iptr, stmts, tops) <- exprToVar env e
-    let meta = [getTBAA $ (getPointerRegister . (getGlobalRegisters env')) e]
+    let reg = (getPointerRegister . (getGlobalRegisters env')) e
+        meta = if (reg == Sp) then panic "slow load from Sp" else [getTBAA $ reg]
     case getVarType iptr of
          LMPointer _ -> do
                     (dvar, load) <- doExpr (cmmToLlvmType ty)
@@ -1248,14 +1316,16 @@ genLit _ CmmHighStackMark
 --
 
 -- | Function prologue. Load STG arguments into variables for function.
-funPrologue :: [LlvmStatement]
-funPrologue = concat $ map getReg activeStgRegs
-    where getReg rr =
-            let reg   = lmGlobalRegVar rr
-                arg   = lmGlobalRegArg rr
-                alloc = Assignment reg $ Alloca (pLower $ getVarType reg) 1
-            in [alloc, Store arg reg]
-
+funPrologue :: LlvmEnv -> UniqSM [LlvmStatement]
+funPrologue env = do
+    let regs = concat $ map getReg activeStgRegs 
+        getReg rr = let reg   = lmGlobalRegVar rr
+                        arg   = lmGlobalRegArg rr
+                        alloc = Assignment reg $ Alloca (pLower $ getVarType reg) 1
+                    in [alloc, Store arg reg]
+        stack = map allocStackVar $ Map.keys $ getStackOffsets env
+    stores <- storeIntoStackVars env
+    return $ regs ++ stack ++ stores
 
 -- | Function epilogue. Load STG variables to use as argument for call.
 -- STG Liveness optimisation done here.
@@ -1265,7 +1335,8 @@ funEpilogue :: LlvmEnv -> Maybe [GlobalReg] -> UniqSM ([LlvmVar], LlvmStatements
 funEpilogue env (Just live) | dopt Opt_RegLiveness (getDflags env) = do
     loads <- mapM loadExpr activeStgRegs
     let (vars, stmts) = unzip loads
-    return (vars, concatOL stmts)
+    stack <- storeIntoStack env
+    return (vars, (concatOL stmts) `appOL` (toOL $ stack))
   where
     loadExpr r | r `elem` alwaysLive || r `elem` live = do
         let reg  = lmGlobalRegVar r
@@ -1361,6 +1432,34 @@ expandCmmReg (reg, off)
         voff  = CmmLit $ CmmInt (fromIntegral off) width
     in CmmMachOp (MO_Add width) [CmmReg reg, voff]
 
+allocStackVar :: Int -> LlvmStatement
+allocStackVar n = Assignment (lmStackVar n) $ Alloca llvmWord 1
+
+storeIntoStackVars :: LlvmEnv -> UniqSM [LlvmStatement]
+storeIntoStackVars env 
+    = let storeStackVar n = do
+          (gv, s) <- doExpr llvmWordPtr $ Load $ lmGlobalRegVar Sp 
+          (ptr, s') <- doExpr llvmWordPtr $ GetElemPtr True gv [toI32 (n `div` 8)]
+          (sv, s'') <- doExpr llvmWord $ MetaExpr [getTBAA Sp] $ Load ptr   
+          return $ [s, s', s'', Store sv (lmStackVar n)]       
+      in do
+          ss <- mapM storeStackVar $ (Map.keys.getStackOffsets) env
+          return $ concat ss 
+
+storeIntoStack :: LlvmEnv -> UniqSM [LlvmStatement]
+storeIntoStack env 
+    = let storeStack n = do
+          (gv, s) <- doExpr llvmWordPtr $ Load $ lmGlobalRegVar Sp
+          (ptr, s') <- doExpr llvmWordPtr $ GetElemPtr True gv [toI32 (n `div` 8)]
+          (sv, s'') <- doExpr llvmWord $ Load (lmStackVar n)
+          return $ [s, s', s'', MetaStmt [getTBAA Sp] $ Store sv ptr]
+      in do
+          ss <- mapM storeStack $ (Map.keys.(Map.filter (/= Read)).getStackOffsets) env
+          return $ concat ss                   
+
+
+lmStackVar :: Int -> LlvmVar
+lmStackVar n = LMNLocalVar (fsLit ("StackVar" ++ (show n))) $ llvmWordPtr
 
 -- | Convert a block id into a appropriate Llvm label
 blockIdToLlvm :: BlockId -> LlvmVar
