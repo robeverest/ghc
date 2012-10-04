@@ -23,15 +23,14 @@ import ForeignCall
 import Outputable hiding ( panic, pprPanic )
 import qualified Outputable
 import Platform
-import OrdList
 import UniqSupply
 import Unique
 import UniqFM
+import OrdList
 import Util
-import Data.Maybe
+import qualified Data.Set as Set
 
 import Data.List ( partition )
-
 
 type LlvmStatements = OrdList LlvmStatement
 
@@ -40,31 +39,71 @@ type LlvmStatements = OrdList LlvmStatement
 --
 genLlvmProc :: LlvmEnv -> RawCmmDecl -> UniqSM (LlvmEnv, [LlvmCmmDecl])
 genLlvmProc env (CmmProc info lbl (ListGraph blocks)) = do
-    (env', lmblocks, lmdata) <- basicBlocksCodeGen (genAliasMap env blocks) blocks ([], [])
+    let env' = setAliasMap env $ genAliasMap blocks
+    (env'', lmblocks, lmdata) <- basicBlocksCodeGen env' blocks ([], [])
     let proc = CmmProc info lbl (ListGraph lmblocks)
-    return (env', proc:lmdata)
+    return (env'', proc:lmdata)
 
 genLlvmProc _ _ = panic "genLlvmProc: case that shouldn't reach here!"
 
 -- | Generate aliasing information for local variables
-genAliasMap :: LlvmEnv -> [CmmBasicBlock] -> LlvmEnv
-genAliasMap env blocks = let
-    genAliasLists env' (BasicBlock _ stmts) = foldl stmtAlias env' stmts 
-    in reduceAlias $ foldl genAliasLists env blocks  
+genAliasMap :: [CmmBasicBlock] -> LlvmAliasMap
+genAliasMap blocks = let
+    plusMap = plusUFM_C Set.union
+    
+    forBlock (BasicBlock _ stmts) = foldr (plusMap.forStmt) emptyUFM stmts
+    
+    forStmt (CmmAssign (CmmLocal (LocalReg un _)) src) = unitUFM un (getRegsInExpr src)
+    forStmt _ = emptyUFM  
+    
+    aliasMap = foldr (plusMap.forBlock) emptyUFM blocks
+    in reduceAliasMap aliasMap
 
-stmtAlias :: LlvmEnv -> CmmStmt -> LlvmEnv
-stmtAlias env (CmmAssign (CmmLocal (LocalReg un _)) src) = aliasInsert un (getGlobalRegisters env src) env
-stmtAlias env _ = env
+reduceAliasMap :: UniqFM (Set.Set CmmReg) -> LlvmAliasMap
+reduceAliasMap a = let 
+    a' = mapUFM_Directly combiner a
+    combiner un elt = reduceSet a'' elt
+      where
+        a'' = addToUFM a' un $ reduceSet emptyUFM (onlyGlobals elt)
+        onlyGlobals = Set.filter isGlobal
+        isGlobal (CmmGlobal _) = True
+        isGlobal _ = False
+    in a'
 
--- | Get a list of global registers accessed by the CmmExpr
-getGlobalRegisters :: LlvmEnv -> CmmExpr -> OrdList GlobalReg
-getGlobalRegisters _ (CmmReg (CmmGlobal r)) = unitOL r
-getGlobalRegisters env (CmmReg (CmmLocal (LocalReg un _))) = case aliasLookup un env of 
-    Nothing -> nilOL
-    Just rs -> rs
-getGlobalRegisters env (CmmMachOp _ es) = concatOL $ map (getGlobalRegisters env) es 
-getGlobalRegisters _ (CmmRegOff (CmmGlobal r) _) = unitOL r
-getGlobalRegisters _ _ = nilOL
+reduceSet :: LlvmAliasMap -> Set.Set CmmReg -> PtrBasis
+reduceSet a s = Set.fold reduce Memory s
+    where
+        reduce :: CmmReg -> PtrBasis -> PtrBasis
+        reduce (CmmLocal (LocalReg un _)) b = case lookupUFM a un of
+                                                (Just b') -> strongestBasis b b'
+                                                _ -> error "Unknown local variable"
+        reduce (CmmGlobal r) b = strongestBasis (Register r) b
+
+strongestBasis :: PtrBasis -> PtrBasis -> PtrBasis
+strongestBasis Unknown _ = Unknown
+strongestBasis _ Unknown = Unknown
+strongestBasis (Register Hp) (Register Sp) = Unknown
+strongestBasis (Register Sp) (Register Hp) = Unknown
+strongestBasis (Register Hp) _ = Register Hp
+strongestBasis (Register Sp) _ = Register Sp
+strongestBasis _ (Register Hp) = Register Hp
+strongestBasis _ (Register Sp) = Register Sp
+strongestBasis (Register (VanillaReg r h)) _ = Register (VanillaReg r h)
+strongestBasis _ (Register (VanillaReg r h)) = Register (VanillaReg r h)
+strongestBasis _ _ = Memory 
+
+getTBAAForExpr :: LlvmEnv -> CmmExpr -> MetaData
+getTBAAForExpr env e = case reduceSet (getAliasMap env) $ getRegsInExpr e of
+                         Memory -> memory
+                         Register r -> getTBAA r
+                         Unknown -> top
+
+-- | Get a set of registers both local and global accessed by the CmmExpr
+getRegsInExpr :: CmmExpr -> Set.Set CmmReg
+getRegsInExpr (CmmReg r) = Set.singleton r
+getRegsInExpr (CmmMachOp _ es) = Set.unions $ map getRegsInExpr es 
+getRegsInExpr (CmmRegOff r _) = Set.singleton r
+getRegsInExpr _ = Set.empty
 
 -- -----------------------------------------------------------------------------
 -- * Block code generation
@@ -649,7 +688,7 @@ genStore_slow env addr val = do
     (env2, vval,  stmts2, top2) <- exprToVar env1 val
 
     let stmts = stmts1 `appOL` stmts2
-        meta = [getTBAA $ (getPointerRegister . (getGlobalRegisters env2)) addr]
+        meta = [getTBAAForExpr env2 addr]
     case getVarType vaddr of
         -- sometimes we need to cast an int to a pointer before storing
         LMPointer ty@(LMPointer _) | getVarType vval == llvmWord -> do
@@ -1132,7 +1171,7 @@ genLoad_fast env e r n ty =
 genLoad_slow :: LlvmEnv -> CmmExpr -> CmmType -> UniqSM ExprData
 genLoad_slow env e ty = do
     (env', iptr, stmts, tops) <- exprToVar env e
-    let meta = [getTBAA $ (getPointerRegister . (getGlobalRegisters env')) e]
+    let meta = [getTBAAForExpr env' e]
     case getVarType iptr of
          LMPointer _ -> do
                     (dvar, load) <- doExpr (cmmToLlvmType ty)

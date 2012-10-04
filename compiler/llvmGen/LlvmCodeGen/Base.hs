@@ -13,9 +13,9 @@ module LlvmCodeGen.Base (
         maxSupportLlvmVersion,
 
         LlvmEnv, initLlvmEnv, clearVars, varLookup, varInsert,
-        funLookup, funInsert, aliasLookup, aliasInsert, 
-        getPointerRegister, reduceAlias, getLlvmVer, 
-        setLlvmVer, getLlvmPlatform, getDflags, ghcInternalFunctions,
+        funLookup, funInsert, PtrBasis(..), LlvmAliasMap, getAliasMap,
+        setAliasMap, getLlvmVer, setLlvmVer, getLlvmPlatform, 
+        getDflags, ghcInternalFunctions,
 
         cmmToLlvmType, widthToLlvmFloat, widthToLlvmInt, llvmFunTy,
         llvmFunSig, llvmStdFunAttrs, llvmFunAlign, llvmInfAlign,
@@ -41,8 +41,6 @@ import qualified Outputable as Outp
 import Platform
 import UniqFM
 import Unique
-import Data.Maybe
-import OrdList
 
 -- ----------------------------------------------------------------------------
 -- * Some Data Types
@@ -154,7 +152,7 @@ minSupportLlvmVersion :: LlvmVersion
 minSupportLlvmVersion = 28
 
 maxSupportLlvmVersion :: LlvmVersion
-maxSupportLlvmVersion = 31
+maxSupportLlvmVersion = 32
 
 -- ----------------------------------------------------------------------------
 -- * Environment Handling
@@ -166,8 +164,14 @@ newtype LlvmEnv = LlvmEnv (LlvmEnvMap, LlvmEnvMap, LlvmAliasMap, LlvmVersion, Dy
 
 type LlvmEnvMap = UniqFM LlvmType
 
+-- A pointer is either based on a global register or from a load. 
+-- It is unknown if it is based both on Hp an Sp, a case that does 
+-- not appear in generated code but is possible in handwritten Cmm.
+-- In this case the TBAA node is top
+data PtrBasis = Register GlobalReg | Memory | Unknown
+
 -- A map for the alias information
-type LlvmAliasMap = UniqFM (OrdList GlobalReg)
+type LlvmAliasMap = UniqFM PtrBasis
 
 -- | Get initial Llvm environment.
 initLlvmEnv :: DynFlags -> LlvmEnv
@@ -217,35 +221,12 @@ funLookup :: Uniquable key => key -> LlvmEnv -> Maybe LlvmType
 funLookup s (LlvmEnv (e1, _, _, _, _)) = {-# SCC "llvm_env_flookup" #-}
     lookupUFM e1 s
 
--- | Get the "pointer" register.
-getPointerRegister :: OrdList GlobalReg -> GlobalReg
-getPointerRegister gs = fromMaybe Hp $ foldlOL getPointerRegister' Nothing gs 
-                         -- If a local variable is not derived from any STG pointer register
-                         -- then it must be of the form t = I32[X] or similiar. These pointers 
-                         -- can be classified as "heap"
-  where
-    getPointerRegister' (Just Hp) Sp = panic "Pointer is derived from both heap and stack pointer"
-    getPointerRegister' (Just Sp) Hp = panic "Pointer is derived from both heap and stack pointer"
-    getPointerRegister' _ Hp = Just Hp
-    getPointerRegister' _ Sp = Just Sp
-    getPointerRegister' _ BaseReg = Just BaseReg
-    getPointerRegister' Nothing (VanillaReg i p) = Just $ VanillaReg i p
-    getPointerRegister' a _ = a
+getAliasMap :: LlvmEnv -> LlvmAliasMap
+getAliasMap (LlvmEnv (_, _, a, _, _)) = a
+
+setAliasMap:: LlvmEnv -> LlvmAliasMap -> LlvmEnv
+setAliasMap (LlvmEnv (e1, e2, _, v, p)) a = LlvmEnv (e1, e2, a, v, p) 
     
--- | Reduce the alias information for each local variable down to just the "pointer" register
-reduceAlias :: LlvmEnv -> LlvmEnv
-reduceAlias (LlvmEnv (e1, e2, e3, n, p)) = let
-  e3' = (unitOL.getPointerRegister) `fmap` e3 
-  in LlvmEnv (e1, e2, e3', n, p)
-     
--- | Lookup aliasing information of local variables in the environment.
-aliasLookup :: Uniquable key => key -> LlvmEnv -> Maybe (OrdList GlobalReg)
-aliasLookup s (LlvmEnv (_, _, e3, _, _)) = lookupUFM e3 s
-
--- | Insert aliasing information of local variables into the environment.
-aliasInsert :: Uniquable key => key -> OrdList GlobalReg -> LlvmEnv -> LlvmEnv
-aliasInsert s gr (LlvmEnv (e1, e2, e3, n, p)) = LlvmEnv (e1, e2, addToUFM e3 s gr, n, p)
-
 -- | Get the LLVM version we are generating code for
 getLlvmVer :: LlvmEnv -> LlvmVersion
 getLlvmVer (LlvmEnv (_, _, _, n, _)) = n

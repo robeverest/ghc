@@ -4,7 +4,8 @@
 
 module LlvmCodeGen.Regs (
         lmGlobalRegArg, lmGlobalRegVar, alwaysLive,
-        stgTBAA, base, stack, heap, rx, other, tbaa, getTBAA
+        stgTBAA, base, stack, heap, rx, memory, top,
+        tbaa, getTBAA
     ) where
 
 #include "HsVersions.h"
@@ -74,26 +75,26 @@ stgTBAA
     -- OR I think the big thing is Sp is never aliased, so might want
     -- to change the hieracy to have Sp on its own branch that is never
     -- aliased (e.g never use top as a TBAA node).
-    , MetaUnamed otherN [MetaStr (fsLit "other"), MetaNode topN]
+    , MetaUnamed memoryN [MetaStr (fsLit "memory"), MetaNode rxN]
     ]
 
 -- | Id values
-topN, stackN, heapN, rxN, baseN, otherN:: LlvmMetaUnamed
+topN, stackN, heapN, rxN, baseN, memoryN:: LlvmMetaUnamed
 topN   = LMMetaUnamed 0
 stackN = LMMetaUnamed 1
 heapN  = LMMetaUnamed 2
 rxN    = LMMetaUnamed 3
 baseN  = LMMetaUnamed 4
-otherN = LMMetaUnamed 5
+memoryN = LMMetaUnamed 5
 
 -- | The various TBAA types
-top, heap, stack, rx, base, other :: MetaData
+top, heap, stack, rx, base, memory :: MetaData
 top   = (tbaa, topN)
 heap  = (tbaa, heapN)
 stack = (tbaa, stackN)
 rx    = (tbaa, rxN)
 base  = (tbaa, baseN)
-other = (tbaa, otherN)
+memory = (tbaa, memoryN)
 
 -- | The TBAA metadata identifier
 tbaa :: LMString
