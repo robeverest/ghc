@@ -133,24 +133,24 @@ void traceGcEventAtT_ (Capability *cap, StgWord64 ts, EventTypeNum tag);
 void traceHeapEvent_ (Capability   *cap,
                       EventTypeNum  tag,
                       CapsetID      heap_capset,
-                      lnat          info1);
+                      W_          info1);
 
 void traceEventHeapInfo_ (CapsetID    heap_capset,
                           nat         gens,
-                          lnat        maxHeapSize,
-                          lnat        allocAreaSize,
-                          lnat        mblockSize,
-                          lnat        blockSize);
+                          W_        maxHeapSize,
+                          W_        allocAreaSize,
+                          W_        mblockSize,
+                          W_        blockSize);
 
 void traceEventGcStats_  (Capability *cap,
                           CapsetID    heap_capset,
                           nat         gen,
-                          lnat        copied,
-                          lnat        slop,
-                          lnat        fragmentation,
+                          W_        copied,
+                          W_        slop,
+                          W_        fragmentation,
                           nat         par_n_threads,
-                          lnat        par_max_copied,
-                          lnat        par_tot_copied);
+                          W_        par_max_copied,
+                          W_        par_tot_copied);
 
 /* 
  * Record a spark event
@@ -262,6 +262,15 @@ void traceSparkCounters_ (Capability *cap,
                           SparkCounters counters,
                           StgWord remaining);
 
+void traceTaskCreate_ (Task       *task,
+                       Capability *cap);
+
+void traceTaskMigrate_ (Task       *task,
+                        Capability *cap,
+                        Capability *new_cap);
+
+void traceTaskDelete_ (Task       *task);
+
 #else /* !TRACING */
 
 #define traceSchedEvent(cap, tag, tso, other) /* nothing */
@@ -289,6 +298,9 @@ INLINE_HEADER void traceEventStartup_ (int n_caps STG_UNUSED) {};
 #define traceWallClockTime_() /* nothing */
 #define traceOSProcessInfo_() /* nothing */
 #define traceSparkCounters_(cap, counters, remaining) /* nothing */
+#define traceTaskCreate_(taskID, cap) /* nothing */
+#define traceTaskMigrate_(taskID, cap, new_cap) /* nothing */
+#define traceTaskDelete_(taskID) /* nothing */
 
 #endif /* TRACING */
 
@@ -352,7 +364,6 @@ INLINE_HEADER void dtraceStartup (int num_caps) {
     HASKELLEVENT_GC_DONE(cap)
 #define dtraceGcGlobalSync(cap)                         \
     HASKELLEVENT_GC_GLOBAL_SYNC(cap)
-/* FIXME: leads to a validate failure on OS X (Lion)
 #define dtraceEventGcStats(heap_capset, gens,           \
                            copies, slop, fragmentation, \
                            par_n_threads,               \
@@ -362,7 +373,7 @@ INLINE_HEADER void dtraceStartup (int num_caps) {
                            copies, slop, fragmentation, \
                            par_n_threads,               \
                            par_max_copied,              \
-                           par_tot_copied)              \
+                           par_tot_copied)
 #define dtraceHeapInfo(heap_capset, gens,               \
                        maxHeapSize, allocAreaSize,      \
                        mblockSize, blockSize)           \
@@ -377,20 +388,6 @@ INLINE_HEADER void dtraceStartup (int num_caps) {
     HASKELLEVENT_HEAP_SIZE(heap_capset, size)
 #define dtraceEventHeapLive(heap_capset, live)          \
     HASKELLEVENT_HEAP_LIVE(heap_capset, live)
- */
-#define dtraceEventGcStats(heap_capset, gens,           \
-                           copies, slop, fragmentation, \
-                           par_n_threads,               \
-                           par_max_copied,              \
-                           par_tot_copied)              
-#define dtraceHeapInfo(heap_capset, gens,               \
-                       maxHeapSize, allocAreaSize,      \
-                       mblockSize, blockSize)           
-#define dtraceEventHeapAllocated(cap, heap_capset,      \
-                                 allocated)             
-#define dtraceEventHeapSize(heap_capset, size)          
-#define dtraceEventHeapLive(heap_capset, live)          
- 
 #define dtraceCapsetCreate(capset, capset_type)         \
     HASKELLEVENT_CAPSET_CREATE(capset, capset_type)
 #define dtraceCapsetDelete(capset)                      \
@@ -415,6 +412,12 @@ INLINE_HEADER void dtraceStartup (int num_caps) {
     HASKELLEVENT_SPARK_FIZZLE(cap)
 #define dtraceSparkGc(cap)                              \
     HASKELLEVENT_SPARK_GC(cap)
+#define dtraceTaskCreate(taskID, cap, tid)              \
+    HASKELLEVENT_TASK_CREATE(taskID, cap, tid)
+#define dtraceTaskMigrate(taskID, cap, new_cap)         \
+    HASKELLEVENT_TASK_MIGRATE(taskID, cap, new_cap)
+#define dtraceTaskDelete(taskID)                        \
+    HASKELLEVENT_TASK_DELETE(taskID)
 
 #else /* !defined(DTRACE) */
 
@@ -464,6 +467,9 @@ INLINE_HEADER void dtraceStartup (int num_caps STG_UNUSED) {};
 #define dtraceSparkSteal(cap, victim_cap)               /* nothing */
 #define dtraceSparkFizzle(cap)                          /* nothing */
 #define dtraceSparkGc(cap)                              /* nothing */
+#define dtraceTaskCreate(taskID, cap, tid)              /* nothing */
+#define dtraceTaskMigrate(taskID, cap, new_cap)         /* nothing */
+#define dtraceTaskDelete(taskID)                        /* nothing */
 
 #endif
 
@@ -531,9 +537,7 @@ INLINE_HEADER void traceEventMigrateThread(Capability *cap     STG_UNUSED,
 INLINE_HEADER void traceCapCreate(Capability *cap STG_UNUSED)
 {
     traceCapEvent(cap, EVENT_CAP_CREATE);
-/* FIXME: leads to a validate failure on OS X (Lion)
     dtraceCapCreate((EventCapNo)cap->no);
-    */
 }
 
 INLINE_HEADER void traceCapDelete(Capability *cap STG_UNUSED)
@@ -632,37 +636,35 @@ INLINE_HEADER void traceEventGcDone(Capability *cap STG_UNUSED)
 INLINE_HEADER void traceEventGcGlobalSync(Capability *cap STG_UNUSED)
 {
     traceGcEvent(cap, EVENT_GC_GLOBAL_SYNC);
-/* FIXME: leads to a validate failure on OS X (Lion)
     dtraceGcGlobalSync((EventCapNo)cap->no);
-    */
 }
 
 INLINE_HEADER void traceEventGcStats(Capability *cap            STG_UNUSED,
                                      CapsetID    heap_capset    STG_UNUSED,
                                      nat         gen            STG_UNUSED,
-                                     lnat        copied         STG_UNUSED,
-                                     lnat        slop           STG_UNUSED,
-                                     lnat        fragmentation  STG_UNUSED,
+                                     W_        copied         STG_UNUSED,
+                                     W_        slop           STG_UNUSED,
+                                     W_        fragmentation  STG_UNUSED,
                                      nat         par_n_threads  STG_UNUSED,
-                                     lnat        par_max_copied STG_UNUSED,
-                                     lnat        par_tot_copied STG_UNUSED)
+                                     W_        par_max_copied STG_UNUSED,
+                                     W_        par_tot_copied STG_UNUSED)
 {
     if (RTS_UNLIKELY(TRACE_gc)) {
         traceEventGcStats_(cap, heap_capset, gen,
                            copied, slop, fragmentation,
                            par_n_threads, par_max_copied, par_tot_copied);
     }
-    dtraceEventGcStats(heap_capset, gens,
-                       copies, slop, fragmentation,
+    dtraceEventGcStats(heap_capset, gen,
+                       copied, slop, fragmentation,
                        par_n_threads, par_max_copied, par_tot_copied);
 }
 
 INLINE_HEADER void traceEventHeapInfo(CapsetID    heap_capset   STG_UNUSED,
                                       nat         gens          STG_UNUSED,
-                                      lnat        maxHeapSize   STG_UNUSED,
-                                      lnat        allocAreaSize STG_UNUSED,
-                                      lnat        mblockSize    STG_UNUSED,
-                                      lnat        blockSize     STG_UNUSED)
+                                      W_        maxHeapSize   STG_UNUSED,
+                                      W_        allocAreaSize STG_UNUSED,
+                                      W_        mblockSize    STG_UNUSED,
+                                      W_        blockSize     STG_UNUSED)
 {
     if (RTS_UNLIKELY(TRACE_gc)) {
         traceEventHeapInfo_(heap_capset, gens,
@@ -676,7 +678,7 @@ INLINE_HEADER void traceEventHeapInfo(CapsetID    heap_capset   STG_UNUSED,
 
 INLINE_HEADER void traceEventHeapAllocated(Capability *cap         STG_UNUSED,
                                            CapsetID    heap_capset STG_UNUSED,
-                                           lnat        allocated   STG_UNUSED)
+                                           W_        allocated   STG_UNUSED)
 {
     traceHeapEvent(cap, EVENT_HEAP_ALLOCATED, heap_capset, allocated);
     dtraceEventHeapAllocated((EventCapNo)cap->no, heap_capset, allocated);
@@ -684,7 +686,7 @@ INLINE_HEADER void traceEventHeapAllocated(Capability *cap         STG_UNUSED,
 
 INLINE_HEADER void traceEventHeapSize(Capability *cap         STG_UNUSED,
                                       CapsetID    heap_capset STG_UNUSED,
-                                      lnat        heap_size   STG_UNUSED)
+                                      W_        heap_size   STG_UNUSED)
 {
     traceHeapEvent(cap, EVENT_HEAP_SIZE, heap_capset, heap_size);
     dtraceEventHeapSize(heap_capset, heap_size);
@@ -692,7 +694,7 @@ INLINE_HEADER void traceEventHeapSize(Capability *cap         STG_UNUSED,
 
 INLINE_HEADER void traceEventHeapLive(Capability *cap         STG_UNUSED,
                                       CapsetID    heap_capset STG_UNUSED,
-                                      lnat        heap_live   STG_UNUSED)
+                                      W_        heap_live   STG_UNUSED)
 {
     traceHeapEvent(cap, EVENT_HEAP_LIVE, heap_capset, heap_live);
     dtraceEventHeapLive(heap_capset, heap_live);
@@ -820,6 +822,49 @@ INLINE_HEADER void traceEventSparkGC(Capability *cap STG_UNUSED)
 {
     traceSparkEvent(cap, EVENT_SPARK_GC);
     dtraceSparkGc((EventCapNo)cap->no);
+}
+
+INLINE_HEADER void traceTaskCreate(Task       *task STG_UNUSED,
+                                   Capability *cap  STG_UNUSED)
+{
+    ASSERT(task->cap == cap);
+    // TODO: asserting task->cap == NULL would be much stronger
+    // (the intention being that the task structure is just created and empty)
+    // but would require large changes of traceTaskCreate calls.
+    ASSERT(cap != NULL);
+    // A new task gets associated with a cap. We also record
+    // the kernel thread id of the task, which should never change.
+    if (RTS_UNLIKELY(TRACE_sched)) {
+        traceTaskCreate_(task, cap);
+    }
+    dtraceTaskCreate(serialisableTaskId(task),
+                     (EventCapNo)cap->no,
+                     kernelThreadId());
+}
+
+INLINE_HEADER void traceTaskMigrate(Task       *task    STG_UNUSED,
+                                    Capability *cap     STG_UNUSED,
+                                    Capability *new_cap STG_UNUSED)
+{
+    ASSERT(task->cap == cap);
+    ASSERT(cap != NULL);
+    ASSERT(cap != new_cap);
+    ASSERT(new_cap != NULL);
+    // A task migrates from a cap to another.
+    if (RTS_UNLIKELY(TRACE_sched)) {
+        traceTaskMigrate_(task, cap, new_cap);
+    }
+    dtraceTaskMigrate(serialisableTaskId(task), (EventCapNo)cap->no,
+                                                (EventCapNo)new_cap->no);
+}
+
+INLINE_HEADER void traceTaskDelete(Task *task STG_UNUSED)
+{
+    ASSERT(task->cap != NULL);
+    if (RTS_UNLIKELY(TRACE_sched)) {
+        traceTaskDelete_(task);
+    }
+    dtraceTaskDelete(serialisableTaskId(task));
 }
 
 #include "EndPrivate.h"

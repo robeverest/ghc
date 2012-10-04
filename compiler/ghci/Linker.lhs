@@ -44,13 +44,13 @@ import BasicTypes
 import Outputable
 import Panic
 import Util
-import StaticFlags
 import ErrUtils
 import SrcLoc
 import qualified Maybes
 import UniqSet
 import FastString
 import Config
+import Platform
 import SysTools
 import PrelNames
 
@@ -263,7 +263,7 @@ showLinkerState dflags
 --     @-l@ options in @v_Opt_l@,
 --
 --  d) Loading any @.o\/.dll@ files specified on the command line, now held
---     in @v_Ld_inputs@,
+--     in @ldInputs@,
 --
 --  e) Loading any MacOS frameworks.
 --
@@ -287,7 +287,7 @@ reallyInitDynLinker dflags =
           -- (a) initialise the C dynamic linker
         ; initObjLinker
 
-          -- (b) Load packages from the command-line
+          -- (b) Load packages from the command-line (Note [preload packages])
         ; pls <- linkPackages' dflags (preloadPackages (pkgState dflags)) pls0
 
           -- (c) Link libraries from the command-line
@@ -297,17 +297,18 @@ reallyInitDynLinker dflags =
         ; libspecs <- mapM (locateLib dflags False lib_paths) minus_ls
 
           -- (d) Link .o files from the command-line
-        ; cmdline_ld_inputs <- readIORef v_Ld_inputs
+        ; let cmdline_ld_inputs = ldInputs dflags
 
         ; classified_ld_inputs <- mapM (classifyLdInput dflags) cmdline_ld_inputs
 
           -- (e) Link any MacOS frameworks
-        ; let framework_paths
-               | isDarwinTarget = frameworkPaths dflags
-               | otherwise      = []
-        ; let frameworks
-               | isDarwinTarget = cmdlineFrameworks dflags
-               | otherwise      = []
+        ; let platform = targetPlatform dflags
+        ; let framework_paths = case platformOS platform of
+                                OSDarwin -> frameworkPaths dflags
+                                _        -> []
+        ; let frameworks = case platformOS platform of
+                           OSDarwin -> cmdlineFrameworks dflags
+                           _        -> []
           -- Finally do (c),(d),(e)
         ; let cmdline_lib_specs = [ l | Just l <- classified_ld_inputs ]
                                ++ libspecs
@@ -325,14 +326,41 @@ reallyInitDynLinker dflags =
         ; return pls
         }}
 
+
+{- Note [preload packages]
+
+Why do we need to preload packages from the command line?  This is an
+explanation copied from #2437:
+
+I tried to implement the suggestion from #3560, thinking it would be
+easy, but there are two reasons we link in packages eagerly when they
+are mentioned on the command line:
+
+  * So that you can link in extra object files or libraries that
+    depend on the packages. e.g. ghc -package foo -lbar where bar is a
+    C library that depends on something in foo. So we could link in
+    foo eagerly if and only if there are extra C libs or objects to
+    link in, but....
+
+  * Haskell code can depend on a C function exported by a package, and
+    the normal dependency tracking that TH uses can't know about these
+    dependencies. The test ghcilink004 relies on this, for example.
+
+I conclude that we need two -package flags: one that says "this is a
+package I want to make available", and one that says "this is a
+package I want to link in eagerly". Would that be too complicated for
+users?
+-}
+
 classifyLdInput :: DynFlags -> FilePath -> IO (Maybe LibrarySpec)
 classifyLdInput dflags f
-  | isObjectFilename f = return (Just (Object f))
-  | isDynLibFilename f = return (Just (DLLPath f))
+  | isObjectFilename platform f = return (Just (Object f))
+  | isDynLibFilename platform f = return (Just (DLLPath f))
   | otherwise          = do
         log_action dflags dflags SevInfo noSrcSpan defaultUserStyle
             (text ("Warning: ignoring unrecognised input `" ++ f ++ "'"))
         return Nothing
+    where platform = targetPlatform dflags
 
 preloadLib :: DynFlags -> [String] -> [String] -> LibrarySpec -> IO ()
 preloadLib dflags lib_paths framework_paths lib_spec
@@ -349,7 +377,7 @@ preloadLib dflags lib_paths framework_paths lib_spec
                                                 else "not found")
 
           DLL dll_unadorned
-             -> do maybe_errstr <- loadDLL (mkSOName dll_unadorned)
+             -> do maybe_errstr <- loadDLL (mkSOName platform dll_unadorned)
                    case maybe_errstr of
                       Nothing -> maybePutStrLn dflags "done"
                       Just mm -> preloadFailed mm lib_paths lib_spec
@@ -360,15 +388,18 @@ preloadLib dflags lib_paths framework_paths lib_spec
                       Nothing -> maybePutStrLn dflags "done"
                       Just mm -> preloadFailed mm lib_paths lib_spec
 
-          Framework framework
-           | isDarwinTarget
-             -> do maybe_errstr <- loadFramework framework_paths framework
+          Framework framework ->
+              case platformOS (targetPlatform dflags) of
+              OSDarwin ->
+                do maybe_errstr <- loadFramework framework_paths framework
                    case maybe_errstr of
                       Nothing -> maybePutStrLn dflags "done"
                       Just mm -> preloadFailed mm framework_paths lib_spec
-           | otherwise -> panic "preloadLib Framework"
+              _ -> panic "preloadLib Framework"
 
   where
+    platform = targetPlatform dflags
+
     preloadFailed :: String -> [String] -> LibrarySpec -> IO ()
     preloadFailed sys_errmsg paths spec
        = do maybePutStr dflags "failed.\n"
@@ -426,7 +457,7 @@ linkExpr hsc_env span root_ul_bco
          ce = closure_env pls
 
      -- Link the necessary packages and linkables
-   ; (_, (root_hval:_)) <- linkSomeBCOs False ie ce [root_ul_bco]
+   ; (_, (root_hval:_)) <- linkSomeBCOs dflags False ie ce [root_ul_bco]
    ; return (pls, root_hval)
    }}}
    where
@@ -634,7 +665,7 @@ linkDecls hsc_env span (ByteCode unlinkedBCOs itblEnv) = do
         ce = closure_env pls
 
     -- Link the necessary packages and linkables
-    (final_gce, _) <- linkSomeBCOs False ie ce unlinkedBCOs
+    (final_gce, _) <- linkSomeBCOs dflags False ie ce unlinkedBCOs
     let pls2 = pls { closure_env = final_gce,
                      itbl_env    = ie }
     return (pls2, ()) --hvals)
@@ -693,7 +724,7 @@ linkModules dflags pls linkables
         if failed ok_flag then
                 return (pls1, Failed)
           else do
-                pls2 <- dynLinkBCOs pls1 bcos
+                pls2 <- dynLinkBCOs dflags pls1 bcos
                 return (pls2, Succeeded)
 
 
@@ -741,7 +772,7 @@ dynLinkObjs dflags pls objs = do
 
         mapM_ loadObj (map nameOfObject unlinkeds)
 
-        -- Link the all together
+        -- Link them all together
         ok <- resolveObjs
 
         -- If resolving failed, unload all our
@@ -773,8 +804,9 @@ rmDupLinkables already ls
 %************************************************************************
 
 \begin{code}
-dynLinkBCOs :: PersistentLinkerState -> [Linkable] -> IO PersistentLinkerState
-dynLinkBCOs pls bcos = do
+dynLinkBCOs :: DynFlags -> PersistentLinkerState -> [Linkable]
+            -> IO PersistentLinkerState
+dynLinkBCOs dflags pls bcos = do
 
         let (bcos_loaded', new_bcos) = rmDupLinkables (bcos_loaded pls) bcos
             pls1                     = pls { bcos_loaded = bcos_loaded' }
@@ -790,7 +822,7 @@ dynLinkBCOs pls bcos = do
             gce       = closure_env pls
             final_ie  = foldr plusNameEnv (itbl_env pls) ies
 
-        (final_gce, _linked_bcos) <- linkSomeBCOs True final_ie gce ul_bcos
+        (final_gce, _linked_bcos) <- linkSomeBCOs dflags True final_ie gce ul_bcos
                 -- XXX What happens to these linked_bcos?
 
         let pls2 = pls1 { closure_env = final_gce,
@@ -799,7 +831,8 @@ dynLinkBCOs pls bcos = do
         return pls2
 
 -- Link a bunch of BCOs and return them + updated closure env.
-linkSomeBCOs :: Bool    -- False <=> add _all_ BCOs to returned closure env
+linkSomeBCOs :: DynFlags
+             -> Bool    -- False <=> add _all_ BCOs to returned closure env
                         -- True  <=> add only toplevel BCOs to closure env
              -> ItblEnv
              -> ClosureEnv
@@ -809,11 +842,11 @@ linkSomeBCOs :: Bool    -- False <=> add _all_ BCOs to returned closure env
                         -- the incoming unlinked BCOs.  Each gives the
                         -- value of the corresponding unlinked BCO
 
-linkSomeBCOs toplevs_only ie ce_in ul_bcos
+linkSomeBCOs dflags toplevs_only ie ce_in ul_bcos
    = do let nms = map unlinkedBCOName ul_bcos
         hvals <- fixIO
                     ( \ hvs -> let ce_out = extendClosureEnv ce_in (zipLazy nms hvs)
-                               in  mapM (linkBCO ie ce_out) ul_bcos )
+                               in  mapM (linkBCO dflags ie ce_out) ul_bcos )
         let ce_all_additions = zip nms hvals
             ce_top_additions = filter (isExternalName.fst) ce_all_additions
             ce_additions     = if toplevs_only then ce_top_additions
@@ -942,7 +975,7 @@ data LibrarySpec
 -- just to get the DLL handle into the list.
 partOfGHCi :: [PackageName]
 partOfGHCi
- | isWindowsTarget || isDarwinTarget = []
+ | isWindowsHost || isDarwinHost = []
  | otherwise = map PackageName
                    ["base", "template-haskell", "editline"]
 
@@ -1007,7 +1040,8 @@ linkPackages' dflags new_pks pls = do
 linkPackage :: DynFlags -> PackageConfig -> IO ()
 linkPackage dflags pkg
    = do
-        let dirs      =  Packages.libraryDirs pkg
+        let platform  = targetPlatform dflags
+            dirs      =  Packages.libraryDirs pkg
 
         let hs_libs   =  Packages.hsLibraries pkg
             -- The FFI GHCi import lib isn't needed as
@@ -1044,8 +1078,8 @@ linkPackage dflags pkg
 
         -- See comments with partOfGHCi
         when (packageName pkg `notElem` partOfGHCi) $ do
-            loadFrameworks pkg
-            mapM_ load_dyn (known_dlls ++ map mkSOName dlls)
+            loadFrameworks platform pkg
+            mapM_ load_dyn (known_dlls ++ map (mkSOName platform) dlls)
 
         -- After loading all the DLLs, we can load the static objects.
         -- Ordering isn't important here, because we do one final link
@@ -1070,10 +1104,11 @@ load_dyn dll = do r <- loadDLL dll
                     Just err -> ghcError (CmdLineError ("can't load .so/.DLL for: "
                                                               ++ dll ++ " (" ++ err ++ ")" ))
 
-loadFrameworks :: InstalledPackageInfo_ ModuleName -> IO ()
-loadFrameworks pkg
- | isDarwinTarget = mapM_ load frameworks
- | otherwise = return ()
+loadFrameworks :: Platform -> InstalledPackageInfo_ ModuleName -> IO ()
+loadFrameworks platform pkg
+    = case platformOS platform of
+      OSDarwin -> mapM_ load frameworks
+      _        -> return ()
   where
     fw_dirs    = Packages.frameworkDirs pkg
     frameworks = Packages.frameworks pkg
@@ -1116,9 +1151,9 @@ locateLib dflags is_hs dirs lib
      mk_arch_path dir = dir </> ("lib" ++ lib <.> "a")
 
      hs_dyn_lib_name = lib ++ "-ghc" ++ cProjectVersion
-     mk_hs_dyn_lib_path dir = dir </> mkSOName hs_dyn_lib_name
+     mk_hs_dyn_lib_path dir = dir </> mkSOName platform hs_dyn_lib_name
 
-     so_name = mkSOName lib
+     so_name = mkSOName platform lib
      mk_dyn_lib_path dir = dir </> so_name
 
      findObject  = liftM (fmap Object)  $ findFile mk_obj_path  dirs
@@ -1134,6 +1169,8 @@ locateLib dflags is_hs dirs lib
                            Just x -> return x
                            Nothing -> g
 
+     platform = targetPlatform dflags
+
 searchForLibUsingGcc :: DynFlags -> String -> [FilePath] -> IO (Maybe FilePath)
 searchForLibUsingGcc dflags so dirs = do
    str <- askCc dflags (map (FileOption "-L") dirs
@@ -1147,12 +1184,6 @@ searchForLibUsingGcc dflags so dirs = do
 
 -- ----------------------------------------------------------------------------
 -- Loading a dyanmic library (dlopen()-ish on Unix, LoadLibrary-ish on Win32)
-
-mkSOName :: FilePath -> FilePath
-mkSOName root
- | isDarwinTarget  = ("lib" ++ root) <.> "dylib"
- | isWindowsTarget = root <.> "dll"
- | otherwise       = ("lib" ++ root) <.> "so"
 
 -- Darwin / MacOS X only: load a framework
 -- a framework is a dynamic library packaged inside a directory of the same

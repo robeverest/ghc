@@ -34,7 +34,6 @@ import SMRep
 import OldCmm
 import CLabel
 
-import Constants
 import CgStackery
 import ClosureInfo( CgRep(..), nonVoidArg, idCgRep, cgRepSizeW, isFollowableArg )
 import OldCmmUtils
@@ -42,10 +41,11 @@ import Maybes
 import Id
 import Name
 import Util
-import StaticFlags
+import DynFlags
 import Module
 import FastString
 import Outputable
+import Platform
 import Data.Bits
 
 -------------------------------------------------------------------------
@@ -66,46 +66,49 @@ import Data.Bits
 -------------------------
 mkArgDescr :: Name -> [Id] -> FCode ArgDescr
 mkArgDescr _nm args
-  = case stdPattern arg_reps of
-        Just spec_id -> return (ArgSpec spec_id)
-        Nothing      -> return (ArgGen arg_bits)
-  where
-    arg_bits = argBits arg_reps
-    arg_reps = filter nonVoidArg (map idCgRep args)
-        -- Getting rid of voids eases matching of standard patterns
+  = do dflags <- getDynFlags
+       let arg_bits = argBits dflags arg_reps
+           arg_reps = filter nonVoidArg (map idCgRep args)
+           -- Getting rid of voids eases matching of standard patterns
+       case stdPattern dflags arg_reps of
+           Just spec_id -> return (ArgSpec spec_id)
+           Nothing      -> return (ArgGen arg_bits)
 
-argBits :: [CgRep] -> [Bool]    -- True for non-ptr, False for ptr
-argBits []              = []
-argBits (PtrArg : args) = False : argBits args
-argBits (arg    : args) = take (cgRepSizeW arg) (repeat True) ++ argBits args
+argBits :: DynFlags -> [CgRep] -> [Bool]    -- True for non-ptr, False for ptr
+argBits _      []              = []
+argBits dflags (PtrArg : args) = False : argBits dflags args
+argBits dflags (arg    : args) = take (cgRepSizeW dflags arg) (repeat True) ++ argBits dflags args
 
-stdPattern :: [CgRep] -> Maybe StgHalfWord
-stdPattern []          = Just ARG_NONE  -- just void args, probably
+stdPattern :: DynFlags -> [CgRep] -> Maybe StgHalfWord
+stdPattern dflags reps
+    = fmap (toStgHalfWord dflags)
+    $ case reps of
+      []          -> Just ARG_NONE  -- just void args, probably
 
-stdPattern [PtrArg]    = Just ARG_P
-stdPattern [FloatArg]  = Just ARG_F
-stdPattern [DoubleArg] = Just ARG_D
-stdPattern [LongArg]   = Just ARG_L
-stdPattern [NonPtrArg] = Just ARG_N
+      [PtrArg]    -> Just ARG_P
+      [FloatArg]  -> Just ARG_F
+      [DoubleArg] -> Just ARG_D
+      [LongArg]   -> Just ARG_L
+      [NonPtrArg] -> Just ARG_N
 
-stdPattern [NonPtrArg,NonPtrArg] = Just ARG_NN
-stdPattern [NonPtrArg,PtrArg]    = Just ARG_NP
-stdPattern [PtrArg,NonPtrArg]    = Just ARG_PN
-stdPattern [PtrArg,PtrArg]       = Just ARG_PP
+      [NonPtrArg,NonPtrArg] -> Just ARG_NN
+      [NonPtrArg,PtrArg]    -> Just ARG_NP
+      [PtrArg,NonPtrArg]    -> Just ARG_PN
+      [PtrArg,PtrArg]       -> Just ARG_PP
 
-stdPattern [NonPtrArg,NonPtrArg,NonPtrArg] = Just ARG_NNN
-stdPattern [NonPtrArg,NonPtrArg,PtrArg]    = Just ARG_NNP
-stdPattern [NonPtrArg,PtrArg,NonPtrArg]    = Just ARG_NPN
-stdPattern [NonPtrArg,PtrArg,PtrArg]       = Just ARG_NPP
-stdPattern [PtrArg,NonPtrArg,NonPtrArg]    = Just ARG_PNN
-stdPattern [PtrArg,NonPtrArg,PtrArg]       = Just ARG_PNP
-stdPattern [PtrArg,PtrArg,NonPtrArg]       = Just ARG_PPN
-stdPattern [PtrArg,PtrArg,PtrArg]          = Just ARG_PPP
+      [NonPtrArg,NonPtrArg,NonPtrArg] -> Just ARG_NNN
+      [NonPtrArg,NonPtrArg,PtrArg]    -> Just ARG_NNP
+      [NonPtrArg,PtrArg,NonPtrArg]    -> Just ARG_NPN
+      [NonPtrArg,PtrArg,PtrArg]       -> Just ARG_NPP
+      [PtrArg,NonPtrArg,NonPtrArg]    -> Just ARG_PNN
+      [PtrArg,NonPtrArg,PtrArg]       -> Just ARG_PNP
+      [PtrArg,PtrArg,NonPtrArg]       -> Just ARG_PPN
+      [PtrArg,PtrArg,PtrArg]          -> Just ARG_PPP
 
-stdPattern [PtrArg,PtrArg,PtrArg,PtrArg]               = Just ARG_PPPP
-stdPattern [PtrArg,PtrArg,PtrArg,PtrArg,PtrArg]        = Just ARG_PPPPP
-stdPattern [PtrArg,PtrArg,PtrArg,PtrArg,PtrArg,PtrArg] = Just ARG_PPPPPP
-stdPattern _ = Nothing
+      [PtrArg,PtrArg,PtrArg,PtrArg]               -> Just ARG_PPPP
+      [PtrArg,PtrArg,PtrArg,PtrArg,PtrArg]        -> Just ARG_PPPPP
+      [PtrArg,PtrArg,PtrArg,PtrArg,PtrArg,PtrArg] -> Just ARG_PPPPPP
+      _ -> Nothing
 
 
 -------------------------------------------------------------------------
@@ -118,13 +121,13 @@ stdPattern _ = Nothing
 -- GET_NON_PTRS(), GET_PTRS(), GET_LIVENESS().
 -------------------------------------------------------------------------
 
-mkRegLiveness :: [(Id, GlobalReg)] -> Int -> Int -> StgWord
-mkRegLiveness regs ptrs nptrs
-  = (fromIntegral nptrs `shiftL` 16) .|.
-    (fromIntegral ptrs  `shiftL` 24) .|.
-    all_non_ptrs `xor` reg_bits regs
+mkRegLiveness :: DynFlags -> [(Id, GlobalReg)] -> Int -> Int -> StgWord
+mkRegLiveness dflags regs ptrs nptrs
+  = (toStgWord dflags (toInteger nptrs) `shiftL` 16) .|.
+    (toStgWord dflags (toInteger ptrs)  `shiftL` 24) .|.
+    all_non_ptrs `xor` toStgWord dflags (reg_bits regs)
   where
-    all_non_ptrs = 0xff
+    all_non_ptrs = toStgWord dflags 0xff
 
     reg_bits [] = 0
     reg_bits ((id, VanillaReg i _) : regs) | isFollowableArg (idCgRep id)
@@ -159,11 +162,11 @@ constructSlowCall amodes
 -- | 'slowArgs' takes a list of function arguments and prepares them for
 -- pushing on the stack for "extra" arguments to a function which requires
 -- fewer arguments than we currently have.
-slowArgs :: [(CgRep,CmmExpr)] -> [(CgRep,CmmExpr)]
-slowArgs [] = []
-slowArgs amodes
-  | opt_SccProfilingOn = save_cccs ++ this_pat ++ slowArgs rest
-  | otherwise          =              this_pat ++ slowArgs rest
+slowArgs :: DynFlags -> [(CgRep,CmmExpr)] -> [(CgRep,CmmExpr)]
+slowArgs _ [] = []
+slowArgs dflags amodes
+  | dopt Opt_SccProfilingOn dflags = save_cccs ++ this_pat ++ slowArgs dflags rest
+  | otherwise                      =              this_pat ++ slowArgs dflags rest
   where
     (arg_pat, args, rest) = matchSlowPattern amodes
     stg_ap_pat = mkCmmRetInfoLabel rtsPackageId arg_pat
@@ -225,8 +228,9 @@ getSequelAmode :: FCode CmmExpr
 getSequelAmode
   = do  { EndOfBlockInfo virt_sp sequel <- getEndOfBlockInfo
         ; case sequel of
-            OnStack -> do { sp_rel <- getSpRelOffset virt_sp
-                          ; returnFC (CmmLoad sp_rel bWord) }
+            OnStack -> do { dflags <- getDynFlags
+                          ; sp_rel <- getSpRelOffset virt_sp
+                          ; returnFC (CmmLoad sp_rel (bWord dflags)) }
 
             CaseAlts lbl _ _  -> returnFC (CmmLit (CmmLabel lbl))
         }
@@ -254,25 +258,28 @@ getSequelAmode
 -- registers.  This is used for calling special RTS functions and PrimOps
 -- which expect their arguments to always be in the same registers.
 
-assignCallRegs, assignPrimOpCallRegs, assignReturnRegs
-        :: [(CgRep,a)]          -- Arg or result values to assign
-        -> ([(a, GlobalReg)],   -- Register assignment in same order
-                                -- for *initial segment of* input list
-                                --   (but reversed; doesn't matter)
-                                -- VoidRep args do not appear here
-            [(CgRep,a)])        -- Leftover arg or result values
+type AssignRegs a = [(CgRep,a)]          -- Arg or result values to assign
+                 -> ([(a, GlobalReg)],   -- Register assignment in same order
+                                         -- for *initial segment of* input list
+                                         --   (but reversed; doesn't matter)
+                                         -- VoidRep args do not appear here
+                     [(CgRep,a)])        -- Leftover arg or result values
 
-assignCallRegs args
-  = assign_regs args (mkRegTbl [node])
+assignCallRegs       :: DynFlags -> AssignRegs a
+assignPrimOpCallRegs :: DynFlags -> AssignRegs a
+assignReturnRegs     :: DynFlags -> AssignRegs a
+
+assignCallRegs dflags args
+  = assign_regs args (mkRegTbl dflags [node])
         -- The entry convention for a function closure
         -- never uses Node for argument passing; instead
         -- Node points to the function closure itself
 
-assignPrimOpCallRegs args
- = assign_regs args (mkRegTbl_allRegs [])
+assignPrimOpCallRegs dflags args
+ = assign_regs args (mkRegTbl_allRegs dflags [])
         -- For primops, *all* arguments must be passed in registers
 
-assignReturnRegs args
+assignReturnRegs dflags args
  -- when we have a single non-void component to return, use the normal
  -- unpointed return convention.  This make various things simpler: it
  -- means we can assume a consistent convention for IO, which is useful
@@ -284,7 +291,7 @@ assignReturnRegs args
  | [(rep,arg)] <- non_void_args, CmmGlobal r <- dataReturnConvPrim rep
     = ([(arg, r)], [])
  | otherwise
-    = assign_regs args (mkRegTbl [])
+    = assign_regs args (mkRegTbl dflags [])
         -- For returning unboxed tuples etc,
         -- we use all regs
  where
@@ -326,30 +333,35 @@ assign_reg _         _                  = Nothing
 -- We take these register supplies from the *real* registers, i.e. those
 -- that are guaranteed to map to machine registers.
 
-useVanillaRegs :: Int
-useVanillaRegs | opt_Unregisterised = 0
-               | otherwise          = mAX_Real_Vanilla_REG
-useFloatRegs :: Int
-useFloatRegs   | opt_Unregisterised = 0
-               | otherwise          = mAX_Real_Float_REG
-useDoubleRegs :: Int
-useDoubleRegs  | opt_Unregisterised = 0
-               | otherwise          = mAX_Real_Double_REG
-useLongRegs :: Int
-useLongRegs    | opt_Unregisterised = 0
-               | otherwise          = mAX_Real_Long_REG
+useVanillaRegs :: DynFlags -> Int
+useVanillaRegs dflags
+ | platformUnregisterised (targetPlatform dflags) = 0
+ | otherwise                                      = mAX_Real_Vanilla_REG dflags
+useFloatRegs :: DynFlags -> Int
+useFloatRegs dflags
+ | platformUnregisterised (targetPlatform dflags) = 0
+ | otherwise                                      = mAX_Real_Float_REG dflags
+useDoubleRegs :: DynFlags -> Int
+useDoubleRegs dflags
+ | platformUnregisterised (targetPlatform dflags) = 0
+ | otherwise                                      = mAX_Real_Double_REG dflags
+useLongRegs :: DynFlags -> Int
+useLongRegs dflags
+ | platformUnregisterised (targetPlatform dflags) = 0
+ | otherwise                                      = mAX_Real_Long_REG dflags
 
-vanillaRegNos, floatRegNos, doubleRegNos, longRegNos :: [Int]
-vanillaRegNos    = regList useVanillaRegs
-floatRegNos      = regList useFloatRegs
-doubleRegNos     = regList useDoubleRegs
-longRegNos       = regList useLongRegs
+vanillaRegNos, floatRegNos, doubleRegNos, longRegNos :: DynFlags -> [Int]
+vanillaRegNos dflags = regList $ useVanillaRegs dflags
+floatRegNos   dflags = regList $ useFloatRegs   dflags
+doubleRegNos  dflags = regList $ useDoubleRegs  dflags
+longRegNos    dflags = regList $ useLongRegs    dflags
 
-allVanillaRegNos, allFloatRegNos, allDoubleRegNos, allLongRegNos :: [Int]
-allVanillaRegNos = regList mAX_Vanilla_REG
-allFloatRegNos   = regList mAX_Float_REG
-allDoubleRegNos  = regList mAX_Double_REG
-allLongRegNos    = regList mAX_Long_REG
+allVanillaRegNos, allFloatRegNos, allDoubleRegNos, allLongRegNos
+    :: DynFlags -> [Int]
+allVanillaRegNos dflags = regList $ mAX_Vanilla_REG dflags
+allFloatRegNos   dflags = regList $ mAX_Float_REG   dflags
+allDoubleRegNos  dflags = regList $ mAX_Double_REG  dflags
+allLongRegNos    dflags = regList $ mAX_Long_REG    dflags
 
 regList :: Int -> [Int]
 regList n = [1 .. n]
@@ -360,24 +372,31 @@ type AvailRegs = ( [Int]   -- available vanilla regs.
                  , [Int]   -- longs (int64 and word64)
                  )
 
-mkRegTbl :: [GlobalReg] -> AvailRegs
-mkRegTbl regs_in_use
-  = mkRegTbl' regs_in_use vanillaRegNos floatRegNos doubleRegNos longRegNos
+mkRegTbl :: DynFlags -> [GlobalReg] -> AvailRegs
+mkRegTbl dflags regs_in_use
+  = mkRegTbl' dflags regs_in_use
+              vanillaRegNos floatRegNos doubleRegNos longRegNos
 
-mkRegTbl_allRegs :: [GlobalReg] -> AvailRegs
-mkRegTbl_allRegs regs_in_use
-  = mkRegTbl' regs_in_use allVanillaRegNos allFloatRegNos allDoubleRegNos allLongRegNos
+mkRegTbl_allRegs :: DynFlags -> [GlobalReg] -> AvailRegs
+mkRegTbl_allRegs dflags regs_in_use
+  = mkRegTbl' dflags regs_in_use
+              allVanillaRegNos allFloatRegNos allDoubleRegNos allLongRegNos
 
-mkRegTbl' :: [GlobalReg] -> [Int] -> [Int] -> [Int] -> [Int]
+mkRegTbl' :: DynFlags -> [GlobalReg]
+          -> (DynFlags -> [Int])
+          -> (DynFlags -> [Int])
+          -> (DynFlags -> [Int])
+          -> (DynFlags -> [Int])
           -> ([Int], [Int], [Int], [Int])
-mkRegTbl' regs_in_use vanillas floats doubles longs
+mkRegTbl' dflags regs_in_use vanillas floats doubles longs
   = (ok_vanilla, ok_float, ok_double, ok_long)
   where
-    ok_vanilla = mapCatMaybes (select (\i -> VanillaReg i VNonGcPtr)) vanillas
+    ok_vanilla = mapCatMaybes (select (\i -> VanillaReg i VNonGcPtr))
+                              (vanillas dflags)
                     -- ptrhood isn't looked at, hence we can use any old rep.
-    ok_float   = mapCatMaybes (select FloatReg)   floats
-    ok_double  = mapCatMaybes (select DoubleReg)  doubles
-    ok_long    = mapCatMaybes (select LongReg)    longs
+    ok_float   = mapCatMaybes (select FloatReg)  (floats  dflags)
+    ok_double  = mapCatMaybes (select DoubleReg) (doubles dflags)
+    ok_long    = mapCatMaybes (select LongReg)   (longs   dflags)
 
     select :: (Int -> GlobalReg) -> Int{-cand-} -> Maybe Int
         -- one we've unboxed the Int, we make a GlobalReg

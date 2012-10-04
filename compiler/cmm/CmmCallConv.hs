@@ -7,7 +7,8 @@
 
 module CmmCallConv (
   ParamLocation(..),
-  assignArgumentsPos
+  assignArgumentsPos,
+  globalArgRegs
 ) where
 
 #include "HsVersions.h"
@@ -17,9 +18,8 @@ import SMRep
 import Cmm (Convention(..))
 import PprCmm ()
 
-import Constants
 import qualified Data.List as L
-import StaticFlags (opt_Unregisterised)
+import DynFlags
 import Outputable
 
 -- Calculate the 'GlobalReg' or stack locations for function call
@@ -36,24 +36,23 @@ instance Outputable ParamLocation where
 -- | JD: For the new stack story, I want arguments passed on the stack to manifest as
 -- positive offsets in a CallArea, not negative offsets from the stack pointer.
 -- Also, I want byte offsets, not word offsets.
-assignArgumentsPos :: Convention -> (a -> CmmType) -> [a] ->
+assignArgumentsPos :: DynFlags -> Convention -> (a -> CmmType) -> [a] ->
                       [(a, ParamLocation)]
 -- Given a list of arguments, and a function that tells their types,
 -- return a list showing where each argument is passed
-assignArgumentsPos conv arg_ty reps = assignments
+assignArgumentsPos dflags conv arg_ty reps = assignments
     where -- The calling conventions (CgCallConv.hs) are complicated, to say the least
       regs = case (reps, conv) of
-               (_,   NativeNodeCall)   -> getRegsWithNode
-               (_,   NativeDirectCall) -> getRegsWithoutNode
-               ([_], NativeReturn)     -> allRegs
-               (_,   NativeReturn)     -> getRegsWithNode
+               (_,   NativeNodeCall)   -> getRegsWithNode dflags
+               (_,   NativeDirectCall) -> getRegsWithoutNode dflags
+               ([_], NativeReturn)     -> allRegs dflags
+               (_,   NativeReturn)     -> getRegsWithNode dflags
                -- GC calling convention *must* put values in registers
-               (_,   GC)               -> allRegs
-               (_,   PrimOpCall)       -> allRegs
-               ([_], PrimOpReturn)     -> allRegs
-               (_,   PrimOpReturn)     -> getRegsWithNode
+               (_,   GC)               -> allRegs dflags
+               (_,   PrimOpCall)       -> allRegs dflags
+               ([_], PrimOpReturn)     -> allRegs dflags
+               (_,   PrimOpReturn)     -> getRegsWithNode dflags
                (_,   Slow)             -> noRegs
-               _ -> pprPanic "Unknown calling convention" (ppr conv)
       -- The calling conventions first assign arguments to registers,
       -- then switch to the stack when we first run out of registers
       -- (even if there are still available registers for args of a different type).
@@ -78,9 +77,9 @@ assignArgumentsPos conv arg_ty reps = assignments
                         _ -> (assts, (r:rs))
               int = case (w, regs) of
                       (W128, _) -> panic "W128 unsupported register type"
-                      (_, (v:vs, fs, ds, ls)) | widthInBits w <= widthInBits wordWidth
+                      (_, (v:vs, fs, ds, ls)) | widthInBits w <= widthInBits (wordWidth dflags)
                           -> k (RegisterParam (v gcp), (vs, fs, ds, ls))
-                      (_, (vs, fs, ds, l:ls)) | widthInBits w > widthInBits wordWidth
+                      (_, (vs, fs, ds, l:ls)) | widthInBits w > widthInBits (wordWidth dflags)
                           -> k (RegisterParam l, (vs, fs, ds, ls))
                       _   -> (assts, (r:rs))
               k (asst, regs') = assign_regs ((r, asst) : assts) rs regs'
@@ -92,7 +91,7 @@ assignArgumentsPos conv arg_ty reps = assignments
       assign_stk _      assts [] = assts
       assign_stk offset assts (r:rs) = assign_stk off' ((r, StackParam off') : assts) rs
         where w    = typeWidth (arg_ty r)
-              size = (((widthInBytes w - 1) `div` wORD_SIZE) + 1) * wORD_SIZE
+              size = (((widthInBytes w - 1) `div` wORD_SIZE dflags) + 1) * wORD_SIZE dflags
               off' = offset + size
 
 -----------------------------------------------------------------------------
@@ -110,38 +109,52 @@ type AvailRegs = ( [VGcPtr -> GlobalReg]   -- available vanilla regs.
 -- We take these register supplies from the *real* registers, i.e. those
 -- that are guaranteed to map to machine registers.
 
-vanillaRegNos, floatRegNos, doubleRegNos, longRegNos :: [Int]
-vanillaRegNos | opt_Unregisterised = []
-              | otherwise          = regList mAX_Real_Vanilla_REG
-floatRegNos	  | opt_Unregisterised = []
-              | otherwise          = regList mAX_Real_Float_REG
-doubleRegNos  | opt_Unregisterised = []
-              | otherwise          = regList mAX_Real_Double_REG
-longRegNos	  | opt_Unregisterised = []
-              | otherwise          = regList mAX_Real_Long_REG
+getRegsWithoutNode, getRegsWithNode :: DynFlags -> AvailRegs
+getRegsWithoutNode dflags =
+  ( filter (\r -> r VGcPtr /= node) (realVanillaRegs dflags)
+  , realFloatRegs dflags
+  , realDoubleRegs dflags
+  , realLongRegs dflags)
 
--- 
-getRegsWithoutNode, getRegsWithNode :: AvailRegs
-getRegsWithoutNode =
-  (filter (\r -> r VGcPtr /= node) intRegs,
-   map FloatReg  floatRegNos, map DoubleReg doubleRegNos, map LongReg longRegNos)
-    where intRegs = map VanillaReg vanillaRegNos
-getRegsWithNode =
-  (intRegs, map FloatReg  floatRegNos, map DoubleReg doubleRegNos, map LongReg longRegNos)
-    where intRegs = map VanillaReg vanillaRegNos
+-- getRegsWithNode uses R1/node even if it isn't a register
+getRegsWithNode dflags =
+  ( if null (realVanillaRegs dflags)
+    then [VanillaReg 1]
+    else realVanillaRegs dflags
+  , realFloatRegs dflags
+  , realDoubleRegs dflags
+  , realLongRegs dflags)
 
-allVanillaRegNos, allFloatRegNos, allDoubleRegNos, allLongRegNos :: [Int]
-allVanillaRegNos = regList mAX_Vanilla_REG
-allFloatRegNos	 = regList mAX_Float_REG
-allDoubleRegNos	 = regList mAX_Double_REG
-allLongRegNos	   = regList mAX_Long_REG
+allFloatRegs, allDoubleRegs, allLongRegs :: DynFlags -> [GlobalReg]
+allVanillaRegs :: DynFlags -> [VGcPtr -> GlobalReg]
+
+allVanillaRegs dflags = map VanillaReg $ regList (mAX_Vanilla_REG dflags)
+allFloatRegs   dflags = map FloatReg   $ regList (mAX_Float_REG   dflags)
+allDoubleRegs  dflags = map DoubleReg  $ regList (mAX_Double_REG  dflags)
+allLongRegs    dflags = map LongReg    $ regList (mAX_Long_REG    dflags)
+
+realFloatRegs, realDoubleRegs, realLongRegs :: DynFlags -> [GlobalReg]
+realVanillaRegs :: DynFlags -> [VGcPtr -> GlobalReg]
+
+realVanillaRegs dflags = map VanillaReg $ regList (mAX_Real_Vanilla_REG dflags)
+realFloatRegs   dflags = map FloatReg   $ regList (mAX_Real_Float_REG   dflags)
+realDoubleRegs  dflags = map DoubleReg  $ regList (mAX_Real_Double_REG  dflags)
+realLongRegs    dflags = map LongReg    $ regList (mAX_Real_Long_REG    dflags)
 
 regList :: Int -> [Int]
 regList n = [1 .. n]
 
-allRegs :: AvailRegs
-allRegs = (map VanillaReg allVanillaRegNos, map FloatReg allFloatRegNos,
-           map DoubleReg  allDoubleRegNos,  map LongReg  allLongRegNos)
+allRegs :: DynFlags -> AvailRegs
+allRegs dflags = (allVanillaRegs dflags,
+                  allFloatRegs dflags,
+                  allDoubleRegs dflags,
+                  allLongRegs dflags)
 
 noRegs :: AvailRegs
-noRegs    = ([], [], [], [])
+noRegs  = ([], [], [], [])
+
+globalArgRegs :: DynFlags -> [GlobalReg]
+globalArgRegs dflags = map ($ VGcPtr) (allVanillaRegs dflags) ++
+                       allFloatRegs dflags ++
+                       allDoubleRegs dflags ++
+                       allLongRegs dflags

@@ -452,23 +452,29 @@ run_thread:
     dirty_TSO(cap,t);
     dirty_STACK(cap,t->stackobj);
 
-#if defined(THREADED_RTS)
-    if (recent_activity == ACTIVITY_DONE_GC) {
+    switch (recent_activity)
+    {
+    case ACTIVITY_DONE_GC: {
         // ACTIVITY_DONE_GC means we turned off the timer signal to
         // conserve power (see #1623).  Re-enable it here.
         nat prev;
         prev = xchg((P_)&recent_activity, ACTIVITY_YES);
+#ifndef PROFILING
         if (prev == ACTIVITY_DONE_GC) {
             startTimer();
         }
-    } else if (recent_activity != ACTIVITY_INACTIVE) {
+#endif
+        break;
+    }
+    case ACTIVITY_INACTIVE:
         // If we reached ACTIVITY_INACTIVE, then don't reset it until
         // we've done the GC.  The thread running here might just be
         // the IO manager thread that handle_tick() woke up via
         // wakeUpRts().
+        break;
+    default:
         recent_activity = ACTIVITY_YES;
     }
-#endif
 
     traceEventRunThread(cap, t);
 
@@ -1107,9 +1113,9 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
     if (cap->r.rHpAlloc > BLOCK_SIZE) {
 	// if so, get one and push it on the front of the nursery.
 	bdescr *bd;
-	lnat blocks;
+	W_ blocks;
 	
-	blocks = (lnat)BLOCK_ROUND_UP(cap->r.rHpAlloc) / BLOCK_SIZE;
+	blocks = (W_)BLOCK_ROUND_UP(cap->r.rHpAlloc) / BLOCK_SIZE;
 	
         if (blocks > BLOCKS_PER_MBLOCK) {
             barf("allocation of %ld bytes too large (GHC should have complained at compile-time)", (long)cap->r.rHpAlloc);
@@ -1451,6 +1457,7 @@ scheduleDoGC (Capability **pcap, Task *task USED_IF_THREADS,
 {
     Capability *cap = *pcap;
     rtsBool heap_census;
+    nat collect_gen;
 #ifdef THREADED_RTS
     rtsBool idle_cap[n_capabilities];
     rtsBool gc_type;
@@ -1465,10 +1472,16 @@ scheduleDoGC (Capability **pcap, Task *task USED_IF_THREADS,
         return;
     }
 
+    heap_census = scheduleNeedHeapProfile(rtsTrue);
+
+    // Figure out which generation we are collecting, so that we can
+    // decide whether this is a parallel GC or not.
+    collect_gen = calcNeeded(force_major || heap_census, NULL);
+
 #ifdef THREADED_RTS
     if (sched_state < SCHED_INTERRUPTING
         && RtsFlags.ParFlags.parGcEnabled
-        && N >= RtsFlags.ParFlags.parGcGen
+        && collect_gen >= RtsFlags.ParFlags.parGcGen
         && ! oldest_gen->mark)
     {
         gc_type = SYNC_GC_PAR;
@@ -1540,7 +1553,7 @@ scheduleDoGC (Capability **pcap, Task *task USED_IF_THREADS,
 
         if (RtsFlags.ParFlags.parGcNoSyncWithIdle == 0
             || (RtsFlags.ParFlags.parGcLoadBalancingEnabled &&
-                N >= RtsFlags.ParFlags.parGcLoadBalancingGen)) {
+                collect_gen >= RtsFlags.ParFlags.parGcLoadBalancingGen)) {
             for (i=0; i < n_capabilities; i++) {
                 if (capabilities[i].disabled) {
                     idle_cap[i] = tryGrabCapability(&capabilities[i], task);
@@ -1634,40 +1647,54 @@ delete_threads_and_gc:
             while (!emptyRunQueue(tmp_cap)) {
                 tso = popRunQueue(tmp_cap);
                 migrateThread(tmp_cap, tso, dest_cap);
-                if (tso->bound) { tso->bound->task->cap = dest_cap; }
+                if (tso->bound) {
+                  traceTaskMigrate(tso->bound->task,
+                                   tso->bound->task->cap,
+                                   dest_cap);
+                  tso->bound->task->cap = dest_cap;
+                }
             }
         }
     }
 #endif
 
-    heap_census = scheduleNeedHeapProfile(rtsTrue);
-
 #if defined(THREADED_RTS)
     // reset pending_sync *before* GC, so that when the GC threads
     // emerge they don't immediately re-enter the GC.
     pending_sync = 0;
-    GarbageCollect(force_major || heap_census, heap_census, gc_type, cap);
+    GarbageCollect(collect_gen, heap_census, gc_type, cap);
 #else
-    GarbageCollect(force_major || heap_census, heap_census, 0, cap);
+    GarbageCollect(collect_gen, heap_census, 0, cap);
 #endif
 
     traceSparkCounters(cap);
 
-    if (recent_activity == ACTIVITY_INACTIVE && force_major)
-    {
-        // We are doing a GC because the system has been idle for a
-        // timeslice and we need to check for deadlock.  Record the
-        // fact that we've done a GC and turn off the timer signal;
-        // it will get re-enabled if we run any threads after the GC.
-        recent_activity = ACTIVITY_DONE_GC;
-        stopTimer();
-    }
-    else
-    {
+    switch (recent_activity) {
+    case ACTIVITY_INACTIVE:
+        if (force_major) {
+            // We are doing a GC because the system has been idle for a
+            // timeslice and we need to check for deadlock.  Record the
+            // fact that we've done a GC and turn off the timer signal;
+            // it will get re-enabled if we run any threads after the GC.
+            recent_activity = ACTIVITY_DONE_GC;
+#ifndef PROFILING
+            stopTimer();
+#endif
+            break;
+        }
+        // fall through...
+
+    case ACTIVITY_MAYBE_NO:
         // the GC might have taken long enough for the timer to set
-        // recent_activity = ACTIVITY_INACTIVE, but we aren't
-        // necessarily deadlocked:
+        // recent_activity = ACTIVITY_MAYBE_NO or ACTIVITY_INACTIVE,
+        // but we aren't necessarily deadlocked:
         recent_activity = ACTIVITY_YES;
+        break;
+
+    case ACTIVITY_DONE_GC:
+        // If we are actually active, the scheduler will reset the
+        // recent_activity flag and re-enable the timer.
+        break;
     }
 
 #if defined(THREADED_RTS)
@@ -1898,6 +1925,10 @@ forkProcess(HsStablePtr *entry
         // the timer again.
         initTimer();
         startTimer();
+
+        // TODO: need to trace various other things in the child
+        // like startup event, capabilities, process info etc
+        traceTaskCreate(task, cap);
 
 #if defined(THREADED_RTS)
         ioManagerStartCap(&cap);
@@ -2454,7 +2485,7 @@ exitScheduler (rtsBool wait_foreign USED_IF_THREADS)
 	sched_state = SCHED_INTERRUPTING;
         Capability *cap = task->cap;
         waitForReturnCapability(&cap,task);
-        scheduleDoGC(&cap,task,rtsFalse);
+        scheduleDoGC(&cap,task,rtsTrue);
         ASSERT(task->incall->tso == NULL);
         releaseCapability(cap);
     }
@@ -2521,6 +2552,8 @@ performGC_(rtsBool force_major)
     // associated with a particular Capability, and chained onto the 
     // suspended_ccalls queue.
     task = newBoundTask();
+    
+    // TODO: do we need to traceTask*() here?
 
     waitForReturnCapability(&cap,task);
     scheduleDoGC(&cap,task,force_major);

@@ -1,6 +1,6 @@
 /* -----------------------------------------------------------------------------
  *
- * (c) The GHC Team, 2009
+ * (c) The GHC Team, 2009-2012
  *
  * Macros for profiling operations in STG code
  *
@@ -78,6 +78,15 @@ typedef struct CostCentreStack_ {
 
 
 /* -----------------------------------------------------------------------------
+ * Start and stop the profiling timer.  These can be called from
+ * Haskell to restrict the profile to portion(s) of the execution.
+ * See the module GHC.Profiling.
+ * ---------------------------------------------------------------------------*/
+
+void stopProfTimer      ( void );
+void startProfTimer     ( void );
+
+/* -----------------------------------------------------------------------------
  * The rest is PROFILING only...
  * ---------------------------------------------------------------------------*/
 
@@ -107,7 +116,7 @@ typedef struct IndexTable_ {
     CostCentre *cc;
     CostCentreStack *ccs;
     struct IndexTable_ *next;
-    unsigned int back_edge;
+    nat back_edge;
 } IndexTable;
 
      

@@ -26,8 +26,13 @@ GhcStage2HcOpts += -O -fwarn-tabs -dcore-lint
 # running of the tests, and faster building of the utils to be installed
 
 GhcLibHcOpts    += -O -dcore-lint
+
+# We define DefaultFastGhcLibWays in this style so that the value is
+# correct even if the user alters DYNAMIC_BY_DEFAULT
+DefaultFastGhcLibWays = $(if $(filter $(DYNAMIC_BY_DEFAULT),YES),v dyn,v)
+
 ifeq "$(ValidateSpeed)" "FAST"
-GhcLibWays     := v
+GhcLibWays     = $(DefaultFastGhcLibWays)
 else
 GhcLibWays     := $(filter v dyn,$(GhcLibWays))
 endif
@@ -71,6 +76,12 @@ libraries/containers_dist-install_EXTRA_HC_OPTS += -fno-warn-pointless-pragmas
 # bytestring has identities at the moment
 libraries/bytestring_dist-install_EXTRA_HC_OPTS += -fno-warn-identities
 
+# bytestring uses bitSize at the moment
+libraries/bytestring_dist-install_EXTRA_HC_OPTS += -fno-warn-deprecations
+
+# containers uses bitSize at the moment
+libraries/containers_dist-install_EXTRA_HC_OPTS += -fno-warn-deprecations
+
 # Temporarily turn off unused-do-bind warnings for the time package
 libraries/time_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-do-bind 
 # Temporary: mkTyCon is deprecated
@@ -85,15 +96,6 @@ libraries/haskeline_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports
 # Temporarily turn off unused-import warnings for the binary package
 libraries/binary_dist-boot_EXTRA_HC_OPTS += -fno-warn-unused-imports
 libraries/binary_dist-install_EXTRA_HC_OPTS += -fno-warn-unused-imports -fno-warn-identities
-
-# Temporarily turn off -Werror for some Hoopl modules that have
-# non-exhaustive pattern-match warnings
-libraries/hoopl/src/Compiler/Hoopl/Util_HC_OPTS += -Wwarn
-libraries/hoopl/src/Compiler/Hoopl/GraphUtil_HC_OPTS += -Wwarn
-libraries/hoopl/src/Compiler/Hoopl/MkGraph_HC_OPTS += -Wwarn
-libraries/hoopl/src/Compiler/Hoopl/XUtil_HC_OPTS += -Wwarn
-libraries/hoopl/src/Compiler/Hoopl/Pointed_HC_OPTS += -Wwarn
-libraries/hoopl/src/Compiler/Hoopl/Passes/Dominator_HC_OPTS += -Wwarn
 
 # temporarily turn off -Werror for mtl
 libraries/mtl_dist-install_EXTRA_HC_OPTS += -Wwarn
@@ -119,7 +121,10 @@ libraries/binary_dist-install_EXTRA_HC_OPTS += -fno-warn-warnings-deprecations
 libraries/binary/src/Data/Binary/Builder/Base_HC_OPTS += -fno-warn-warnings-deprecations
 libraries/binary/src/Data/Binary/Get_HC_OPTS += -fno-warn-warnings-deprecations
 
+# Temporarely disable inline rule shadowing warning
+libraries/bytestring_dist-install_EXTRA_HC_OPTS += -fno-warn-inline-rule-shadowing
+libraries/template-haskell_dist-install_EXTRA_HC_OPTS += -fno-warn-inline-rule-shadowing
+
 # We need -fno-warn-deprecated-flags to avoid failure with -Werror
 GhcLibHcOpts += -fno-warn-deprecated-flags
 GhcBootLibHcOpts += -fno-warn-deprecated-flags
-

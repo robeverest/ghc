@@ -3,6 +3,7 @@
 %
 
 \begin{code}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
@@ -113,6 +114,10 @@ pty (UnsafeCoercion t1 t2) =
   sep [text "%unsafe", paty t1, paty t2]
 pty (NthCoercion n t) =
   sep [text "%nth", int n, paty t]
+pty (LRCoercion CLeft t) =
+  sep [text "%left", paty t]
+pty (LRCoercion CRight t) =
+  sep [text "%right", paty t]
 pty (InstCoercion t1 t2) =
   sep [text "%inst", paty t1, paty t2]
 pty t = pbty t
@@ -199,7 +204,9 @@ plit (Lint i t) = parens (integer i <> text "::" <> pty t)
 plit (Lrational r t) = parens (text (show (numerator r)) <+> char '%'
    <+> text (show (denominator r)) <>  text "::" <> pty t)
 plit (Lchar c t) = parens (text ("\'" ++ escape [c] ++ "\'") <> text "::" <> pty t)
-plit (Lstring s t) = parens (pstring s <> text "::" <> pty t)
+-- This is a little messy. We shouldn't really be going via String.
+plit (Lstring bs t) = parens (pstring str <> text "::" <> pty t)
+    where str = map (chr . fromIntegral) bs
 
 pstring :: String -> Doc
 pstring s = doubleQuotes(text (escape s))

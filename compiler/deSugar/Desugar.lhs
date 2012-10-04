@@ -16,7 +16,6 @@ The Desugarer: turning HsSyn into Core.
 module Desugar ( deSugar, deSugarExpr ) where
 
 import DynFlags
-import StaticFlags
 import HscTypes
 import HsSyn
 import TcRnTypes
@@ -42,7 +41,9 @@ import RdrName
 import NameSet
 import NameEnv
 import Rules
+import BasicTypes       ( Activation(.. ) )
 import CoreMonad	( endPass, CoreToDo(..) )
+import FastString
 import ErrUtils
 import Outputable
 import SrcLoc
@@ -52,6 +53,7 @@ import MonadUtils
 import OrdList
 import Data.List
 import Data.IORef
+import Control.Monad( when )
 \end{code}
 
 %************************************************************************
@@ -93,7 +95,6 @@ deSugar hsc_env
                             tcg_hpc          = other_hpc_info })
 
   = do { let dflags = hsc_dflags hsc_env
-             platform = targetPlatform dflags
         ; showPass dflags "Desugar"
 
 	-- Desugar the program
@@ -107,9 +108,9 @@ deSugar hsc_env
                                Just ([], nilOL, [], [], NoStubs, hpcInfo, emptyModBreaks))
                    _        -> do
 
-                     let want_ticks = opt_Hpc
+                     let want_ticks = dopt Opt_Hpc dflags
                                    || target == HscInterpreted
-                                   || (opt_SccProfilingOn
+                                   || (dopt Opt_SccProfilingOn dflags
                                        && case profAuto dflags of
                                             NoProfAuto -> False
                                             _          -> True)
@@ -128,7 +129,7 @@ deSugar hsc_env
                           ; ds_rules <- mapMaybeM dsRule rules
                           ; ds_vects <- mapM dsVect vects
                           ; let hpc_init
-                                  | opt_Hpc   = hpcInitCode platform mod ds_hpc_info
+                                  | dopt Opt_Hpc dflags = hpcInitCode mod ds_hpc_info
                                   | otherwise = empty
                           ; return ( ds_ev_binds
                                    , foreign_prs `appOL` core_prs `appOL` spec_prs
@@ -361,6 +362,7 @@ dsRule (L loc (HsRule name act vars lhs _tv_lhs rhs _fv_rhs))
                   dsLExpr lhs   -- Note [Desugaring RULE left hand sides]
 
 	; rhs' <- dsLExpr rhs
+        ; dflags <- getDynFlags
 
 	-- Substitute the dict bindings eagerly,
 	-- and take the body apart into a (f args) form
@@ -376,6 +378,27 @@ dsRule (L loc (HsRule name act vars lhs _tv_lhs rhs _fv_rhs))
 	      final_rhs = simpleOptExpr rhs'	-- De-crap it
 	      rule      = mkRule False {- Not auto -} is_local 
                                  name act fn_name final_bndrs args final_rhs
+
+              inline_shadows_rule   -- Function can be inlined before rule fires
+                | wopt Opt_WarnInlineRuleShadowing dflags
+                = case (idInlineActivation fn_id, act) of
+                    (NeverActive, _)    -> False
+                    (AlwaysActive, _)   -> True
+                    (ActiveBefore {}, _) -> True
+                    (ActiveAfter {}, NeverActive)     -> True
+                    (ActiveAfter n, ActiveAfter r)    -> r < n  -- Rule active strictly first
+                    (ActiveAfter {}, AlwaysActive)    -> False
+                    (ActiveAfter {}, ActiveBefore {}) -> False
+                | otherwise = False
+
+        ; when inline_shadows_rule $
+          warnDs (vcat [ hang (ptext (sLit "Rule") <+> doubleQuotes (ftext name)
+                               <+> ptext (sLit "may never fire"))
+                            2 (ptext (sLit "because") <+> quotes (ppr fn_id)
+                               <+> ptext (sLit "might inline first"))
+                       , ptext (sLit "Probable fix: add an INLINE[n] or NOINLINE[n] pragma on")
+                         <+> quotes (ppr fn_id) ])
+
 	; return (Just rule)
 	} } }
 \end{code}

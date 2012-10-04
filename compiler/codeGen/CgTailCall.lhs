@@ -41,8 +41,8 @@ import Type
 import Id
 import StgSyn
 import PrimOp
+import DynFlags
 import Outputable
-import StaticFlags
 import Util
 
 import Control.Monad
@@ -105,35 +105,36 @@ performTailCall fun_info arg_amodes pending_assts
 	   -- to make the heap check easier.  The tail-call sequence
 	   -- is very similar to returning an unboxed tuple, so we
 	   -- share some code.
-     do	{ (final_sp, arg_assts, live) <- pushUnboxedTuple join_sp arg_amodes
+     do	{ dflags <- getDynFlags
+        ; (final_sp, arg_assts, live) <- pushUnboxedTuple join_sp arg_amodes
 	; emitSimultaneously (pending_assts `plusStmts` arg_assts)
-	; let lbl = enterReturnPtLabel (idUnique (cgIdInfoId fun_info))
+	; let lbl = enterReturnPtLabel dflags (idUnique (cgIdInfoId fun_info))
 	; doFinalJump final_sp True $ jumpToLbl lbl (Just live) }
 
   | otherwise
   = do 	{ fun_amode <- idInfoToAmode fun_info
+	; dflags <- getDynFlags
 	; let assignSt  = CmmAssign nodeReg fun_amode
               node_asst = oneStmt assignSt
               node_live = Just [node]
 	      (opt_node_asst, opt_node_live)
-                      | nodeMustPointToIt lf_info = (node_asst, node_live)
+                      | nodeMustPointToIt dflags lf_info = (node_asst, node_live)
                       | otherwise                 = (noStmts, Just [])
 	; EndOfBlockInfo sp _ <- getEndOfBlockInfo
 
-	; dflags <- getDynFlags
 	; case (getCallMethod dflags fun_name fun_has_cafs lf_info (length arg_amodes)) of
 
 	    -- Node must always point to things we enter
 	    EnterIt -> do
 		{ emitSimultaneously (node_asst `plusStmts` pending_assts) 
-		; let target       = entryCode (closureInfoPtr (CmmReg nodeReg))
+		; let target       = entryCode dflags (closureInfoPtr dflags (CmmReg nodeReg))
                       enterClosure = stmtC (CmmJump target node_live)
                       -- If this is a scrutinee
                       -- let's check if the closure is a constructor
                       -- so we can directly jump to the alternatives switch
                       -- statement.
                       jumpInstr = getEndOfBlockInfo >>=
-                                  maybeSwitchOnCons enterClosure
+                                  maybeSwitchOnCons dflags enterClosure
 		; doFinalJump sp False jumpInstr }
     
 	    -- A function, but we have zero arguments.  It is already in WHNF,
@@ -192,22 +193,22 @@ performTailCall fun_info arg_amodes pending_assts
     fun_name  = idName fun_id
     lf_info   = cgIdInfoLF fun_info
     fun_has_cafs = idCafInfo fun_id
-    untag_node = CmmAssign nodeReg (cmmUntag (CmmReg nodeReg))
+    untag_node dflags = CmmAssign nodeReg (cmmUntag dflags (CmmReg nodeReg))
     -- Test if closure is a constructor
-    maybeSwitchOnCons enterClosure eob
+    maybeSwitchOnCons dflags enterClosure eob
               | EndOfBlockInfo _ (CaseAlts lbl _ _) <- eob,
-                not opt_SccProfilingOn
+                not (dopt Opt_SccProfilingOn dflags)
                 -- we can't shortcut when profiling is on, because we have
                 -- to enter a closure to mark it as "used" for LDV profiling
               = do { is_constr <- newLabelC
                    -- Is the pointer tagged?
                    -- Yes, jump to switch statement
-                   ; stmtC (CmmCondBranch (cmmIsTagged (CmmReg nodeReg)) 
+                   ; stmtC (CmmCondBranch (cmmIsTagged dflags (CmmReg nodeReg)) 
                                 is_constr)
                    -- No, enter the closure.
                    ; enterClosure
                    ; labelC is_constr
-                   ; stmtC (CmmJump (entryCode $
+                   ; stmtC (CmmJump (entryCode dflags $
                                CmmLit (CmmLabel lbl)) (Just [node]))
                    }
 {-
@@ -231,7 +232,7 @@ performTailCall fun_info arg_amodes pending_assts
 -}
               -- No case expression involved, enter the closure.
               | otherwise
-              = do { stmtC untag_node
+              = do { stmtC $ untag_node dflags
                    ; enterClosure
                    }
         where
@@ -251,13 +252,14 @@ directCall :: VirtualSpOffset -> CLabel -> [(CgRep, CmmExpr)]
            -> [(CgRep, CmmExpr)] -> Maybe [GlobalReg] -> CmmStmts
            -> Code
 directCall sp lbl args extra_args live_node assts = do
+  dflags <- getDynFlags
   let
 	-- First chunk of args go in registers
-	(reg_arg_amodes, stk_args) = assignCallRegs args
+	(reg_arg_amodes, stk_args) = assignCallRegs dflags args
      
 	-- Any "extra" arguments are placed in frames on the
 	-- stack after the other arguments.
-	slow_stk_args = slowArgs extra_args
+	slow_stk_args = slowArgs dflags extra_args
 
 	reg_assts = assignToRegs reg_arg_amodes
         live_args = map snd reg_arg_amodes
@@ -352,7 +354,8 @@ pushUnboxedTuple :: VirtualSpOffset		-- Sp at which to start pushing
 pushUnboxedTuple sp [] 
   = return (sp, noStmts, [])
 pushUnboxedTuple sp amodes
-  = do	{ let	(reg_arg_amodes, stk_arg_amodes) = assignReturnRegs amodes
+  = do	{ dflags <- getDynFlags
+        ; let	(reg_arg_amodes, stk_arg_amodes) = assignReturnRegs dflags amodes
                 live_regs = map snd reg_arg_amodes
 	
 		-- separate the rest of the args into pointers and non-pointers
@@ -410,11 +413,12 @@ tailCallPrimCall primcall
 
 tailCallPrim :: CLabel -> [StgArg] -> Code
 tailCallPrim lbl args
- = do	{	-- We're going to perform a normal-looking tail call, 
+ = do { dflags <- getDynFlags
+        -- We're going to perform a normal-looking tail call, 
 		-- except that *all* the arguments will be in registers.
 		-- Hence the ASSERT( null leftovers )
-	  arg_amodes <- getArgAmodes args
-	; let (arg_regs, leftovers) = assignPrimOpCallRegs arg_amodes
+	; arg_amodes <- getArgAmodes args
+	; let (arg_regs, leftovers) = assignPrimOpCallRegs dflags arg_amodes
               live_regs = Just $ map snd arg_regs
 	      jump_to_primop = jumpToLbl lbl live_regs
 

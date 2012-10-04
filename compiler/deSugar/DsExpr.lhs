@@ -205,8 +205,19 @@ dsExpr (NegApp expr neg_expr)
 dsExpr (HsLam a_Match)
   = uncurry mkLams <$> matchWrapper LambdaExpr a_Match
 
+dsExpr (HsLamCase arg matches@(MatchGroup _ rhs_ty))
+  | isEmptyMatchGroup matches   -- A Core 'case' is always non-empty
+  =                             -- So desugar empty HsLamCase to error call
+    mkErrorAppDs pAT_ERROR_ID (funResultTy rhs_ty) (ptext (sLit "\\case"))
+  | otherwise
+  = do { arg_var <- newSysLocalDs arg
+       ; ([discrim_var], matching_code) <- matchWrapper CaseAlt matches
+       ; return $ Lam arg_var $ bindNonRec discrim_var (Var arg_var) matching_code }
+
 dsExpr (HsApp fun arg)
   = mkCoreAppDs <$> dsLExpr fun <*>  dsLExpr arg
+
+dsExpr HsHole = panic "dsExpr: HsHole"
 \end{code}
 
 Note [Desugaring vars]
@@ -313,12 +324,12 @@ dsExpr (HsLet binds body) = do
 -- We need the `ListComp' form to use `deListComp' (rather than the "do" form)
 -- because the interpretation of `stmts' depends on what sort of thing it is.
 --
-dsExpr (HsDo ListComp  stmts res_ty) = dsListComp stmts res_ty
-dsExpr (HsDo PArrComp  stmts _)      = dsPArrComp (map unLoc stmts)
-dsExpr (HsDo DoExpr    stmts _)      = dsDo stmts 
-dsExpr (HsDo GhciStmt  stmts _)      = dsDo stmts 
-dsExpr (HsDo MDoExpr   stmts _)      = dsDo stmts 
-dsExpr (HsDo MonadComp stmts _)      = dsMonadComp stmts
+dsExpr (HsDo ListComp     stmts res_ty) = dsListComp stmts res_ty
+dsExpr (HsDo PArrComp     stmts _)      = dsPArrComp (map unLoc stmts)
+dsExpr (HsDo DoExpr       stmts _)      = dsDo stmts 
+dsExpr (HsDo GhciStmtCtxt stmts _)      = dsDo stmts 
+dsExpr (HsDo MDoExpr      stmts _)      = dsDo stmts 
+dsExpr (HsDo MonadComp    stmts _)      = dsMonadComp stmts
 
 dsExpr (HsIf mb_fun guard_expr then_expr else_expr)
   = do { pred <- dsLExpr guard_expr
@@ -328,6 +339,19 @@ dsExpr (HsIf mb_fun guard_expr then_expr else_expr)
            Just fun -> do { core_fun <- dsExpr fun
                           ; return (mkCoreApps core_fun [pred,b1,b2]) }
            Nothing  -> return $ mkIfThenElse pred b1 b2 }
+
+dsExpr (HsMultiIf res_ty alts)
+  | null alts
+  = mkErrorExpr
+
+  | otherwise
+  = do { match_result <- liftM (foldr1 combineMatchResults)
+                               (mapM (dsGRHS IfAlt res_ty) alts)
+       ; error_expr   <- mkErrorExpr
+       ; extractMatchResult match_result error_expr }
+  where
+    mkErrorExpr = mkErrorAppDs nON_EXHAUSTIVE_GUARDS_ERROR_ID res_ty
+                               (ptext (sLit "multi-way if"))
 \end{code}
 
 
@@ -695,7 +719,7 @@ handled in DsListComp).  Basically does the translation given in the
 Haskell 98 report:
 
 \begin{code}
-dsDo :: [LStmt Id] -> DsM CoreExpr
+dsDo :: [ExprLStmt Id] -> DsM CoreExpr
 dsDo stmts
   = goL stmts
   where
@@ -706,7 +730,7 @@ dsDo stmts
       = ASSERT( null stmts ) dsLExpr body
         -- The 'return' op isn't used for 'do' expressions
 
-    go _ (ExprStmt rhs then_expr _ _) stmts
+    go _ (BodyStmt rhs then_expr _ _) stmts
       = do { rhs2 <- dsLExpr rhs
            ; warnDiscardedDoBindings rhs (exprType rhs2) 
            ; then_expr2 <- dsExpr then_expr

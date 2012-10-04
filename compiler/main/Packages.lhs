@@ -37,7 +37,6 @@ where
 
 import PackageConfig
 import DynFlags
-import StaticFlags
 import Config           ( cProjectVersion )
 import Name             ( Name, nameModule_maybe )
 import UniqFM
@@ -767,7 +766,9 @@ mkPackageState dflags pkgs0 preload0 this_package = do
   --
   let preload1 = [ installedPackageId p | f <- flags, p <- get_exposed f ]
 
-      get_exposed (ExposePackage   s) = filter (matchingStr s) pkgs2
+      get_exposed (ExposePackage   s)
+         = take 1 $ sortByVersion (filter (matchingStr s) pkgs2)
+         --  -package P means "the latest version of P" (#7030)
       get_exposed (ExposePackageId s) = filter (matchingId  s) pkgs2
       get_exposed _                   = []
 
@@ -881,20 +882,20 @@ packageHsLibs dflags p = map (mkDynName . addSuffix) (hsLibraries p)
   where
         ways0 = ways dflags
 
-        ways1 = filter ((/= WayDyn) . wayName) ways0
+        ways1 = filter (/= WayDyn) ways0
         -- the name of a shared library is libHSfoo-ghc<version>.so
         -- we leave out the _dyn, because it is superfluous
 
         -- debug RTS includes support for -eventlog
-        ways2 | WayDebug `elem` map wayName ways1
-              = filter ((/= WayEventLog) . wayName) ways1
+        ways2 | WayDebug `elem` ways1
+              = filter (/= WayEventLog) ways1
               | otherwise
               = ways1
 
         tag     = mkBuildTag (filter (not . wayRTSOnly) ways2)
         rts_tag = mkBuildTag ways2
 
-        mkDynName | opt_Static = id
+        mkDynName | dopt Opt_Static dflags = id
                   | otherwise = (++ ("-ghc" ++ cProjectVersion))
 
         addSuffix rts@"HSrts"    = rts       ++ (expandTag rts_tag)
@@ -1029,12 +1030,12 @@ missingDependencyMsg (Just parent)
 -- -----------------------------------------------------------------------------
 
 -- | Will the 'Name' come from a dynamically linked library?
-isDllName :: PackageId -> Name -> Bool
+isDllName :: DynFlags -> PackageId -> Name -> Bool
 -- Despite the "dll", I think this function just means that
 -- the synbol comes from another dynamically-linked package,
 -- and applies on all platforms, not just Windows
-isDllName this_pkg name
-  | opt_Static = False
+isDllName dflags this_pkg name
+  | dopt Opt_Static dflags = False
   | Just mod <- nameModule_maybe name = modulePackageId mod /= this_pkg
   | otherwise = False  -- no, it is not even an external name
 

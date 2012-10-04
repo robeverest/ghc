@@ -1,4 +1,3 @@
-{-# OPTIONS -fno-warn-missing-signatures #-}
 -- | Graph coloring register allocator.
 --
 -- TODO: The colors in graphviz graphs for x86_64 and ppc could be nicer.
@@ -120,7 +119,7 @@ regAlloc_spin dflags spinCount triv regsFree slotsFree debug_codeGraphs code
         -- build a map of the cost of spilling each instruction
         --      this will only actually be computed if we have to spill something.
         let spillCosts  = foldl' plusSpillCostInfo zeroSpillCostInfo
-                        $ map slurpSpillCostInfo code
+                        $ map (slurpSpillCostInfo platform) code
 
         -- the function to choose regs to leave uncolored
         let spill       = chooseSpill spillCosts
@@ -175,7 +174,7 @@ regAlloc_spin dflags spinCount triv regsFree slotsFree debug_codeGraphs code
 
                 -- strip off liveness information,
                 --      and rewrite SPILL/RELOAD pseudos into real instructions along the way
-                let code_final          = map (stripLive platform) code_spillclean
+                let code_final          = map (stripLive dflags) code_spillclean
 
                 -- record what happened in this stage for debugging
                 let stat                =
@@ -214,13 +213,13 @@ regAlloc_spin dflags spinCount triv regsFree slotsFree debug_codeGraphs code
 
                 -- spill the uncolored regs
                 (code_spilled, slotsFree', spillStats)
-                        <- regSpill code_coalesced slotsFree rsSpill
+                        <- regSpill platform code_coalesced slotsFree rsSpill
 
                 -- recalculate liveness
                 -- NOTE: we have to reverse the SCCs here to get them back into the reverse-dependency
                 --       order required by computeLiveness. If they're not in the correct order
                 --       that function will panic.
-                code_relive     <- mapM (regLiveness . reverseBlocksInTops) code_spilled
+                code_relive     <- mapM (regLiveness platform . reverseBlocksInTops) code_spilled
 
                 -- record what happened in this stage for debugging
                 let stat        =

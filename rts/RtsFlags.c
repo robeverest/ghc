@@ -115,6 +115,11 @@ void initRtsFlagsDefaults(void)
     RtsFlags.GcFlags.frontpanel         = rtsFalse;
 #endif
     RtsFlags.GcFlags.idleGCDelayTime    = USToTime(300000); // 300ms
+#ifdef THREADED_RTS
+    RtsFlags.GcFlags.doIdleGC           = rtsTrue;
+#else
+    RtsFlags.GcFlags.doIdleGC           = rtsFalse;
+#endif
 
 #if osf3_HOST_OS
 /* ToDo: Perhaps by adjusting this value we can make linking without
@@ -474,7 +479,7 @@ void setupRtsFlags (int *argc, char *argv[],
     total_arg = *argc;
     arg = 1;
 
-    *argc = 1;
+    if (*argc > 1) { *argc = 1; };
     rts_argc = 0;
 
     rts_argv_size = total_arg + 1;
@@ -547,6 +552,7 @@ void setupRtsFlags (int *argc, char *argv[],
     procRtsOpts(rts_argc0, rtsOptsEnabled);
 
     appendRtsArg((char *)0);
+    rts_argc--; // appendRtsArg will have bumped it for the NULL (#7227)
 
     normaliseRtsOpts();
 
@@ -914,8 +920,13 @@ error = rtsTrue;
 		if (rts_argv[arg][2] == '\0') {
 		  /* use default */
 		} else {
-                    RtsFlags.GcFlags.idleGCDelayTime =
-                        fsecondsToTime(atof(rts_argv[arg]+2));
+                    Time t = fsecondsToTime(atof(rts_argv[arg]+2));
+                    if (t == 0) {
+                        RtsFlags.GcFlags.doIdleGC = rtsFalse;
+                    } else {
+                        RtsFlags.GcFlags.doIdleGC = rtsTrue;
+                        RtsFlags.GcFlags.idleGCDelayTime = t;
+                    }
 		}
 		break;
 
@@ -1542,7 +1553,7 @@ decodeSize(const char *flag, nat offset, StgWord64 min, StgWord64 max)
     if (m < 0 || val < min || val > max) {
         // printf doesn't like 64-bit format specs on Windows
         // apparently, so fall back to unsigned long.
-        errorBelch("error in RTS option %s: size outside allowed range (%" FMT_SizeT " - %" FMT_SizeT ")", flag, (lnat)min, (lnat)max);
+        errorBelch("error in RTS option %s: size outside allowed range (%" FMT_Word " - %" FMT_Word ")", flag, (W_)min, (W_)max);
         stg_exit(EXIT_FAILURE);
     }
 
@@ -1677,16 +1688,22 @@ static void freeArgv(int argc, char *argv[])
 void
 setProgName(char *argv[])
 {
+    char *last_slash;
+
+    if (argv[0] == NULL) { // #7037
+        prog_name = "";
+        return;
+    }
+
     /* Remove directory from argv[0] -- default files in current directory */
 #if !defined(mingw32_HOST_OS)
-    char *last_slash;
     if ( (last_slash = (char *) strrchr(argv[0], '/')) != NULL ) {
 	prog_name = last_slash+1;
    } else {
 	prog_name = argv[0];
    }
 #else
-    char* last_slash = argv[0] + (strlen(argv[0]) - 1);
+    last_slash = argv[0] + (strlen(argv[0]) - 1);
     while ( last_slash > argv[0] ) {
 	if ( *last_slash == '/' || *last_slash == '\\' ) {
 	    prog_name = last_slash+1;

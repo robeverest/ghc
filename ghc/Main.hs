@@ -24,7 +24,7 @@ import HscMain          ( newHscEnv )
 import DriverPipeline   ( oneShot, compileFile )
 import DriverMkDepend   ( doMkDependHS )
 #ifdef GHCI
-import InteractiveUI    ( interactiveUI, ghciWelcomeMsg )
+import InteractiveUI    ( interactiveUI, ghciWelcomeMsg, defaultGhciSettings )
 #endif
 
 
@@ -182,11 +182,6 @@ main' postLoadMode dflags0 args flagWarnings = do
 
   liftIO $ showBanner postLoadMode dflags2
 
-  -- we've finished manipulating the DynFlags, update the session
-  _ <- GHC.setSessionDynFlags dflags2
-  dflags3 <- GHC.getSessionDynFlags
-  hsc_env <- GHC.getSession
-
   let
      -- To simplify the handling of filepaths, we normalise all filepaths right
      -- away - e.g., for win32 platforms, backslashes are converted
@@ -194,9 +189,12 @@ main' postLoadMode dflags0 args flagWarnings = do
     normal_fileish_paths = map (normalise . unLoc) fileish_args
     (srcs, objs)         = partition_args normal_fileish_paths [] []
 
-  -- Note: have v_Ld_inputs maintain the order in which 'objs' occurred on
-  --       the command-line.
-  liftIO $ mapM_ (consIORef v_Ld_inputs) (reverse objs)
+    dflags2a = dflags2 { ldInputs = objs ++ ldInputs dflags2 }
+
+  -- we've finished manipulating the DynFlags, update the session
+  _ <- GHC.setSessionDynFlags dflags2a
+  dflags3 <- GHC.getSessionDynFlags
+  hsc_env <- GHC.getSession
 
         ---------------- Display configuration -----------
   when (verbosity dflags3 >= 4) $
@@ -217,16 +215,17 @@ main' postLoadMode dflags0 args flagWarnings = do
        DoMake                 -> doMake srcs
        DoMkDependHS           -> doMkDependHS (map fst srcs)
        StopBefore p           -> liftIO (oneShot hsc_env p srcs)
-       DoInteractive          -> interactiveUI srcs Nothing
-       DoEval exprs           -> interactiveUI srcs $ Just $ reverse exprs
+       DoInteractive          -> ghciUI srcs Nothing
+       DoEval exprs           -> ghciUI srcs $ Just $ reverse exprs
        DoAbiHash              -> abiHash srcs
 
   liftIO $ dumpFinalStats dflags3
 
+ghciUI :: [(FilePath, Maybe Phase)] -> Maybe [String] -> Ghc ()
 #ifndef GHCI
-interactiveUI :: b -> c -> Ghc ()
-interactiveUI _ _ =
-  ghcError (CmdLineError "not built for interactive use")
+ghciUI _ _ = ghcError (CmdLineError "not built for interactive use")
+#else
+ghciUI     = interactiveUI defaultGhciSettings
 #endif
 
 -- -----------------------------------------------------------------------------
@@ -250,7 +249,7 @@ partition_args (arg:args) srcs objs
 
     {-
       We split out the object files (.o, .dll) and add them
-      to v_Ld_inputs for use by the linker.
+      to ldInputs for use by the linker.
 
       The following things should be considered compilation manager inputs:
 
@@ -288,12 +287,12 @@ checkOptions mode dflags srcs objs = do
    let unknown_opts = [ f | (f@('-':_), _) <- srcs ]
    when (notNull unknown_opts) (unknownFlagsErr unknown_opts)
 
-   when (notNull (filter isRTSWay (wayNames dflags))
+   when (notNull (filter wayRTSOnly (ways dflags))
          && isInterpretiveMode mode) $
         hPutStrLn stderr ("Warning: -debug, -threaded and -ticky are ignored by GHCi")
 
         -- -prof and --interactive are not a good combination
-   when (notNull (filter (not . isRTSWay) (wayNames dflags))
+   when (notNull (filter (not . wayRTSOnly) (ways dflags))
          && isInterpretiveMode mode) $
       do ghcError (UsageError
                    "--interactive can't be used with -prof or -unreg.")
@@ -557,12 +556,12 @@ mode_flags =
   ]
 
 setGenerateC :: String -> EwM ModeM ()
-setGenerateC f
-  | cGhcUnregisterised /= "YES" = do
-        addWarn ("Compiler not unregisterised, so ignoring " ++ f)
-  | otherwise = do
-        setMode (stopBeforeMode HCc) f
-        addFlag "-fvia-C" f
+setGenerateC f = do -- TODO: We used to warn and ignore when
+                    -- unregisterised, but we no longer know whether
+                    -- we are unregisterised at this point. Should
+                    -- we check later on?
+                    setMode (stopBeforeMode HCc) f
+                    addFlag "-fvia-C" f
 
 setMode :: Mode -> String -> EwM ModeM ()
 setMode newMode newFlag = liftEwM $ do
@@ -638,7 +637,9 @@ doMake srcs  = do
 
     o_files <- mapM (\x -> liftIO $ compileFile hsc_env StopLn x)
                  non_hs_srcs
-    liftIO $ mapM_ (consIORef v_Ld_inputs) (reverse o_files)
+    dflags <- GHC.getSessionDynFlags
+    let dflags' = dflags { ldInputs = o_files ++ ldInputs dflags }
+    _ <- GHC.setSessionDynFlags dflags'
 
     targets <- mapM (uncurry GHC.guessTarget) hs_srcs
     GHC.setTargets targets
@@ -714,12 +715,11 @@ dumpFinalStats dflags =
 dumpFastStringStats :: DynFlags -> IO ()
 dumpFastStringStats dflags = do
   buckets <- getFastStringTable
-  let (entries, longest, is_z, has_z) = countFS 0 0 0 0 buckets
+  let (entries, longest, has_z) = countFS 0 0 0 buckets
       msg = text "FastString stats:" $$
             nest 4 (vcat [text "size:           " <+> int (length buckets),
                           text "entries:        " <+> int entries,
                           text "longest chain:  " <+> int longest,
-                          text "z-encoded:      " <+> (is_z `pcntOf` entries),
                           text "has z-encoding: " <+> (has_z `pcntOf` entries)
                          ])
         -- we usually get more "has z-encoding" than "z-encoded", because
@@ -731,17 +731,16 @@ dumpFastStringStats dflags = do
   where
    x `pcntOf` y = int ((x * 100) `quot` y) <> char '%'
 
-countFS :: Int -> Int -> Int -> Int -> [[FastString]] -> (Int, Int, Int, Int)
-countFS entries longest is_z has_z [] = (entries, longest, is_z, has_z)
-countFS entries longest is_z has_z (b:bs) =
+countFS :: Int -> Int -> Int -> [[FastString]] -> (Int, Int, Int)
+countFS entries longest has_z [] = (entries, longest, has_z)
+countFS entries longest has_z (b:bs) =
   let
         len = length b
         longest' = max len longest
         entries' = entries + len
-        is_zs = length (filter isZEncoded b)
         has_zs = length (filter hasZEncoding b)
   in
-        countFS entries' longest' (is_z + is_zs) (has_z + has_zs) bs
+        countFS entries' longest' (has_z + has_zs) bs
 
 -- -----------------------------------------------------------------------------
 -- ABI hash support
@@ -792,5 +791,10 @@ abiHash strs = do
 -- Util
 
 unknownFlagsErr :: [String] -> a
-unknownFlagsErr fs = ghcError (UsageError ("unrecognised flags: " ++ unwords fs))
-
+unknownFlagsErr fs = ghcError $ UsageError $ concatMap oneError fs
+  where
+    oneError f =
+        "unrecognised flag: " ++ f ++ "\n" ++
+        (case fuzzyMatch f (nub allFlags) of
+            [] -> ""
+            suggs -> "did you mean one of:\n" ++ unlines (map ("  " ++) suggs)) 

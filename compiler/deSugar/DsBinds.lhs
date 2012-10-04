@@ -440,8 +440,9 @@ dsSpec mb_poly_rhs (L loc (SpecPrag poly_id spec_co spec_inl))
 
   | otherwise
   = putSrcSpanDs loc $ 
-    do { let poly_name = idName poly_id
-       ; spec_name <- newLocalName poly_name
+    do { uniq <- newUnique
+       ; let poly_name = idName poly_id
+             spec_name = mkClonedInternalName uniq poly_name
        ; (bndrs, ds_lhs) <- liftM collectBinders
                                   (dsHsWrapper spec_co (Var poly_id))
        ; let spec_ty = mkPiTypes bndrs (exprType ds_lhs)
@@ -740,10 +741,6 @@ dsEvTerm (EvCast tm co)
                         -- 'v' is always a lifted evidence variable so it is
                         -- unnecessary to call varToCoreExpr v here.
 
-dsEvTerm (EvKindCast v co)
-  = do { v' <- dsEvTerm v
-       ; dsTcCoercion co $ (\_ -> v') }
-
 dsEvTerm (EvDFunApp df tys tms) = do { tms' <- mapM dsEvTerm tms
                                      ; return (Var df `mkTyApps` tys `mkApps` tms') }
 dsEvTerm (EvCoercion co)         = dsTcCoercion co mkEqBox
@@ -775,7 +772,7 @@ dsEvTerm (EvSuperClass d n)
 dsEvTerm (EvDelayedError ty msg) = return $ Var errorId `mkTyApps` [ty] `mkApps` [litMsg]
   where 
     errorId = rUNTIME_ERROR_ID
-    litMsg  = Lit (MachStr msg)
+    litMsg  = Lit (MachStr (fastStringToFastBytes msg))
 
 dsEvTerm (EvLit l) =
   case l of
@@ -833,6 +830,7 @@ ds_tc_coercion subst tc_co
     go (TcSymCo co)           = mkSymCo (go co)
     go (TcTransCo co1 co2)    = mkTransCo (go co1) (go co2)
     go (TcNthCo n co)         = mkNthCo n (go co)
+    go (TcLRCo lr co)         = mkLRCo lr (go co)
     go (TcInstCo co ty)       = mkInstCo (go co) ty
     go (TcLetCo bs co)        = ds_tc_coercion (ds_co_binds bs) co
     go (TcCastCo co1 co2)     = mkCoCast (go co1) (go co2)
@@ -844,13 +842,14 @@ ds_tc_coercion subst tc_co
 
     ds_scc :: CvSubst -> SCC EvBind -> CvSubst
     ds_scc subst (AcyclicSCC (EvBind v ev_term))
-      = extendCvSubstAndInScope subst v (ds_ev_term subst ev_term)
+      = extendCvSubstAndInScope subst v (ds_co_term subst ev_term)
     ds_scc _ (CyclicSCC other) = pprPanic "ds_scc:cyclic" (ppr other $$ ppr tc_co)
 
-    ds_ev_term :: CvSubst -> EvTerm -> Coercion
-    ds_ev_term subst (EvCoercion tc_co) = ds_tc_coercion subst tc_co
-    ds_ev_term subst (EvId v)           = ds_ev_id subst v
-    ds_ev_term _ other = pprPanic "ds_ev_term" (ppr other $$ ppr tc_co)
+    ds_co_term :: CvSubst -> EvTerm -> Coercion
+    ds_co_term subst (EvCoercion tc_co) = ds_tc_coercion subst tc_co
+    ds_co_term subst (EvId v)           = ds_ev_id subst v
+    ds_co_term subst (EvCast tm co)     = mkCoCast (ds_co_term subst tm) (ds_tc_coercion subst co)
+    ds_co_term _ other = pprPanic "ds_co_term" (ppr other $$ ppr tc_co)
 
     ds_ev_id :: CvSubst -> EqVar -> Coercion
     ds_ev_id subst v

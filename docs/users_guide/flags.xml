@@ -535,6 +535,13 @@
             <entry>dynamic</entry>
             <entry>-</entry>
           </row>
+          <row>
+            <entry><option>-interactive-print</option></entry>
+            <entry><link linkend="ghci-interactive-print">Select the function
+                    to use for printing evaluated expressions in GHCi</link></entry>
+            <entry>dynamic</entry>
+            <entry>-</entry>
+          </row>
 
         </tbody>
       </tgroup>
@@ -1113,6 +1120,18 @@
             <entry>Enable <link linkend="package-imports">package-qualified imports</link>.</entry>
             <entry>dynamic</entry>
             <entry><option>-XNoPackageImports</option></entry>
+          </row>
+          <row>
+            <entry><option>-XLambdaCase</option></entry>
+            <entry>Enable <link linkend="lambda-case">lambda-case expressions</link>.</entry>
+            <entry>dynamic</entry>
+            <entry><option>-XNoLambdaCase</option></entry>
+          </row>
+          <row>
+            <entry><option>-XMultiWayIf</option></entry>
+            <entry>Enable <link linkend="multi-way-if">multi-way if-expressions</link>.</entry>
+            <entry>dynamic</entry>
+            <entry><option>-XNoMultiWayIf</option></entry>
           </row>
           <row>
             <entry><option>-XSafe</option></entry>
@@ -1828,7 +1847,7 @@
           <row>
             <entry><option>-fhpc</option></entry>
             <entry>Turn on Haskell program coverage instrumentation</entry>
-            <entry>static</entry>
+            <entry>dynamic</entry>
             <entry><option>-</option></entry>
           </row>
           <row>
@@ -1996,7 +2015,7 @@
           <row>
             <entry><option>-fPIC</option></entry>
             <entry>Generate position-independent code (where available)</entry>
-            <entry>static</entry>
+            <entry>dynamic</entry>
             <entry>-</entry>
           </row>
           <row>
@@ -2845,7 +2864,7 @@
           <row>
             <entry><option>-fhistory-size</option></entry>
             <entry>Set simplification history size</entry>
-            <entry>static</entry>
+            <entry>dynamic</entry>
             <entry>-</entry>
           </row>
           <row>

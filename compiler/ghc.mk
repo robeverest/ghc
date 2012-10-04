@@ -71,10 +71,6 @@ compiler/stage%/build/Config.hs : mk/config.mk mk/project.mk | $$(dir $$@)/.
 	@echo 'cBooterVersion        = "$(GhcVersion)"'                     >> $@
 	@echo 'cStage                :: String'                             >> $@
 	@echo 'cStage                = show (STAGE :: Int)'                 >> $@
-	@echo 'cGccLinkerOpts        :: [String]'                           >> $@
-	@echo 'cGccLinkerOpts        = words "$(CONF_GCC_LINKER_OPTS_STAGE$*)"' >> $@
-	@echo 'cLdLinkerOpts         :: [String]'                           >> $@
-	@echo 'cLdLinkerOpts         = words "$(CONF_LD_LINKER_OPTS_STAGE$*)"'  >> $@
 	@echo 'cIntegerLibrary       :: String'                             >> $@
 	@echo 'cIntegerLibrary       = "$(INTEGER_LIBRARY)"'                >> $@
 	@echo 'cIntegerLibraryType   :: IntegerLibrary'                     >> $@
@@ -95,22 +91,12 @@ endif
 	@echo 'cGhcWithSMP           = "$(GhcWithSMP)"'                     >> $@
 	@echo 'cGhcRTSWays           :: String'                             >> $@
 	@echo 'cGhcRTSWays           = "$(GhcRTSWays)"'                     >> $@
-	@echo 'cGhcUnregisterised    :: String'                             >> $@
-	@echo 'cGhcUnregisterised    = "$(GhcUnregisterised)"'              >> $@
 	@echo 'cGhcEnableTablesNextToCode :: String'                        >> $@
 	@echo 'cGhcEnableTablesNextToCode = "$(GhcEnableTablesNextToCode)"' >> $@
 	@echo 'cLeadingUnderscore    :: String'                             >> $@
 	@echo 'cLeadingUnderscore    = "$(LeadingUnderscore)"'              >> $@
 	@echo 'cRAWCPP_FLAGS         :: String'                             >> $@
 	@echo 'cRAWCPP_FLAGS         = "$(RAWCPP_FLAGS)"'                   >> $@
-	@echo 'cLdHasNoCompactUnwind :: String'                             >> $@
-	@echo 'cLdHasNoCompactUnwind = "$(LdHasNoCompactUnwind)"'           >> $@
-	@echo 'cLdIsGNULd            :: String'                             >> $@
-	@echo 'cLdIsGNULd            = "$(LdIsGNULd)"'                      >> $@
-	@echo 'cLdHasBuildId         :: String'                             >> $@
-	@echo 'cLdHasBuildId         = "$(LdHasBuildId)"'                   >> $@
-	@echo 'cLD_X                 :: String'                             >> $@
-	@echo 'cLD_X                 = "$(LD_X)"'                           >> $@
 	@echo 'cGHC_DRIVER_DIR       :: String'                             >> $@
 	@echo 'cGHC_DRIVER_DIR       = "$(GHC_DRIVER_DIR)"'                 >> $@
 	@echo 'cGHC_UNLIT_PGM        :: String'                             >> $@
@@ -355,7 +341,7 @@ ifeq "$(GhcProfiled)" "YES"
 # parts of the compiler of interest, and then add further cost centres
 # as necessary.  Turn on -auto-all for individual modules like this:
 
-compiler/main/DriverPipeline_HC_OPTS += -auto-all
+# compiler/main/DriverPipeline_HC_OPTS += -auto-all
 compiler/main/GhcMake_HC_OPTS        += -auto-all
 compiler/main/GHC_HC_OPTS            += -auto-all
 
@@ -466,18 +452,6 @@ compiler_stage1_HC_OPTS += $(GhcStage1HcOpts)
 compiler_stage2_HC_OPTS += $(GhcStage2HcOpts)
 compiler_stage3_HC_OPTS += $(GhcStage3HcOpts)
 
-ifeq "$(GhcStage1DefaultNewCodegen)" "YES"
-compiler_stage1_HC_OPTS += -DGHC_DEFAULT_NEW_CODEGEN
-endif
-
-ifeq "$(GhcStage2DefaultNewCodegen)" "YES"
-compiler_stage2_HC_OPTS += -DGHC_DEFAULT_NEW_CODEGEN
-endif
-
-ifeq "$(GhcStage3DefaultNewCodegen)" "YES"
-compiler_stage3_HC_OPTS += -DGHC_DEFAULT_NEW_CODEGEN
-endif
-
 ifneq "$(BINDIST)" "YES"
 
 compiler_stage2_TAGS_HC_OPTS = -package ghc
@@ -487,20 +461,25 @@ $(compiler_stage1_depfile_haskell) : compiler/stage1/$(PLATFORM_H)
 $(compiler_stage2_depfile_haskell) : compiler/stage2/$(PLATFORM_H)
 $(compiler_stage3_depfile_haskell) : compiler/stage3/$(PLATFORM_H)
 
-$(compiler_stage1_depfile_haskell) : $(includes_H_CONFIG) $(includes_H_PLATFORM) $(includes_GHCCONSTANTS) $(includes_DERIVEDCONSTANTS) $(PRIMOP_BITS)
-$(compiler_stage2_depfile_haskell) : $(includes_H_CONFIG) $(includes_H_PLATFORM) $(includes_GHCCONSTANTS) $(includes_DERIVEDCONSTANTS) $(PRIMOP_BITS)
-$(compiler_stage3_depfile_haskell) : $(includes_H_CONFIG) $(includes_H_PLATFORM) $(includes_GHCCONSTANTS) $(includes_DERIVEDCONSTANTS) $(PRIMOP_BITS)
+COMPILER_INCLUDES_DEPS += $(includes_H_CONFIG)
+COMPILER_INCLUDES_DEPS += $(includes_H_PLATFORM)
+COMPILER_INCLUDES_DEPS += $(includes_GHCCONSTANTS)
+COMPILER_INCLUDES_DEPS += $(includes_GHCCONSTANTS_HASKELL_TYPE)
+COMPILER_INCLUDES_DEPS += $(includes_GHCCONSTANTS_HASKELL_WRAPPERS)
+COMPILER_INCLUDES_DEPS += $(includes_GHCCONSTANTS_HASKELL_EXPORTS)
+COMPILER_INCLUDES_DEPS += $(includes_DERIVEDCONSTANTS)
+COMPILER_INCLUDES_DEPS += $(PRIMOP_BITS)
 
-# Every Constants.o object file depends on includes/GHCConstants.h:
-$(eval $(call compiler-hs-dependency,Constants,$(includes_GHCCONSTANTS) includes/HaskellConstants.hs))
+$(compiler_stage1_depfile_haskell) : $(COMPILER_INCLUDES_DEPS)
+$(compiler_stage2_depfile_haskell) : $(COMPILER_INCLUDES_DEPS)
+$(compiler_stage3_depfile_haskell) : $(COMPILER_INCLUDES_DEPS)
 
 # Every PrimOp.o object file depends on $(PRIMOP_BITS):
 $(eval $(call compiler-hs-dependency,PrimOp,$(PRIMOP_BITS)))
 
 # GHC itself doesn't know about the above dependencies, so we have to
-# switch off the recompilation checker for those modules:
+# switch off the recompilation checker for that module:
 compiler/prelude/PrimOp_HC_OPTS  += -fforce-recomp
-compiler/main/Constants_HC_OPTS  += -fforce-recomp
 
 # LibFFI.hs #includes ffi.h
 compiler/stage2/build/LibFFI.hs : $(libffi_HEADERS)

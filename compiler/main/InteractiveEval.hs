@@ -76,11 +76,7 @@ import Data.Dynamic
 import Data.Either
 import Data.List (find)
 import Control.Monad
-#if __GLASGOW_HASKELL__ >= 701
 import Foreign.Safe
-#else
-import Foreign hiding (unsafePerformIO)
-#endif
 import Foreign.C
 import GHC.Exts
 import Data.Array
@@ -351,7 +347,8 @@ isBreakEnabled :: HscEnv -> BreakInfo -> IO Bool
 isBreakEnabled hsc_env inf =
    case lookupUFM (hsc_HPT hsc_env) (moduleName (breakInfo_module inf)) of
        Just hmi -> do
-         w <- getBreak (modBreaks_flags (getModBreaks hmi))
+         w <- getBreak (hsc_dflags hsc_env)
+                       (modBreaks_flags (getModBreaks hmi))
                        (breakInfo_number inf)
          case w of Just n -> return (n /= 0); _other -> return False
        _ ->

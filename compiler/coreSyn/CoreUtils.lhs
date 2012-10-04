@@ -10,7 +10,7 @@ Utility functions on @Core@ syntax
 module CoreUtils (
         -- * Constructing expressions
         mkCast,
-        mkTick, mkTickNoHNF,
+        mkTick, mkTickNoHNF, tickHNFArgs,
         bindNonRec, needsCaseBinding,
         mkAltExpr,
 
@@ -64,8 +64,10 @@ import TyCon
 import Unique
 import Outputable
 import TysPrim
+import DynFlags
 import FastString
 import Maybes
+import Platform
 import Util
 import Pair
 import Data.Word
@@ -601,8 +603,8 @@ Note [exprIsDupable]
 
 
 \begin{code}
-exprIsDupable :: CoreExpr -> Bool
-exprIsDupable e
+exprIsDupable :: DynFlags -> CoreExpr -> Bool
+exprIsDupable dflags e
   = isJust (go dupAppSize e)
   where
     go :: Int -> CoreExpr -> Maybe Int
@@ -612,7 +614,7 @@ exprIsDupable e
     go n (Tick _ e)    = go n e
     go n (Cast e _)    = go n e
     go n (App f a) | Just n' <- go n a = go n' f
-    go n (Lit lit) | litIsDupable lit = decrement n
+    go n (Lit lit) | litIsDupable dflags lit = decrement n
     go _ _ = Nothing
 
     decrement :: Int -> Maybe Int
@@ -1457,9 +1459,9 @@ exprSize :: CoreExpr -> Int
 exprSize (Var v)         = v `seq` 1
 exprSize (Lit lit)       = lit `seq` 1
 exprSize (App f a)       = exprSize f + exprSize a
-exprSize (Lam b e)       = varSize b + exprSize e
+exprSize (Lam b e)       = bndrSize b + exprSize e
 exprSize (Let b e)       = bindSize b + exprSize e
-exprSize (Case e b t as) = seqType t `seq` exprSize e + varSize b + 1 + foldr ((+) . altSize) 0 as
+exprSize (Case e b t as) = seqType t `seq` exprSize e + bndrSize b + 1 + foldr ((+) . altSize) 0 as
 exprSize (Cast e co)     = (seqCo co `seq` 1) + exprSize e
 exprSize (Tick n e)      = tickSize n + exprSize e
 exprSize (Type t)        = seqType t `seq` 1
@@ -1469,24 +1471,24 @@ tickSize :: Tickish Id -> Int
 tickSize (ProfNote cc _ _) = cc `seq` 1
 tickSize _ = 1 -- the rest are strict
 
-varSize :: Var -> Int
-varSize b  | isTyVar b = 1
+bndrSize :: Var -> Int
+bndrSize b | isTyVar b = seqType (tyVarKind b) `seq` 1
            | otherwise = seqType (idType b)             `seq`
                          megaSeqIdInfo (idInfo b)       `seq`
                          1
 
-varsSize :: [Var] -> Int
-varsSize = sum . map varSize
+bndrsSize :: [Var] -> Int
+bndrsSize = sum . map bndrSize
 
 bindSize :: CoreBind -> Int
-bindSize (NonRec b e) = varSize b + exprSize e
+bindSize (NonRec b e) = bndrSize b + exprSize e
 bindSize (Rec prs)    = foldr ((+) . pairSize) 0 prs
 
 pairSize :: (Var, CoreExpr) -> Int
-pairSize (b,e) = varSize b + exprSize e
+pairSize (b,e) = bndrSize b + exprSize e
 
 altSize :: CoreAlt -> Int
-altSize (c,bs,e) = c `seq` varsSize bs + exprSize e
+altSize (c,bs,e) = c `seq` bndrsSize bs + exprSize e
 \end{code}
 
 
@@ -1733,7 +1735,7 @@ and 'execute' it rather than allocating it statically.
 -- | This function is called only on *top-level* right-hand sides.
 -- Returns @True@ if the RHS can be allocated statically in the output,
 -- with no thunks involved at all.
-rhsIsStatic :: (Name -> Bool) -> CoreExpr -> Bool
+rhsIsStatic :: Platform -> (Name -> Bool) -> CoreExpr -> Bool
 -- It's called (i) in TidyPgm.hasCafRefs to decide if the rhs is, or
 -- refers to, CAFs; (ii) in CoreToStg to decide whether to put an
 -- update flag on it and (iii) in DsExpr to decide how to expand
@@ -1788,7 +1790,7 @@ rhsIsStatic :: (Name -> Bool) -> CoreExpr -> Bool
 --
 --    c) don't look through unfolding of f in (f x).
 
-rhsIsStatic _is_dynamic_name rhs = is_static False rhs
+rhsIsStatic platform is_dynamic_name rhs = is_static False rhs
   where
   is_static :: Bool     -- True <=> in a constructor argument; must be atomic
             -> CoreExpr -> Bool
@@ -1813,9 +1815,8 @@ rhsIsStatic _is_dynamic_name rhs = is_static False rhs
   is_static in_arg other_expr = go other_expr 0
    where
     go (Var f) n_val_args
-#if mingw32_TARGET_OS
-        | not (_is_dynamic_name (idName f))
-#endif
+        | (platformOS platform /= OSMinGW32) ||
+          not (is_dynamic_name (idName f))
         =  saturated_data_con f n_val_args
         || (in_arg && n_val_args == 0)
                 -- A naked un-applied variable is *not* deemed a static RHS

@@ -28,11 +28,11 @@ void abortEventLogging(void); // #4512 - after fork child needs to abort
 void flushEventLog(void);     // event log inherited from parent
 void moreCapEventBufs (nat from, nat to);
 
-/* 
+/*
  * Post a scheduler event to the capability's event buffer (an event
  * that has an associated thread).
  */
-void postSchedEvent(Capability *cap, EventTypeNum tag, 
+void postSchedEvent(Capability *cap, EventTypeNum tag,
                     StgThreadID id, StgWord info1, StgWord info2);
 
 /*
@@ -40,7 +40,7 @@ void postSchedEvent(Capability *cap, EventTypeNum tag,
  */
 void postEvent(Capability *cap, EventTypeNum tag);
 
-void postEventAtTimestamp (Capability *cap, EventTimestamp ts, 
+void postEventAtTimestamp (Capability *cap, EventTimestamp ts,
                            EventTypeNum tag);
 
 void postMsg(char *msg, va_list ap);
@@ -81,7 +81,7 @@ void postCapsetVecEvent (EventTypeNum tag,
 
 void postWallClockTime (EventCapsetID capset);
 
-/* 
+/*
  * Post a `par` spark event
  */
 void postSparkEvent(Capability *cap, EventTypeNum tag, StgWord info1);
@@ -89,7 +89,7 @@ void postSparkEvent(Capability *cap, EventTypeNum tag, StgWord info1);
 /*
  * Post an event with several counters relating to `par` sparks.
  */
-void postSparkCountersEvent (Capability *cap, 
+void postSparkCountersEvent (Capability *cap,
                              SparkCounters counters,
                              StgWord remaining);
 
@@ -106,24 +106,34 @@ void postThreadLabel(Capability    *cap,
 void postHeapEvent (Capability    *cap,
                     EventTypeNum   tag,
                     EventCapsetID  heap_capset,
-                    lnat           info1);
+                    W_           info1);
 
 void postEventHeapInfo (EventCapsetID heap_capset,
                         nat           gens,
-                        lnat          maxHeapSize,
-                        lnat          allocAreaSize,
-                        lnat          mblockSize,
-                        lnat          blockSize);
+                        W_          maxHeapSize,
+                        W_          allocAreaSize,
+                        W_          mblockSize,
+                        W_          blockSize);
 
 void postEventGcStats  (Capability    *cap,
                         EventCapsetID  heap_capset,
                         nat            gen,
-                        lnat           copied,
-                        lnat           slop,
-                        lnat           fragmentation,
+                        W_           copied,
+                        W_           slop,
+                        W_           fragmentation,
                         nat            par_n_threads,
-                        lnat           par_max_copied,
-                        lnat           par_tot_copied);
+                        W_           par_max_copied,
+                        W_           par_tot_copied);
+
+void postTaskCreateEvent (EventTaskId taskId,
+                          EventCapNo cap,
+                          EventKernelThreadId tid);
+
+void postTaskMigrateEvent (EventTaskId taskId,
+                           EventCapNo capno,
+                           EventCapNo new_capno);
+
+void postTaskDeleteEvent (EventTaskId taskId);
 
 #else /* !TRACING */
 
@@ -138,12 +148,12 @@ INLINE_HEADER void postEvent (Capability *cap  STG_UNUSED,
                               EventTypeNum tag STG_UNUSED)
 { /* nothing */ }
 
-INLINE_HEADER void postMsg (char *msg STG_UNUSED, 
+INLINE_HEADER void postMsg (char *msg STG_UNUSED,
                             va_list ap STG_UNUSED)
 { /* nothing */ }
 
 INLINE_HEADER void postCapMsg (Capability *cap STG_UNUSED,
-                               char *msg STG_UNUSED, 
+                               char *msg STG_UNUSED,
                                va_list ap STG_UNUSED)
 { /* nothing */ }
 
@@ -152,7 +162,7 @@ INLINE_HEADER void postThreadLabel(Capability    *cap   STG_UNUSED,
                                    EventThreadID  id    STG_UNUSED,
                                    char          *label STG_UNUSED)
 { /* nothing */ }
-                                   
+
 #endif
 
 #include "EndPrivate.h"

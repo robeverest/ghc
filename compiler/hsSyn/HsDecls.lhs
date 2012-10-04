@@ -435,7 +435,13 @@ data TyClDecl name
 
   | -- | @type/data declaration
     TyDecl { tcdLName  :: Located name            -- ^ Type constructor
-           , tcdTyVars :: LHsTyVarBndrs name
+           , tcdTyVars :: LHsTyVarBndrs name      -- ^ Type variables; for an associated type
+                                                  --   these include outer binders
+                                                  -- Eg  class T a where
+                                                  --       type F a :: *
+                                                  --       type F a = a -> a
+                                                  -- Here the type decl for 'f' includes 'a' 
+                                                  -- in its tcdTyVars
            , tcdTyDefn :: HsTyDefn name
            , tcdFVs    :: NameSet }
 
@@ -794,9 +800,10 @@ pprConDecl (ConDecl { con_name = con, con_explicit = expl, con_qvars = tvs
   = sep [ppr con <+> dcolon <+> pprHsForAll expl tvs cxt, 
          pprConDeclFields fields <+> arrow <+> ppr res_ty]
 
-pprConDecl (ConDecl {con_name = con, con_details = InfixCon {}, con_res = ResTyGADT {} })
-  = pprPanic "pprConDecl" (ppr con)
+pprConDecl decl@(ConDecl { con_details = InfixCon ty1 ty2, con_res = ResTyGADT {} })
+  = pprConDecl (decl { con_details = PrefixCon [ty1,ty2] })
         -- In GADT syntax we don't allow infix constructors
+        -- but the renamer puts them in this form (Note [Infix GADT constructors] in RnSource)
 \end{code}
 
 %************************************************************************
@@ -811,6 +818,7 @@ data FamInstDecl name
   = FamInstDecl
        { fid_tycon :: Located name
        , fid_pats  :: HsWithBndrs [LHsType name]  -- ^ Type patterns (with kind and type bndrs)
+                                                  -- See Note [Family instance declaration binders]
        , fid_defn  :: HsTyDefn name               -- Type or data family instance
        , fid_fvs   :: NameSet  } 
   deriving( Typeable, Data )

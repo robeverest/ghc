@@ -13,6 +13,7 @@ where
 import Reg
 
 import BlockId
+import DynFlags
 import OldCmm
 import Platform
 
@@ -39,13 +40,13 @@ noUsage  = RU [] []
 type NatCmm instr
         = GenCmmGroup
                 CmmStatics
-                (Maybe CmmStatics)
+                (BlockEnv CmmStatics)
                 (ListGraph instr)
 
 type NatCmmDecl statics instr
         = GenCmmDecl
                 statics
-                (Maybe CmmStatics)
+                (BlockEnv CmmStatics)
                 (ListGraph instr)
 
 
@@ -68,7 +69,8 @@ class   Instruction instr where
         --      allocation goes, are taken care of by the register allocator.
         --
         regUsageOfInstr
-                :: instr
+                :: Platform
+                -> instr
                 -> RegUsage
 
 
@@ -104,7 +106,7 @@ class   Instruction instr where
 
         -- | An instruction to spill a register into a spill slot.
         mkSpillInstr
-                :: Platform
+                :: DynFlags
                 -> Reg          -- ^ the reg to spill
                 -> Int          -- ^ the current stack delta
                 -> Int          -- ^ spill slot to use
@@ -113,7 +115,7 @@ class   Instruction instr where
 
         -- | An instruction to reload a register from a spill slot.
         mkLoadInstr
-                :: Platform
+                :: DynFlags
                 -> Reg          -- ^ the reg to reload.
                 -> Int          -- ^ the current stack delta
                 -> Int          -- ^ the spill slot to use
@@ -161,3 +163,16 @@ class   Instruction instr where
                 -> [instr]
 
 
+        -- Subtract an amount from the C stack pointer
+        mkStackAllocInstr
+                :: Platform  -- TODO: remove (needed by x86/x86_64
+                             -- because they share an Instr type)
+                -> Int
+                -> instr
+
+        -- Add an amount to the C stack pointer
+        mkStackDeallocInstr
+                :: Platform  -- TODO: remove (needed by x86/x86_64
+                             -- because they share an Instr type)
+                -> Int
+                -> instr

@@ -22,6 +22,7 @@ import StgCmmEnv
 import StgCmmMonad
 import StgCmmUtils
 import StgCmmClosure
+import StgCmmLayout
 
 import BlockId
 import Cmm
@@ -33,27 +34,40 @@ import TysPrim
 import CLabel
 import SMRep
 import ForeignCall
-import Constants
-import StaticFlags
+import DynFlags
 import Maybes
 import Outputable
 import BasicTypes
 
 import Control.Monad
+import Prelude hiding( succ )
 
 -----------------------------------------------------------------------------
 -- Code generation for Foreign Calls
 -----------------------------------------------------------------------------
 
-cgForeignCall :: [LocalReg]             -- r1,r2  where to put the results
-              -> [ForeignHint]
-              -> ForeignCall            -- the op
+-- | emit code for a foreign call, and return the results to the sequel.
+--
+cgForeignCall :: ForeignCall            -- the op
               -> [StgArg]               -- x,y    arguments
-              -> FCode ()
--- Emits code for an unsafe foreign call:      r1, r2 = foo( x, y, z )
+              -> Type                   -- result type
+              -> FCode ReturnKind
 
-cgForeignCall results result_hints (CCall (CCallSpec target cconv safety)) stg_args
-  = do  { cmm_args <- getFCallArgs stg_args
+cgForeignCall (CCall (CCallSpec target cconv safety)) stg_args res_ty
+  = do  { dflags <- getDynFlags
+        ; let -- in the stdcall calling convention, the symbol needs @size appended
+              -- to it, where size is the total number of bytes of arguments.  We
+              -- attach this info to the CLabel here, and the CLabel pretty printer
+              -- will generate the suffix when the label is printed.
+            call_size args
+              | StdCallConv <- cconv = Just (sum (map arg_size args))
+              | otherwise            = Nothing
+
+              -- ToDo: this might not be correct for 64-bit API
+            arg_size (arg, _) = max (widthInBytes $ typeWidth $ cmmExprType dflags arg)
+                                     (wORD_SIZE dflags)
+        ; cmm_args <- getFCallArgs stg_args
+        ; (res_regs, res_hints) <- newUnboxedTupleRegs res_ty
         ; let ((call_args, arg_hints), cmm_target)
                 = case target of
                    StaticTarget _   _      False ->
@@ -63,7 +77,7 @@ cgForeignCall results result_hints (CCall (CCallSpec target cconv safety)) stg_a
                                 = case mPkgId of
                                         Nothing         -> ForeignLabelInThisPackage
                                         Just pkgId      -> ForeignLabelInPackage pkgId
-                            size        = call_size cmm_args
+                            size = call_size cmm_args
                         in  ( unzip cmm_args
                             , CmmLit (CmmLabel
                                         (mkForeignLabel lbl size labelSource IsFunction)))
@@ -71,33 +85,105 @@ cgForeignCall results result_hints (CCall (CCallSpec target cconv safety)) stg_a
                    DynamicTarget    ->  case cmm_args of
                                            (fn,_):rest -> (unzip rest, fn)
                                            [] -> panic "cgForeignCall []"
-              fc = ForeignConvention cconv arg_hints result_hints
+              fc = ForeignConvention cconv arg_hints res_hints
               call_target = ForeignTarget cmm_target fc
 
-        ; srt <- getSRTInfo NoSRT        -- SLPJ: Not sure what SRT
-                                        -- is right here
-                                        -- JD: Does it matter in the new codegen?
-        ; emitForeignCall safety results call_target call_args srt CmmMayReturn }
-  where
-        -- in the stdcall calling convention, the symbol needs @size appended
-        -- to it, where size is the total number of bytes of arguments.  We
-        -- attach this info to the CLabel here, and the CLabel pretty printer
-        -- will generate the suffix when the label is printed.
-      call_size args
-        | StdCallConv <- cconv = Just (sum (map arg_size args))
-        | otherwise            = Nothing
+        -- we want to emit code for the call, and then emitReturn.
+        -- However, if the sequel is AssignTo, we shortcut a little
+        -- and generate a foreign call that assigns the results
+        -- directly.  Otherwise we end up generating a bunch of
+        -- useless "r = r" assignments, which are not merely annoying:
+        -- they prevent the common block elimination from working correctly
+        -- in the case of a safe foreign call.
+        -- See Note [safe foreign call convention]
+        --
+        ; sequel <- getSequel
+        ; case sequel of
+            AssignTo assign_to_these _ ->
+                emitForeignCall safety assign_to_these call_target
+                                     call_args CmmMayReturn
 
-        -- ToDo: this might not be correct for 64-bit API
-      arg_size (arg, _) = max (widthInBytes $ typeWidth $ cmmExprType arg) wORD_SIZE
+            _something_else ->
+                do { _ <- emitForeignCall safety res_regs call_target
+                                     call_args CmmMayReturn
+                   ; emitReturn (map (CmmReg . CmmLocal) res_regs)
+                   }
+         }
+
+{- Note [safe foreign call convention]
+
+The simple thing to do for a safe foreign call would be the same as an
+unsafe one: just
+
+    emitForeignCall ...
+    emitReturn ...
+
+but consider what happens in this case
+
+   case foo x y z of
+     (# s, r #) -> ...
+
+The sequel is AssignTo [r].  The call to newUnboxedTupleRegs picks [r]
+as the result reg, and we generate
+
+  r = foo(x,y,z) returns to L1  -- emitForeignCall
+ L1:
+  r = r  -- emitReturn
+  goto L2
+L2:
+  ...
+
+Now L1 is a proc point (by definition, it is the continuation of the
+safe foreign call).  If L2 does a heap check, then L2 will also be a
+proc point.
+
+Furthermore, the stack layout algorithm has to arrange to save r
+somewhere between the call and the jump to L1, which is annoying: we
+would have to treat r differently from the other live variables, which
+have to be saved *before* the call.
+
+So we adopt a special convention for safe foreign calls: the results
+are copied out according to the NativeReturn convention by the call,
+and the continuation of the call should copyIn the results.  (The
+copyOut code is actually inserted when the safe foreign call is
+lowered later).  The result regs attached to the safe foreign call are
+only used temporarily to hold the results before they are copied out.
+
+We will now generate this:
+
+  r = foo(x,y,z) returns to L1
+ L1:
+  r = R1  -- copyIn, inserted by mkSafeCall
+  goto L2
+ L2:
+  ... r ...
+
+And when the safe foreign call is lowered later (see Note [lower safe
+foreign calls]) we get this:
+
+  suspendThread()
+  r = foo(x,y,z)
+  resumeThread()
+  R1 = r  -- copyOut, inserted by lowerSafeForeignCall
+  jump L1
+ L1:
+  r = R1  -- copyIn, inserted by mkSafeCall
+  goto L2
+ L2:
+  ... r ...
+
+Now consider what happens if L2 does a heap check: the Adams
+optimisation kicks in and commons up L1 with the heap-check
+continuation, resulting in just one proc point instead of two. Yay!
+-}
+
 
 emitCCall :: [(CmmFormal,ForeignHint)]
           -> CmmExpr
           -> [(CmmActual,ForeignHint)]
           -> FCode ()
 emitCCall hinted_results fn hinted_args
-  = emitForeignCall PlayRisky results target args
-                    NoC_SRT -- No SRT b/c we PlayRisky
-                    CmmMayReturn
+  = void $ emitForeignCall PlayRisky results target args CmmMayReturn
   where
     (args, arg_hints) = unzip hinted_args
     (results, result_hints) = unzip hinted_results
@@ -107,7 +193,7 @@ emitCCall hinted_results fn hinted_args
 
 emitPrimCall :: [CmmFormal] -> CallishMachOp -> [CmmActual] -> FCode ()
 emitPrimCall res op args
-  = emitForeignCall PlayRisky res (PrimTarget op) args NoC_SRT CmmMayReturn
+  = void $ emitForeignCall PlayRisky res (PrimTarget op) args CmmMayReturn
 
 -- alternative entry point, used by CmmParse
 emitForeignCall
@@ -115,21 +201,38 @@ emitForeignCall
         -> [CmmFormal]          -- where to put the results
         -> ForeignTarget        -- the op
         -> [CmmActual]          -- arguments
-        -> C_SRT                -- the SRT of the calls continuation
         -> CmmReturnInfo        -- This can say "never returns"
                                 --   only RTS procedures do this
-        -> FCode ()
-emitForeignCall safety results target args _srt _ret
+        -> FCode ReturnKind
+emitForeignCall safety results target args _ret
   | not (playSafe safety) = do
-    let (caller_save, caller_load) = callerSaveVolatileRegs
+    dflags <- getDynFlags
+    let (caller_save, caller_load) = callerSaveVolatileRegs dflags
     emit caller_save
     emit $ mkUnsafeCall target results args
     emit caller_load
+    return AssignedDirectly
 
   | otherwise = do
+    dflags <- getDynFlags
     updfr_off <- getUpdFrameOff
     temp_target <- load_target_into_temp target
-    emit $ mkSafeCall temp_target results args updfr_off (playInterruptible safety)
+    k <- newLabelC
+    let (off, copyout) = copyInOflow dflags NativeReturn (Young k) results
+       -- see Note [safe foreign call convention]
+    emit $
+           (    mkStore (CmmStackSlot (Young k) (widthInBytes (wordWidth dflags)))
+                        (CmmLit (CmmBlock k))
+            <*> mkLast (CmmForeignCall { tgt  = temp_target
+                                       , res  = results
+                                       , args = args
+                                       , succ = k
+                                       , updfr = updfr_off
+                                       , intrbl = playInterruptible safety })
+            <*> mkLabel k
+            <*> copyout
+           )
+    return (ReturnedTo k off)
 
 
 {-
@@ -158,11 +261,12 @@ maybe_assign_temp :: CmmExpr -> FCode CmmExpr
 maybe_assign_temp e
   | hasNoGlobalRegs e = return e
   | otherwise         = do
+        dflags <- getDynFlags
         -- don't use assignTemp, it uses its own notion of "trivial"
         -- expressions, which are wrong here.
         -- this is a NonPtr because it only duplicates an existing
-        reg <- newTemp (cmmExprType e) --TODO FIXME NOW
-        emit (mkAssign (CmmLocal reg) e)
+        reg <- newTemp (cmmExprType dflags e) --TODO FIXME NOW
+        emitAssign (CmmLocal reg) e
         return (CmmReg (CmmLocal reg))
 
 -- -----------------------------------------------------------------------------
@@ -171,90 +275,94 @@ maybe_assign_temp e
 -- This stuff can't be done in suspendThread/resumeThread, because it
 -- refers to global registers which aren't available in the C world.
 
-saveThreadState :: CmmAGraph
-saveThreadState =
+saveThreadState :: DynFlags -> CmmAGraph
+saveThreadState dflags =
   -- CurrentTSO->stackobj->sp = Sp;
-  mkStore (cmmOffset (CmmLoad (cmmOffset stgCurrentTSO tso_stackobj) bWord) stack_SP) stgSp
-  <*> closeNursery
+  mkStore (cmmOffset dflags (CmmLoad (cmmOffset dflags stgCurrentTSO (tso_stackobj dflags)) (bWord dflags)) (stack_SP dflags)) stgSp
+  <*> closeNursery dflags
   -- and save the current cost centre stack in the TSO when profiling:
-  <*> if opt_SccProfilingOn then
-        mkStore (cmmOffset stgCurrentTSO tso_CCCS) curCCS
+  <*> if dopt Opt_SccProfilingOn dflags then
+        mkStore (cmmOffset dflags stgCurrentTSO (tso_CCCS dflags)) curCCS
       else mkNop
 
 emitSaveThreadState :: BlockId -> FCode ()
 emitSaveThreadState bid = do
+  dflags <- getDynFlags
+
   -- CurrentTSO->stackobj->sp = Sp;
-  emit $ mkStore (cmmOffset (CmmLoad (cmmOffset stgCurrentTSO tso_stackobj) bWord) stack_SP)
-                 (CmmStackSlot (CallArea (Young bid)) (widthInBytes (typeWidth gcWord)))
-  emit closeNursery
+  emitStore (cmmOffset dflags (CmmLoad (cmmOffset dflags stgCurrentTSO (tso_stackobj dflags)) (bWord dflags)) (stack_SP dflags))
+                 (CmmStackSlot (Young bid) (widthInBytes (typeWidth (gcWord dflags))))
+  emit $ closeNursery dflags
   -- and save the current cost centre stack in the TSO when profiling:
-  when opt_SccProfilingOn $
-        emit (mkStore (cmmOffset stgCurrentTSO tso_CCCS) curCCS)
+  when (dopt Opt_SccProfilingOn dflags) $
+        emitStore (cmmOffset dflags stgCurrentTSO (tso_CCCS dflags)) curCCS
 
    -- CurrentNursery->free = Hp+1;
-closeNursery :: CmmAGraph
-closeNursery = mkStore nursery_bdescr_free (cmmOffsetW stgHp 1)
+closeNursery :: DynFlags -> CmmAGraph
+closeNursery dflags = mkStore (nursery_bdescr_free dflags) (cmmOffsetW dflags stgHp 1)
 
-loadThreadState :: LocalReg -> LocalReg -> CmmAGraph
-loadThreadState tso stack = do
-  -- tso <- newTemp gcWord -- TODO FIXME NOW
-  -- stack <- newTemp gcWord -- TODO FIXME NOW
+loadThreadState :: DynFlags -> LocalReg -> LocalReg -> CmmAGraph
+loadThreadState dflags tso stack = do
+  -- tso <- newTemp (gcWord dflags) -- TODO FIXME NOW
+  -- stack <- newTemp (gcWord dflags) -- TODO FIXME NOW
   catAGraphs [
         -- tso = CurrentTSO;
         mkAssign (CmmLocal tso) stgCurrentTSO,
         -- stack = tso->stackobj;
-        mkAssign (CmmLocal stack) (CmmLoad (cmmOffset (CmmReg (CmmLocal tso)) tso_stackobj) bWord),
+        mkAssign (CmmLocal stack) (CmmLoad (cmmOffset dflags (CmmReg (CmmLocal tso)) (tso_stackobj dflags)) (bWord dflags)),
         -- Sp = stack->sp;
-        mkAssign sp (CmmLoad (cmmOffset (CmmReg (CmmLocal stack)) stack_SP) bWord),
+        mkAssign sp (CmmLoad (cmmOffset dflags (CmmReg (CmmLocal stack)) (stack_SP dflags)) (bWord dflags)),
         -- SpLim = stack->stack + RESERVED_STACK_WORDS;
-        mkAssign spLim (cmmOffsetW (cmmOffset (CmmReg (CmmLocal stack)) stack_STACK)
-                                    rESERVED_STACK_WORDS),
-        openNursery,
+        mkAssign spLim (cmmOffsetW dflags (cmmOffset dflags (CmmReg (CmmLocal stack)) (stack_STACK dflags))
+                                    (rESERVED_STACK_WORDS dflags)),
+        openNursery dflags,
         -- and load the current cost centre stack from the TSO when profiling:
-        if opt_SccProfilingOn then
+        if dopt Opt_SccProfilingOn dflags then
           storeCurCCS
-            (CmmLoad (cmmOffset (CmmReg (CmmLocal tso)) tso_CCCS) ccsType)
+            (CmmLoad (cmmOffset dflags (CmmReg (CmmLocal tso)) (tso_CCCS dflags)) (ccsType dflags))
         else mkNop]
 emitLoadThreadState :: LocalReg -> LocalReg -> FCode ()
-emitLoadThreadState tso stack = emit $ loadThreadState tso stack
+emitLoadThreadState tso stack = do dflags <- getDynFlags
+                                   emit $ loadThreadState dflags tso stack
 
-openNursery :: CmmAGraph
-openNursery = catAGraphs [
+openNursery :: DynFlags -> CmmAGraph
+openNursery dflags = catAGraphs [
         -- Hp = CurrentNursery->free - 1;
-        mkAssign hp (cmmOffsetW (CmmLoad nursery_bdescr_free bWord) (-1)),
+        mkAssign hp (cmmOffsetW dflags (CmmLoad (nursery_bdescr_free dflags) (bWord dflags)) (-1)),
 
         -- HpLim = CurrentNursery->start +
         --              CurrentNursery->blocks*BLOCK_SIZE_W - 1;
         mkAssign hpLim
-            (cmmOffsetExpr
-                (CmmLoad nursery_bdescr_start bWord)
-                (cmmOffset
-                  (CmmMachOp mo_wordMul [
-                    CmmMachOp (MO_SS_Conv W32 wordWidth)
-                      [CmmLoad nursery_bdescr_blocks b32],
-                    CmmLit (mkIntCLit bLOCK_SIZE)
+            (cmmOffsetExpr dflags
+                (CmmLoad (nursery_bdescr_start dflags) (bWord dflags))
+                (cmmOffset dflags
+                  (CmmMachOp (mo_wordMul dflags) [
+                    CmmMachOp (MO_SS_Conv W32 (wordWidth dflags))
+                      [CmmLoad (nursery_bdescr_blocks dflags) b32],
+                    mkIntExpr dflags (bLOCK_SIZE dflags)
                    ])
                   (-1)
                 )
             )
    ]
 emitOpenNursery :: FCode ()
-emitOpenNursery = emit openNursery
+emitOpenNursery = do dflags <- getDynFlags
+                     emit $ openNursery dflags
 
-nursery_bdescr_free, nursery_bdescr_start, nursery_bdescr_blocks :: CmmExpr
-nursery_bdescr_free   = cmmOffset stgCurrentNursery oFFSET_bdescr_free
-nursery_bdescr_start  = cmmOffset stgCurrentNursery oFFSET_bdescr_start
-nursery_bdescr_blocks = cmmOffset stgCurrentNursery oFFSET_bdescr_blocks
+nursery_bdescr_free, nursery_bdescr_start, nursery_bdescr_blocks :: DynFlags -> CmmExpr
+nursery_bdescr_free   dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_free dflags)
+nursery_bdescr_start  dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_start dflags)
+nursery_bdescr_blocks dflags = cmmOffset dflags stgCurrentNursery (oFFSET_bdescr_blocks dflags)
 
-tso_stackobj, tso_CCCS, stack_STACK, stack_SP :: ByteOff
-tso_stackobj = closureField oFFSET_StgTSO_stackobj
-tso_CCCS     = closureField oFFSET_StgTSO_cccs
-stack_STACK  = closureField oFFSET_StgStack_stack
-stack_SP     = closureField oFFSET_StgStack_sp
+tso_stackobj, tso_CCCS, stack_STACK, stack_SP :: DynFlags -> ByteOff
+tso_stackobj dflags = closureField dflags (oFFSET_StgTSO_stackobj dflags)
+tso_CCCS     dflags = closureField dflags (oFFSET_StgTSO_cccs dflags)
+stack_STACK  dflags = closureField dflags (oFFSET_StgStack_stack dflags)
+stack_SP     dflags = closureField dflags (oFFSET_StgStack_sp dflags)
 
 
-closureField :: ByteOff -> ByteOff
-closureField off = off + fixedHdrSize * wORD_SIZE
+closureField :: DynFlags -> ByteOff -> ByteOff
+closureField dflags off = off + fixedHdrSize dflags * wORD_SIZE dflags
 
 stgSp, stgHp, stgCurrentTSO, stgCurrentNursery :: CmmExpr
 stgSp             = CmmReg sp
@@ -288,19 +396,20 @@ getFCallArgs args
             = return Nothing
             | otherwise
             = do { cmm <- getArgAmode (NonVoid arg)
-                 ; return (Just (add_shim arg_ty cmm, hint)) }
+                 ; dflags <- getDynFlags
+                 ; return (Just (add_shim dflags arg_ty cmm, hint)) }
             where
               arg_ty  = stgArgType arg
               arg_rep = typePrimRep arg_ty
               hint    = typeForeignHint arg_ty
 
-add_shim :: Type -> CmmExpr -> CmmExpr
-add_shim arg_ty expr
+add_shim :: DynFlags -> Type -> CmmExpr -> CmmExpr
+add_shim dflags arg_ty expr
   | tycon == arrayPrimTyCon || tycon == mutableArrayPrimTyCon
-  = cmmOffsetB expr arrPtrsHdrSize
+  = cmmOffsetB dflags expr (arrPtrsHdrSize dflags)
 
   | tycon == byteArrayPrimTyCon || tycon == mutableByteArrayPrimTyCon
-  = cmmOffsetB expr arrWordsHdrSize
+  = cmmOffsetB dflags expr (arrWordsHdrSize dflags)
 
   | otherwise = expr
   where

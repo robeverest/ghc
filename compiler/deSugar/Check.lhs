@@ -445,7 +445,7 @@ get_lit :: Pat id -> Maybe HsLit
 get_lit (LitPat lit)                                      = Just lit
 get_lit (NPat (OverLit { ol_val = HsIntegral i})    mb _) = Just (HsIntPrim   (mb_neg negate              mb i))
 get_lit (NPat (OverLit { ol_val = HsFractional f }) mb _) = Just (HsFloatPrim (mb_neg negateFractionalLit mb f))
-get_lit (NPat (OverLit { ol_val = HsIsString s })   _  _) = Just (HsStringPrim s)
+get_lit (NPat (OverLit { ol_val = HsIsString s })   _  _) = Just (HsStringPrim (fastStringToFastBytes s))
 get_lit _                                                 = Nothing
 
 mb_neg :: (a -> a) -> Maybe b -> a -> a
@@ -529,7 +529,7 @@ similar) at the same time that we create the constructors.
 
 You can tell tuple constructors using
 \begin{verbatim}
-        Id.isTupleCon
+        Id.isTupleDataCon
 \end{verbatim}
 You can see if one constructor is infix with this clearer code :-))))))))))
 \begin{verbatim}

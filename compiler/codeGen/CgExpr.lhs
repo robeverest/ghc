@@ -15,7 +15,6 @@ module CgExpr ( cgExpr ) where
 
 #include "HsVersions.h"
 
-import Constants
 import StgSyn
 import CgMonad
 
@@ -48,8 +47,8 @@ import Maybes
 import ListSetOps
 import BasicTypes
 import Util
+import DynFlags
 import Outputable
-import StaticFlags
 \end{code}
 
 This module provides the support code for @StgToAbstractC@ to deal
@@ -117,6 +116,7 @@ re-enters the RTS the stack is in a sane state.
 
 \begin{code}
 cgExpr (StgOpApp (StgFCallOp fcall _) stg_args res_ty) = do
+    dflags <- getDynFlags
     {-
 	First, copy the args into temporaries.  We're going to push
 	a return address right before doing the call, so the args
@@ -125,7 +125,7 @@ cgExpr (StgOpApp (StgFCallOp fcall _) stg_args res_ty) = do
     reps_n_amodes <- getArgAmodes stg_args
     let 
 	-- Get the *non-void* args, and jiggle them with shimForeignCall
-	arg_exprs = [ (shimForeignCallArg stg_arg expr, stg_arg)
+	arg_exprs = [ (shimForeignCallArg dflags stg_arg expr, stg_arg)
 		    | (stg_arg, (rep,expr)) <- stg_args `zip` reps_n_amodes, 
 		      nonVoidArg rep]
 
@@ -145,10 +145,11 @@ cgExpr (StgOpApp (StgFCallOp fcall _) stg_args res_ty) = do
 
 cgExpr (StgOpApp (StgPrimOp TagToEnumOp) [arg] res_ty) 
   = ASSERT(isEnumerationTyCon tycon)
-    do	{ (_rep,amode) <- getArgAmode arg
+    do	{ dflags <- getDynFlags
+        ; (_rep,amode) <- getArgAmode arg
 	; amode' <- assignTemp amode	-- We're going to use it twice,
 					-- so save in a temp if non-trivial
-	; stmtC (CmmAssign nodeReg (tagToClosure tycon amode'))
+	; stmtC (CmmAssign nodeReg (tagToClosure dflags tycon amode'))
 	; performReturn $ emitReturnInstr (Just [node]) }
    where
 	  -- If you're reading this code in the attempt to figure
@@ -176,7 +177,8 @@ cgExpr (StgOpApp (StgPrimOp primop) args res_ty)
 	     performReturn $ emitReturnInstr (Just [])
 
   | ReturnsPrim rep <- result_info
-	= do res <- newTemp (typeCmmType res_ty)
+        = do dflags <- getDynFlags
+             res <- newTemp (typeCmmType dflags res_ty)
              cgPrimOp [res] primop args emptyVarSet
 	     performPrimReturn (primRepToCgRep rep) (CmmReg (CmmLocal res))
 
@@ -187,10 +189,11 @@ cgExpr (StgOpApp (StgPrimOp primop) args res_ty)
 
   | ReturnsAlg tycon <- result_info, isEnumerationTyCon tycon
 	-- c.f. cgExpr (...TagToEnumOp...)
-	= do tag_reg <- newTemp bWord	-- The tag is a word
+	= do dflags <- getDynFlags
+	     tag_reg <- newTemp (bWord dflags) -- The tag is a word
 	     cgPrimOp [tag_reg] primop args emptyVarSet
 	     stmtC (CmmAssign nodeReg
-                    (tagToClosure tycon
+                    (tagToClosure dflags tycon
                      (CmmReg (CmmLocal tag_reg))))
              -- ToDo: STG Live -- worried about this
 	     performReturn $ emitReturnInstr (Just [node])
@@ -310,7 +313,8 @@ cgRhs name (StgRhsCon maybe_cc con args)
 	; returnFC (name, idinfo) }
 
 cgRhs name (StgRhsClosure cc bi fvs upd_flag srt args body)
-  = setSRT srt $ mkRhsClosure name cc bi fvs upd_flag args body
+  = do dflags <- getDynFlags
+       setSRT srt $ mkRhsClosure dflags name cc bi fvs upd_flag args body
 \end{code}
 
 mkRhsClosure looks for two special forms of the right-hand side:
@@ -333,10 +337,10 @@ form:
 
 
 \begin{code}
-mkRhsClosure :: Id -> CostCentreStack -> StgBinderInfo
+mkRhsClosure :: DynFlags -> Id -> CostCentreStack -> StgBinderInfo
              -> [Id] -> UpdateFlag -> [Id] -> GenStgExpr Id Id
              -> FCode (Id, CgIdInfo)
-mkRhsClosure	bndr cc bi
+mkRhsClosure	dflags bndr cc bi
 		[the_fv]   		-- Just one free var
 		upd_flag		-- Updatable thunk
 		[]			-- A thunk
@@ -347,7 +351,7 @@ mkRhsClosure	bndr cc bi
 			    (StgApp selectee [{-no args-}]))])
   |  the_fv == scrutinee		-- Scrutinee is the only free variable
   && maybeToBool maybe_offset		-- Selectee is a component of the tuple
-  && offset_into_int <= mAX_SPEC_SELECTEE_SIZE	-- Offset is small enough
+  && offset_into_int <= mAX_SPEC_SELECTEE_SIZE dflags -- Offset is small enough
   = -- NOT TRUE: ASSERT(is_single_constructor)
     -- The simplifier may have statically determined that the single alternative
     -- is the only possible case and eliminated the others, even if there are
@@ -358,11 +362,11 @@ mkRhsClosure	bndr cc bi
   where
     lf_info 		  = mkSelectorLFInfo bndr offset_into_int
 				 (isUpdatable upd_flag)
-    (_, params_w_offsets) = layOutDynConstr con (addIdReps params)
+    (_, params_w_offsets) = layOutDynConstr dflags con (addIdReps params)
 			-- Just want the layout
     maybe_offset	  = assocMaybe params_w_offsets selectee
     Just the_offset 	  = maybe_offset
-    offset_into_int       = the_offset - fixedHdrSize
+    offset_into_int       = the_offset - fixedHdrSize dflags
 \end{code}
 
 Ap thunks
@@ -382,7 +386,7 @@ We only generate an Ap thunk if all the free variables are pointers,
 for semi-obvious reasons.
 
 \begin{code}
-mkRhsClosure    bndr cc bi
+mkRhsClosure dflags bndr cc bi
 		fvs
 		upd_flag
 		[]			-- No args; a thunk
@@ -391,8 +395,9 @@ mkRhsClosure    bndr cc bi
   | args `lengthIs` (arity-1)
  	&& all isFollowableArg (map idCgRep fvs) 
  	&& isUpdatable upd_flag
- 	&& arity <= mAX_SPEC_AP_SIZE 
-        && not opt_SccProfilingOn -- not when profiling: we don't want to
+ 	&& arity <= mAX_SPEC_AP_SIZE dflags
+        && not (dopt Opt_SccProfilingOn dflags)
+                                  -- not when profiling: we don't want to
                                   -- lose information about this particular
                                   -- thunk (e.g. its type) (#949)
 
@@ -410,7 +415,7 @@ mkRhsClosure    bndr cc bi
 The default case
 ~~~~~~~~~~~~~~~~
 \begin{code}
-mkRhsClosure bndr cc bi fvs upd_flag args body
+mkRhsClosure _ bndr cc bi fvs upd_flag args body
   = cgRhsClosure bndr cc bi fvs upd_flag args body
 \end{code}
 
@@ -478,14 +483,14 @@ Little helper for primitives that return unboxed tuples.
 
 \begin{code}
 newUnboxedTupleRegs :: Type -> FCode ([CgRep], [LocalReg], [ForeignHint])
-newUnboxedTupleRegs res_ty =
+newUnboxedTupleRegs res_ty = do
+   dflags <- getDynFlags
    let
 	UbxTupleRep ty_args = repType res_ty
 	(reps,hints) = unzip [ (rep, typeForeignHint ty) | ty <- ty_args,
 					   	    let rep = typeCgRep ty,
 					 	    nonVoidArg rep ]
-	make_new_temp rep = newTemp (argMachRep rep)
-   in do
+	make_new_temp rep = newTemp (argMachRep dflags rep)
    regs <- mapM make_new_temp reps
    return (reps,regs,hints)
 \end{code}

@@ -32,8 +32,8 @@ import ClosureInfo
 import OldCmmUtils
 import OldCmm
 
+import DynFlags
 import StgSyn
-import StaticFlags
 import Id
 import ForeignCall
 import VarSet
@@ -370,10 +370,11 @@ cgInlinePrimOp primop args bndr (AlgAlt tycon) live_in_alts alts
                 -- (avoiding it avoids the assignment)
                 -- The deadness info is set by StgVarInfo
         ; whenC (not (isDeadBinder bndr))
-                (do { tmp_reg <- bindNewToTemp bndr
+                (do { dflags <- getDynFlags
+                    ; tmp_reg <- bindNewToTemp bndr
                     ; stmtC (CmmAssign
                              (CmmLocal tmp_reg)
-                             (tagToClosure tycon tag_amode)) })
+                             (tagToClosure dflags tycon tag_amode)) })
 
                 -- Compile the alts
         ; (branches, mb_deflt) <- cgAlgAlts NoGC Nothing{-cc_slot-}
@@ -390,7 +391,8 @@ cgInlinePrimOp primop args bndr (AlgAlt tycon) live_in_alts alts
          (_,e) <- getArgAmode arg
          return e
     do_enum_primop primop
-      = do tmp <- newTemp bWord
+      = do dflags <- getDynFlags
+           tmp <- newTemp (bWord dflags)
            cgPrimOp [tmp] primop args live_in_alts
            returnFC (CmmReg (CmmLocal tmp))
 
@@ -650,21 +652,22 @@ saveCurrentCostCentre ::
                CmmStmts)                -- Assignment to save it
 
 saveCurrentCostCentre
-  | not opt_SccProfilingOn
-  = returnFC (Nothing, noStmts)
-  | otherwise
-  = do  { slot <- allocPrimStack PtrArg
-        ; sp_rel <- getSpRelOffset slot
-        ; returnFC (Just slot,
-                    oneStmt (CmmStore sp_rel curCCS)) }
+  = do dflags <- getDynFlags
+       if not (dopt Opt_SccProfilingOn dflags)
+           then returnFC (Nothing, noStmts)
+           else do slot <- allocPrimStack PtrArg
+                   sp_rel <- getSpRelOffset slot
+                   returnFC (Just slot,
+                             oneStmt (CmmStore sp_rel curCCS))
 
 -- Sometimes we don't free the slot containing the cost centre after restoring it
 -- (see CgLetNoEscape.cgLetNoEscapeBody).
 restoreCurrentCostCentre :: Maybe VirtualSpOffset -> Bool -> Code
 restoreCurrentCostCentre Nothing     _freeit = nopC
 restoreCurrentCostCentre (Just slot) freeit
- = do   { sp_rel <- getSpRelOffset slot
+ = do   { dflags <- getDynFlags
+        ; sp_rel <- getSpRelOffset slot
         ; whenC freeit (freeStackSlots [slot])
-        ; stmtC (storeCurCCS (CmmLoad sp_rel bWord)) }
+        ; stmtC (storeCurCCS (CmmLoad sp_rel (bWord dflags))) }
 \end{code}
 

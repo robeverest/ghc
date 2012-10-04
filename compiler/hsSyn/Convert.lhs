@@ -157,8 +157,7 @@ cvtDec (TH.InfixD fx nm)
        ; returnL (Hs.SigD (FixSig (FixitySig nm' (cvtFixity fx)))) }
 
 cvtDec (PragmaD prag)
-  = do { prag' <- cvtPragmaD prag
-       ; returnL $ Hs.SigD prag' }
+  = cvtPragmaD prag
 
 cvtDec (TySynD tc tvs rhs)
   = do	{ (_, tc', tvs') <- cvt_tycl_hdr [] tc tvs
@@ -410,38 +409,69 @@ cvt_conv TH.StdCall = StdCallConv
 --              Pragmas
 ------------------------------------------
 
-cvtPragmaD :: Pragma -> CvtM (Sig RdrName)
-cvtPragmaD (InlineP nm ispec)
-  = do { nm'    <- vNameL nm
-       ; return $ InlineSig nm' (cvtInlineSpec (Just ispec)) }
+cvtPragmaD :: Pragma -> CvtM (LHsDecl RdrName)
+cvtPragmaD (InlineP nm inline rm phases)
+  = do { nm' <- vNameL nm
+       ; let dflt = dfltActivation inline
+       ; let ip   = InlinePragma { inl_inline = cvtInline inline
+                                 , inl_rule   = cvtRuleMatch rm
+                                 , inl_act    = cvtPhases phases dflt
+                                 , inl_sat    = Nothing }
+       ; returnL $ Hs.SigD $ InlineSig nm' ip }
 
-cvtPragmaD (SpecialiseP nm ty opt_ispec)
+cvtPragmaD (SpecialiseP nm ty inline phases)
   = do { nm' <- vNameL nm
        ; ty' <- cvtType ty
-       ; return $ SpecSig nm' ty' (cvtInlineSpec opt_ispec) }
+       ; let (inline', dflt) = case inline of
+               Just inline1 -> (cvtInline inline1, dfltActivation inline1)
+               Nothing      -> (EmptyInlineSpec,   AlwaysActive)
+       ; let ip = InlinePragma { inl_inline = inline'
+                               , inl_rule   = Hs.FunLike
+                               , inl_act    = cvtPhases phases dflt
+                               , inl_sat    = Nothing }
+       ; returnL $ Hs.SigD $ SpecSig nm' ty' ip }
 
-cvtInlineSpec :: Maybe TH.InlineSpec -> Hs.InlinePragma
-cvtInlineSpec Nothing
-  = defaultInlinePragma
-cvtInlineSpec (Just (TH.InlineSpec inline conlike opt_activation))
-  = InlinePragma { inl_act = opt_activation', inl_rule = matchinfo
-                 , inl_inline = inl_spec, inl_sat = Nothing }
-  where
-    matchinfo       = cvtRuleMatchInfo conlike
-    opt_activation' = cvtActivation opt_activation
+cvtPragmaD (SpecialiseInstP ty)
+  = do { ty' <- cvtType ty
+       ; returnL $ Hs.SigD $ SpecInstSig ty' }
 
-    cvtRuleMatchInfo False = FunLike
-    cvtRuleMatchInfo True  = ConLike
+cvtPragmaD (RuleP nm bndrs lhs rhs phases)
+  = do { let nm' = mkFastString nm
+       ; let act = cvtPhases phases AlwaysActive
+       ; bndrs' <- mapM cvtRuleBndr bndrs
+       ; lhs'   <- cvtl lhs
+       ; rhs'   <- cvtl rhs
+       ; returnL $ Hs.RuleD $ HsRule nm' act bndrs'
+                                     lhs' placeHolderNames
+                                     rhs' placeHolderNames
+       }
 
-    inl_spec = case inline of
-                 TH.NoInline  -> Hs.NoInline
-                 TH.Inline    -> Hs.Inline
-                 TH.Inlinable -> Hs.Inlinable
+dfltActivation :: TH.Inline -> Activation
+dfltActivation TH.NoInline = NeverActive
+dfltActivation _           = AlwaysActive
 
-    cvtActivation Nothing | inline == TH.NoInline = NeverActive
-                          | otherwise             = AlwaysActive
-    cvtActivation (Just (False, phase)) = ActiveBefore phase
-    cvtActivation (Just (True , phase)) = ActiveAfter  phase
+cvtInline :: TH.Inline -> Hs.InlineSpec
+cvtInline TH.NoInline  = Hs.NoInline
+cvtInline TH.Inline    = Hs.Inline
+cvtInline TH.Inlinable = Hs.Inlinable
+
+cvtRuleMatch :: TH.RuleMatch -> RuleMatchInfo
+cvtRuleMatch TH.ConLike = Hs.ConLike
+cvtRuleMatch TH.FunLike = Hs.FunLike
+
+cvtPhases :: TH.Phases -> Activation -> Activation
+cvtPhases AllPhases       dflt = dflt
+cvtPhases (FromPhase i)   _    = ActiveAfter i
+cvtPhases (BeforePhase i) _    = ActiveBefore i
+
+cvtRuleBndr :: TH.RuleBndr -> CvtM (Hs.RuleBndr RdrName)
+cvtRuleBndr (RuleVar n)
+  = do { n' <- vNameL n
+       ; return $ Hs.RuleBndr n' }
+cvtRuleBndr (TypedRuleVar n ty)
+  = do { n'  <- vNameL n
+       ; ty' <- cvtType ty
+       ; return $ Hs.RuleBndrSig n' $ mkHsWithBndrs ty' }
 
 ---------------------------------------------------
 --		Declarations
@@ -458,7 +488,7 @@ cvtLocalDecs doc ds
        ; unless (null bads) (failWith (mkBadDecMsg doc bads))
        ; return (HsValBinds (ValBindsIn (listToBag binds) sigs)) }
 
-cvtClause :: TH.Clause -> CvtM (Hs.LMatch RdrName)
+cvtClause :: TH.Clause -> CvtM (Hs.LMatch RdrName (LHsExpr RdrName))
 cvtClause (Clause ps body wheres)
   = do	{ ps' <- cvtPats ps
 	; g'  <- cvtGuard body
@@ -482,6 +512,12 @@ cvtl e = wrapL (cvt e)
     cvt (AppE x y)     = do { x' <- cvtl x; y' <- cvtl y; return $ HsApp x' y' }
     cvt (LamE ps e)    = do { ps' <- cvtPats ps; e' <- cvtl e
 			    ; return $ HsLam (mkMatchGroup [mkSimpleMatch ps' e']) }
+    cvt (LamCaseE ms)
+      | null ms        = failWith (ptext (sLit "Lambda-case expression with no alternatives"))
+      | otherwise      = do { ms' <- mapM cvtMatch ms
+                            ; return $ HsLamCase placeHolderType
+                                                 (mkMatchGroup ms')
+                            }
     cvt (TupE [e])     = do { e' <- cvtl e; return $ HsPar e' }
     	      	       	         -- Note [Dropping constructors]
                                  -- Singleton tuples treated like nothing (just parens)
@@ -489,6 +525,10 @@ cvtl e = wrapL (cvt e)
     cvt (UnboxedTupE es)      = do { es' <- mapM cvtl es; return $ ExplicitTuple (map Present es') Unboxed }
     cvt (CondE x y z)  = do { x' <- cvtl x; y' <- cvtl y; z' <- cvtl z;
 			    ; return $ HsIf (Just noSyntaxExpr) x' y' z' }
+    cvt (MultiIfE alts)
+      | null alts      = failWith (ptext (sLit "Multi-way if-expression with no alternatives"))
+      | otherwise      = do { alts' <- mapM cvtpair alts
+                            ; return $ HsMultiIf placeHolderType alts' }
     cvt (LetE ds e)    = do { ds' <- cvtLocalDecs (ptext (sLit "a let expression")) ds
                             ; e' <- cvtl e; return $ HsLet ds' e' }
     cvt (CaseE e ms)
@@ -636,7 +676,7 @@ cvtHsDo do_or_lc stmts
         ; let Just (stmts'', last') = snocView stmts'
 
 	; last'' <- case last' of
-		      L loc (ExprStmt body _ _ _) -> return (L loc (mkLastStmt body))
+		      L loc (BodyStmt body _ _ _) -> return (L loc (mkLastStmt body))
                       _ -> failWith (bad_last last')
 
 	; return $ HsDo do_or_lc (stmts'' ++ [last'']) void }
@@ -645,11 +685,11 @@ cvtHsDo do_or_lc stmts
                          , nest 2 $ Outputable.ppr stmt
 			 , ptext (sLit "(It should be an expression.)") ]
 
-cvtStmts :: [TH.Stmt] -> CvtM [Hs.LStmt RdrName]
+cvtStmts :: [TH.Stmt] -> CvtM [Hs.LStmt RdrName (LHsExpr RdrName)]
 cvtStmts = mapM cvtStmt
 
-cvtStmt :: TH.Stmt -> CvtM (Hs.LStmt RdrName)
-cvtStmt (NoBindS e)    = do { e' <- cvtl e; returnL $ mkExprStmt e' }
+cvtStmt :: TH.Stmt -> CvtM (Hs.LStmt RdrName (LHsExpr RdrName))
+cvtStmt (NoBindS e)    = do { e' <- cvtl e; returnL $ mkBodyStmt e' }
 cvtStmt (TH.BindS p e) = do { p' <- cvtPat p; e' <- cvtl e; returnL $ mkBindStmt p' e' }
 cvtStmt (TH.LetS ds)   = do { ds' <- cvtLocalDecs (ptext (sLit "a let binding")) ds
                             ; returnL $ LetStmt ds' }
@@ -657,20 +697,20 @@ cvtStmt (TH.ParS dss)  = do { dss' <- mapM cvt_one dss; returnL $ ParStmt dss' n
 		       where
 			 cvt_one ds = do { ds' <- cvtStmts ds; return (ParStmtBlock ds' undefined noSyntaxExpr) }
 
-cvtMatch :: TH.Match -> CvtM (Hs.LMatch RdrName)
+cvtMatch :: TH.Match -> CvtM (Hs.LMatch RdrName (LHsExpr RdrName))
 cvtMatch (TH.Match p body decs)
   = do 	{ p' <- cvtPat p
 	; g' <- cvtGuard body
 	; decs' <- cvtLocalDecs (ptext (sLit "a where clause")) decs
 	; returnL $ Hs.Match [p'] Nothing (GRHSs g' decs') }
 
-cvtGuard :: TH.Body -> CvtM [LGRHS RdrName]
+cvtGuard :: TH.Body -> CvtM [LGRHS RdrName (LHsExpr RdrName)]
 cvtGuard (GuardedB pairs) = mapM cvtpair pairs
 cvtGuard (NormalB e)      = do { e' <- cvtl e; g' <- returnL $ GRHS [] e'; return [g'] }
 
-cvtpair :: (TH.Guard, TH.Exp) -> CvtM (LGRHS RdrName)
+cvtpair :: (TH.Guard, TH.Exp) -> CvtM (LGRHS RdrName (LHsExpr RdrName))
 cvtpair (NormalG ge,rhs) = do { ge' <- cvtl ge; rhs' <- cvtl rhs
-			      ; g' <- returnL $ mkExprStmt ge'
+			      ; g' <- returnL $ mkBodyStmt ge'
 			      ; returnL $ GRHS [g'] rhs' }
 cvtpair (PatG gs,rhs)    = do { gs' <- cvtStmts gs; rhs' <- cvtl rhs
 			      ; returnL $ GRHS gs' rhs' }
@@ -719,7 +759,7 @@ cvtLit (CharL c)       = do { force c; return $ HsChar c }
 cvtLit (StringL s)     = do { let { s' = mkFastString s }
        		       	    ; force s'
        		       	    ; return $ HsString s' }
-cvtLit (StringPrimL s) = do { let { s' = mkFastStringByteList s }
+cvtLit (StringPrimL s) = do { let { s' = mkFastBytesByteList s }
        			    ; force s'
        			    ; return $ HsStringPrim s' }
 cvtLit _ = panic "Convert.cvtLit: Unexpected literal"

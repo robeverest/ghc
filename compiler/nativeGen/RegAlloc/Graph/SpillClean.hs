@@ -1,4 +1,3 @@
-{-# OPTIONS -fno-warn-missing-signatures #-}
 -- | Clean out unneeded spill\/reload instrs
 --
 -- * Handling of join points
@@ -212,7 +211,7 @@ cleanForward platform blockId assoc acc (li : instrs)
 
 	-- writing to a reg changes its value.
 	| LiveInstr instr _	<- li
-	, RU _ written		<- regUsageOfInstr instr
+	, RU _ written		<- regUsageOfInstr platform instr
 	= let assoc'	= foldr delAssoc assoc (map SReg $ nub written)
 	  in  cleanForward platform blockId assoc' (li : acc) instrs
 
@@ -333,6 +332,13 @@ cleanBackward liveSlotsOnEntry noReloads acc lis
  = do	reloadedBy	<- gets sReloadedBy
  	cleanBackward' liveSlotsOnEntry reloadedBy noReloads acc lis
 
+cleanBackward' :: Instruction instr
+               => Map BlockId (Set Int)
+               -> UniqFM [BlockId]
+               -> UniqSet Int
+               -> [LiveInstr instr]
+               -> [LiveInstr instr]
+               -> State CleanS [LiveInstr instr]
 cleanBackward' _ _ _      acc []
 	= return  acc
 

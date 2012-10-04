@@ -37,11 +37,13 @@ module IfaceType (
 
 import Coercion
 import TypeRep hiding( maybeParen )
+import Unique( hasKey )
 import TyCon
 import Id
 import Var
 import TysWiredIn
 import TysPrim
+import PrelNames( funTyConKey )
 import Name
 import BasicTypes
 import Outputable
@@ -97,7 +99,7 @@ data IfaceCoCon
   = IfaceCoAx IfExtName
   | IfaceReflCo    | IfaceUnsafeCo  | IfaceSymCo
   | IfaceTransCo   | IfaceInstCo
-  | IfaceNthCo Int
+  | IfaceNthCo Int | IfaceLRCo LeftOrRight
 \end{code}
 
 %************************************************************************
@@ -276,6 +278,7 @@ instance Outputable IfaceCoCon where
   ppr IfaceTransCo     = ptext (sLit "Trans")
   ppr IfaceInstCo      = ptext (sLit "Inst")
   ppr (IfaceNthCo d)   = ptext (sLit "Nth:") <> int d
+  ppr (IfaceLRCo lr)   = ppr lr
 
 instance Outputable IfaceTyLit where
   ppr = ppr_tylit
@@ -352,7 +355,10 @@ toIfaceContext = toIfaceTypes
 ----------------
 coToIfaceType :: Coercion -> IfaceType
 coToIfaceType (Refl ty)             = IfaceCoConApp IfaceReflCo [toIfaceType ty]
-coToIfaceType (TyConAppCo tc cos)   = IfaceTyConApp (toIfaceTyCon tc) 
+coToIfaceType (TyConAppCo tc cos)   
+  | tc `hasKey` funTyConKey
+  , [arg,res] <- cos                = IfaceFunTy (coToIfaceType arg) (coToIfaceType res)
+  | otherwise                       = IfaceTyConApp (toIfaceTyCon tc) 
                                                     (map coToIfaceType cos)
 coToIfaceType (AppCo co1 co2)       = IfaceAppTy    (coToIfaceType co1) 
                                                     (coToIfaceType co2)
@@ -370,6 +376,8 @@ coToIfaceType (TransCo co1 co2)     = IfaceCoConApp IfaceTransCo
                                                     [ coToIfaceType co1
                                                     , coToIfaceType co2 ]
 coToIfaceType (NthCo d co)          = IfaceCoConApp (IfaceNthCo d)
+                                                    [ coToIfaceType co ]
+coToIfaceType (LRCo lr co)          = IfaceCoConApp (IfaceLRCo lr)
                                                     [ coToIfaceType co ]
 coToIfaceType (InstCo co ty)        = IfaceCoConApp IfaceInstCo 
                                                     [ coToIfaceType co

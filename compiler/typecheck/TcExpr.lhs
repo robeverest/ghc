@@ -201,6 +201,14 @@ tcExpr (HsLam match) res_ty
   = do	{ (co_fn, match') <- tcMatchLambda match res_ty
 	; return (mkHsWrap co_fn (HsLam match')) }
 
+tcExpr e@(HsLamCase _ matches) res_ty
+  = do	{ (co_fn, [arg_ty], body_ty) <- matchExpectedFunTys msg 1 res_ty
+	; matches' <- tcMatchesCase match_ctxt arg_ty matches body_ty
+	; return $ mkHsWrapCo co_fn $ HsLamCase arg_ty matches' }
+  where msg = sep [ ptext (sLit "The function") <+> quotes (ppr e)
+                  , ptext (sLit "requires")]
+        match_ctxt = MC { mc_what = CaseAlt, mc_body = tcBody }
+
 tcExpr (ExprWithTySig expr sig_ty) res_ty
  = do { sig_tc_ty <- tcHsSigType ExprSigCtxt sig_ty
 
@@ -223,6 +231,15 @@ tcExpr (HsType ty) _
 	-- so it's not enabled yet.
 	-- Can't eliminate it altogether from the parser, because the
 	-- same parser parses *patterns*.
+tcExpr HsHole res_ty
+  = do { ty <- newFlexiTyVarTy liftedTypeKind
+      ; traceTc "tcExpr.HsHole" (ppr ty)
+      ; ev <- mkSysLocalM (mkFastString "_") ty
+      ; loc <- getCtLoc HoleOrigin
+      ; let can = CHoleCan { cc_ev = CtWanted ty ev, cc_loc = loc }
+      ; traceTc "tcExpr.HsHole emitting" (ppr can)
+      ; emitInsoluble can
+      ; tcWrapResult (HsVar ev) ty res_ty }
 \end{code}
 
 
@@ -296,20 +313,28 @@ tcExpr (OpApp arg1 op fix arg2) res_ty
 
        ; let doc = ptext (sLit "The first argument of ($) takes")
        ; (co_arg1, [arg2_ty], op_res_ty) <- matchExpectedFunTys doc 1 arg1_ty
-       	 -- arg2_ty maybe polymorphic; that's the point
+         -- arg1_ty = arg2_ty -> op_res_ty
+       	 -- And arg2_ty maybe polymorphic; that's the point
 
        -- Make sure that the argument and result types have kind '*'
        -- Eg we do not want to allow  (D#  $  4.0#)   Trac #5570
-       ; _ <- unifyKind (typeKind arg2_ty) liftedTypeKind
-       ; _ <- unifyKind (typeKind res_ty)  liftedTypeKind
+       -- ($) :: forall ab. (a->b) -> a -> b
+       ; a_ty <- newFlexiTyVarTy liftedTypeKind
+       ; b_ty <- newFlexiTyVarTy liftedTypeKind
 
        ; arg2' <- tcArg op (arg2, arg2_ty, 2)
-       ; co_res <- unifyType op_res_ty res_ty
-       ; op_id <- tcLookupId op_name
 
-       ; let op' = L loc (HsWrap (mkWpTyApps [arg2_ty, op_res_ty]) (HsVar op_id))
-       ; return $ mkHsWrapCo co_res $
-         OpApp (mkLHsWrapCo co_arg1 arg1') op' fix arg2' }
+       ; co_res <- unifyType b_ty res_ty        -- b ~ res
+       ; co_a   <- unifyType arg2_ty   a_ty     -- arg2 ~ a
+       ; co_b   <- unifyType op_res_ty b_ty     -- op_res ~ b
+       ; op_id  <- tcLookupId op_name
+
+       ; let op' = L loc (HsWrap (mkWpTyApps [a_ty, b_ty]) (HsVar op_id))
+       ; return $ mkHsWrapCo (co_res) $
+         OpApp (mkLHsWrapCo (mkTcFunCo co_a co_b) $
+                mkLHsWrapCo co_arg1 arg1') 
+               op' fix 
+               (mkLHsWrapCo co_a arg2') }
 
   | otherwise
   = do { traceTc "Non Application rule" (ppr op)
@@ -437,20 +462,17 @@ tcExpr (HsIf (Just fun) pred b1 b2) res_ty   -- Note [Rebindable syntax for if]
        -- and it maintains uniformity with other rebindable syntax
        ; return (HsIf (Just fun') pred' b1' b2') }
 
+tcExpr (HsMultiIf _ alts) res_ty
+  = do { alts' <- mapM (wrapLocM $ tcGRHS match_ctxt res_ty) alts
+       ; return $ HsMultiIf res_ty alts' }
+  where match_ctxt = MC { mc_what = IfAlt, mc_body = tcBody }
+
 tcExpr (HsDo do_or_lc stmts _) res_ty
   = tcDoStmts do_or_lc stmts res_ty
 
 tcExpr (HsProc pat cmd) res_ty
   = do	{ (pat', cmd', coi) <- tcProc pat cmd res_ty
 	; return $ mkHsWrapCo coi (HsProc pat' cmd') }
-
-tcExpr e@(HsArrApp _ _ _ _ _) _
-  = failWithTc (vcat [ptext (sLit "The arrow command"), nest 2 (ppr e), 
-                      ptext (sLit "was found where an expression was expected")])
-
-tcExpr e@(HsArrForm _ _ _) _
-  = failWithTc (vcat [ptext (sLit "The arrow command"), nest 2 (ppr e), 
-                      ptext (sLit "was found where an expression was expected")])
 \end{code}
 
 Note [Rebindable syntax for if]
@@ -817,6 +839,7 @@ tcExpr e@(HsQuasiQuoteE _) _ =
 
 \begin{code}
 tcExpr other _ = pprPanic "tcMonoExpr" (ppr other)
+  -- Include ArrForm, ArrApp, which shouldn't appear at all
 \end{code}
 
 

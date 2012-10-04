@@ -25,10 +25,10 @@ module TcMType (
   newFlexiTyVarTy,		-- Kind -> TcM TcType
   newFlexiTyVarTys,		-- Int -> Kind -> TcM [TcType]
   newMetaKindVar, newMetaKindVars, mkKindSigVar,
-  mkTcTyVarName,
+  mkTcTyVarName, cloneMetaTyVar, 
 
   newMetaTyVar, readMetaTyVar, writeMetaTyVar, writeMetaTyVarRef,
-  isFilledMetaTyVar, isFlexiMetaTyVar,
+  newMetaDetails, isFilledMetaTyVar, isFlexiMetaTyVar,
 
   --------------------------------
   -- Creating new evidence variables
@@ -55,7 +55,7 @@ module TcMType (
   checkValidInstHead, checkValidInstance, validDerivPred,
   checkInstTermination, checkValidFamInst, checkTyFamFreeness, 
   arityErr, 
-  growPredTyVars, growThetaTyVars, 
+  growThetaTyVars, quantifyPred,
 
   --------------------------------
   -- Zonking
@@ -65,8 +65,8 @@ module TcMType (
   zonkQuantifiedTyVar, zonkQuantifiedTyVars,
   zonkTcType, zonkTcTypes, zonkTcThetaType,
 
-  zonkTcKind, defaultKindVarToStar, zonkCt, zonkCts,
-  zonkImplication, zonkEvVar, zonkWC, zonkId,
+  zonkTcKind, defaultKindVarToStar,
+  zonkEvVar, zonkWC, zonkId, zonkCt, zonkCts, zonkSkolemInfo,
 
   tcGetGlobalTyVars, 
   ) where
@@ -76,6 +76,7 @@ module TcMType (
 -- friends:
 import TypeRep
 import TcType
+import TcEvidence
 import Type
 import Kind
 import Class
@@ -90,6 +91,7 @@ import FunDeps
 import Name
 import VarSet
 import ErrUtils
+import PrelNames
 import DynFlags
 import Util
 import Maybes
@@ -97,7 +99,6 @@ import ListSetOps
 import SrcLoc
 import Outputable
 import FastString
-import Unique( Unique )
 import Bag
 
 import Control.Monad
@@ -112,10 +113,18 @@ import Data.List        ( (\\), partition, mapAccumL )
 %************************************************************************
 
 \begin{code}
+mkKindName :: Unique -> Name
+mkKindName unique = mkSystemName unique kind_var_occ
+
+kind_var_occ :: OccName	-- Just one for all MetaKindVars
+			-- They may be jiggled by tidying
+kind_var_occ = mkOccName tvName "k"
+
 newMetaKindVar :: TcM TcKind
 newMetaKindVar = do { uniq <- newUnique
-		    ; ref <- newMutVar Flexi
-		    ; return (mkTyVarTy (mkMetaKindVar uniq ref)) }
+		    ; details <- newMetaDetails TauTv
+                    ; let kv = mkTcTyVar (mkKindName uniq) superKind details
+		    ; return (mkTyVarTy kv) }
 
 newMetaKindVars :: Int -> TcM [TcKind]
 newMetaKindVars n = mapM (\ _ -> newMetaKindVar) (nOfThem n ())
@@ -146,17 +155,17 @@ newWantedEvVars theta = mapM newWantedEvVar theta
 
 newEvVar :: TcPredType -> TcM EvVar
 -- Creates new *rigid* variables for predicates
-newEvVar ty = do { name <- newName (predTypeOccName ty) 
+newEvVar ty = do { name <- newSysName (predTypeOccName ty) 
                  ; return (mkLocalId name ty) }
 
 newEq :: TcType -> TcType -> TcM EvVar
 newEq ty1 ty2
-  = do { name <- newName (mkVarOccFS (fsLit "cobox"))
+  = do { name <- newSysName (mkVarOccFS (fsLit "cobox"))
        ; return (mkLocalId name (mkTcEqPred ty1 ty2)) }
 
 newDict :: Class -> [TcType] -> TcM DictId
 newDict cls tys 
-  = do { name <- newName (mkDictOcc (getOccName cls))
+  = do { name <- newSysName (mkDictOcc (getOccName cls))
        ; return (mkLocalId name (mkClassPred cls tys)) }
 
 predTypeOccName :: PredType -> OccName
@@ -266,12 +275,18 @@ tcInstSigTyVar subst tv
 
 newSigTyVar :: Name -> Kind -> TcM TcTyVar
 newSigTyVar name kind
-  = do { uniq <- newMetaUnique
-       ; ref <- newMutVar Flexi
+  = do { uniq <- newUnique
        ; let name' = setNameUnique name uniq
                       -- Use the same OccName so that the tidy-er
-                      -- doesn't rename 'a' to 'a0' etc
-       ; return (mkTcTyVar name' kind (MetaTv SigTv ref)) }
+                      -- doesn't gratuitously rename 'a' to 'a0' etc
+       ; details <- newMetaDetails SigTv
+       ; return (mkTcTyVar name' kind details) }
+
+newMetaDetails :: MetaInfo -> TcM TcTyVarDetails
+newMetaDetails info 
+  = do { ref <- newMutVar Flexi
+       ; untch <- getUntouchables
+       ; return (MetaTv { mtv_info = info, mtv_ref = ref, mtv_untch = untch }) }
 \end{code}
 
 Note [Kind substitution when instantiating]
@@ -300,14 +315,24 @@ instead of the buggous
 newMetaTyVar :: MetaInfo -> Kind -> TcM TcTyVar
 -- Make a new meta tyvar out of thin air
 newMetaTyVar meta_info kind
-  = do	{ uniq <- newMetaUnique
- 	; ref <- newMutVar Flexi
+  = do	{ uniq <- newUnique
         ; let name = mkTcTyVarName uniq s
               s = case meta_info of
                         TauTv -> fsLit "t"
-                        TcsTv -> fsLit "u"
                         SigTv -> fsLit "a"
-	; return (mkTcTyVar name kind (MetaTv meta_info ref)) }
+        ; details <- newMetaDetails meta_info
+	; return (mkTcTyVar name kind details) }
+
+cloneMetaTyVar :: TcTyVar -> TcM TcTyVar
+cloneMetaTyVar tv
+  = ASSERT( isTcTyVar tv )
+    do	{ uniq <- newUnique
+        ; ref  <- newMutVar Flexi
+        ; let name'    = setNameUnique (tyVarName tv) uniq
+              details' = case tcTyVarDetails tv of 
+                           details@(MetaTv {}) -> details { mtv_ref = ref }
+                           _ -> pprPanic "cloneMetaTyVar" (ppr tv)
+        ; return (mkTcTyVar name' (tyVarKind tv) details') }
 
 mkTcTyVarName :: Unique -> FastString -> Name
 -- Make sure that fresh TcTyVar names finish with a digit
@@ -323,7 +348,7 @@ isFilledMetaTyVar :: TyVar -> TcM Bool
 -- True of a filled-in (Indirect) meta type variable
 isFilledMetaTyVar tv
   | not (isTcTyVar tv) = return False
-  | MetaTv _ ref <- tcTyVarDetails tv
+  | MetaTv { mtv_ref = ref } <- tcTyVarDetails tv
   = do 	{ details <- readMutVar ref
 	; return (isIndirect details) }
   | otherwise = return False
@@ -332,7 +357,7 @@ isFlexiMetaTyVar :: TyVar -> TcM Bool
 -- True of a un-filled-in (Flexi) meta type variable
 isFlexiMetaTyVar tv
   | not (isTcTyVar tv) = return False
-  | MetaTv _ ref <- tcTyVarDetails tv
+  | MetaTv { mtv_ref = ref } <- tcTyVarDetails tv
   = do 	{ details <- readMutVar ref
 	; return (isFlexi details) }
   | otherwise = return False
@@ -351,7 +376,7 @@ writeMetaTyVar tyvar ty
   = WARN( True, text "Writing to non-tc tyvar" <+> ppr tyvar )
     return ()
 
-  | MetaTv _ ref <- tcTyVarDetails tyvar
+  | MetaTv { mtv_ref = ref } <- tcTyVarDetails tyvar
   = writeMetaTyVarRef tyvar ref ty
 
   | otherwise
@@ -433,11 +458,11 @@ tcInstTyVarX :: TvSubst -> TKVar -> TcM (TvSubst, TcTyVar)
 -- Make a new unification variable tyvar whose Name and Kind come from
 -- an existing TyVar. We substitute kind variables in the kind.
 tcInstTyVarX subst tyvar
-  = do  { uniq <- newMetaUnique
-        ; ref <- newMutVar Flexi
+  = do  { uniq <- newUnique
+        ; details <- newMetaDetails TauTv
         ; let name   = mkSystemName uniq (getOccName tyvar)
               kind   = substTy subst (tyVarKind tyvar)
-              new_tv = mkTcTyVar name kind (MetaTv TauTv ref)
+              new_tv = mkTcTyVar name kind details 
         ; return (extendTvSubst subst tyvar (mkTyVarTy new_tv), new_tv) }
 \end{code}
 
@@ -548,7 +573,7 @@ zonkQuantifiedTyVar tv
 	-- It might be a skolem type variable, 
 	-- for example from a user type signature
 
-      MetaTv _ ref ->
+      MetaTv { mtv_ref = ref } ->
           do when debugIsOn $ do
                  -- [Sept 04] Check for non-empty.
                  -- See note [Silly Type Synonym]
@@ -593,56 +618,147 @@ skolemiseSigTv tv
 
 \begin{code}
 zonkImplication :: Implication -> TcM Implication
-zonkImplication implic@(Implic { ic_given = given 
+zonkImplication implic@(Implic { ic_untch  = untch
+                               , ic_binds  = binds_var
+                               , ic_skols  = skols
+                               , ic_given  = given
                                , ic_wanted = wanted
-                               , ic_loc = loc })
-  = do {    -- No need to zonk the skolems
+                               , ic_info   = info })
+  = do { skols'  <- mapM zonkTcTyVarBndr skols  -- Need to zonk their kinds!
+                                                -- as Trac #7230 showed
        ; given'  <- mapM zonkEvVar given
-       ; loc'    <- zonkGivenLoc loc
-       ; wanted' <- zonkWC wanted
-       ; return (implic { ic_given = given'
+       ; info'   <- zonkSkolemInfo info
+       ; wanted' <- zonkWCRec binds_var untch wanted
+       ; return (implic { ic_skols = skols'
+                        , ic_given = given'
+                        , ic_fsks  = []  -- Zonking removes all FlatSkol tyvars
                         , ic_wanted = wanted'
-                        , ic_loc = loc' }) }
+                        , ic_info = info' }) }
 
 zonkEvVar :: EvVar -> TcM EvVar
 zonkEvVar var = do { ty' <- zonkTcType (varType var)
                    ; return (setVarType var ty') }
 
 
-zonkWC :: WantedConstraints -> TcM WantedConstraints
-zonkWC (WC { wc_flat = flat, wc_impl = implic, wc_insol = insol })
-  = do { flat'   <- mapBagM zonkCt flat 
+zonkWC :: EvBindsVar -- May add new bindings for wanted family equalities in here
+       -> WantedConstraints -> TcM WantedConstraints
+zonkWC binds_var wc
+  = do { untch <- getUntouchables
+       ; zonkWCRec binds_var untch wc }
+
+zonkWCRec :: EvBindsVar
+          -> Untouchables
+          -> WantedConstraints -> TcM WantedConstraints
+zonkWCRec binds_var untch (WC { wc_flat = flat, wc_impl = implic, wc_insol = insol })
+  = do { flat'   <- zonkFlats binds_var untch flat
        ; implic' <- mapBagM zonkImplication implic
-       ; insol'  <- mapBagM zonkCt insol
+       ; insol'  <- zonkCts insol -- No need to do the more elaborate zonkFlats thing
        ; return (WC { wc_flat = flat', wc_impl = implic', wc_insol = insol' }) }
 
-zonkCt :: Ct -> TcM Ct 
--- Zonking a Ct conservatively gives back a CNonCanonical
-zonkCt ct 
-  = do { fl' <- zonkCtEvidence (cc_ev ct)
-       ; return $ 
-         CNonCanonical { cc_ev = fl'
-                       , cc_depth = cc_depth ct } }
+zonkFlats :: EvBindsVar -> Untouchables -> Cts -> TcM Cts
+-- This zonks and unflattens a bunch of flat constraints
+-- See Note [Unflattening while zonking]
+zonkFlats binds_var untch cts
+  = do { -- See Note [How to unflatten]
+         cts <- foldrBagM unflatten_one emptyCts cts
+       ; zonkCts cts }
+  where
+    unflatten_one orig_ct cts
+      = do { zct <- zonkCt orig_ct                -- First we need to fully zonk 
+           ; mct <- try_zonk_fun_eq orig_ct zct   -- Then try to solve if family equation
+           ; return $ maybe cts (`consBag` cts) mct }
+
+    try_zonk_fun_eq orig_ct zct   -- See Note [How to unflatten]
+      | EqPred ty_lhs ty_rhs <- classifyPredType (ctPred zct)
+          -- NB: zonking de-classifies the constraint,
+          --     so we can't look for CFunEqCan
+      , Just tv <- getTyVar_maybe ty_rhs
+      , ASSERT2( not (isFloatedTouchableMetaTyVar untch tv), ppr tv )
+        isTouchableMetaTyVar untch tv
+      , typeKind ty_lhs `tcIsSubKind` tyVarKind tv
+      , not (tv `elemVarSet` tyVarsOfType ty_lhs)
+--       , Just ty_lhs' <- occurCheck tv ty_lhs
+      = ASSERT2( isWantedCt orig_ct, ppr orig_ct )
+        ASSERT2( case tcSplitTyConApp_maybe ty_lhs of { Just (tc,_) -> isSynFamilyTyCon tc; _ -> False }, ppr orig_ct )
+        do { writeMetaTyVar tv ty_lhs
+           ; let evterm = EvCoercion (mkTcReflCo ty_lhs)
+                 evvar  = ctev_evar (cc_ev zct)
+           ; addTcEvBind binds_var evvar evterm
+           ; traceTc "zonkFlats/unflattening" $
+             vcat [ text "zct = " <+> ppr zct,
+                    text "binds_var = " <+> ppr binds_var ]
+           ; return Nothing }
+      | otherwise
+      = return (Just zct)
+\end{code}
+
+Note [Unflattening while zonking]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A bunch of wanted constraints could contain wanted equations of the form
+(F taus ~ alpha) where alpha is either an ordinary unification variable, or
+a flatten unification variable.
+
+These are ordinary wanted constraints and can/should be solved by
+ordinary unification alpha := F taus. However the constraint solving
+algorithm does not do that, as their 'inert' form is F taus ~ alpha.
+
+Hence, we need an extra step to 'unflatten' these equations by
+performing unification. This unification, if it happens at the end of
+constraint solving, cannot produce any more interactions in the
+constraint solver so it is safe to do it as the very very last step.
+
+We choose therefore to do it during zonking, in the function
+zonkFlats. This is in analgoy to the zonking of given flatten skolems
+which are eliminated in favor of the underlying type that they are
+equal to.
+
+Note that, because we now have to affect *evidence* while zonking
+(setting some evidence binds to identities), we have to pass to the
+zonkWC function an evidence variable to collect all the extra
+variables.
+
+Note [How to unflatten]
+~~~~~~~~~~~~~~~~~~~~~~~
+How do we unflatten during zonking.  Consider a bunch of flat constraints.
+Consider them one by one.  For each such constraint C
+  * Zonk C (to apply current substitution)
+  * If C is of form F tys ~ alpha, 
+       where alpha is touchable
+       and   alpha is not mentioned in tys
+    then unify alpha := F tys
+         and discard C
+
+After processing all the flat constraints, zonk them again to propagate
+the inforamtion from later ones to earlier ones.  Eg
+  Start:  (F alpha ~ beta, G Int ~ alpha)
+  Then we get beta := F alpha
+              alpha := G Int
+  but we must apply the second unification to the first constraint.
+
+
+\begin{code}
 zonkCts :: Cts -> TcM Cts
 zonkCts = mapBagM zonkCt
 
-zonkCtEvidence :: CtEvidence -> TcM CtEvidence
-zonkCtEvidence ctev@(Given { ctev_gloc = loc, ctev_pred = pred }) 
-  = do { loc' <- zonkGivenLoc loc
-       ; pred' <- zonkTcType pred
-       ; return (ctev { ctev_gloc = loc', ctev_pred = pred'}) }
-zonkCtEvidence ctev@(Wanted { ctev_pred = pred })
-  = do { pred' <- zonkTcType pred
-       ; return (ctev { ctev_pred = pred' }) }
-zonkCtEvidence ctev@(Derived { ctev_pred = pred })
-  = do { pred' <- zonkTcType pred
-       ; return (ctev { ctev_pred = pred' }) }
+zonkCt :: Ct -> TcM Ct
+zonkCt ct@(CHoleCan { cc_ev = ev })
+  = do { ev' <- zonkCtEvidence ev
+       ; return $ ct { cc_ev = ev' } }
+zonkCt ct
+  = do { fl' <- zonkCtEvidence (cc_ev ct)
+       ; return (CNonCanonical { cc_ev = fl'
+                               , cc_loc = cc_loc ct }) }
 
-zonkGivenLoc :: GivenLoc -> TcM GivenLoc
--- GivenLocs may have unification variables inside them!
-zonkGivenLoc (CtLoc skol_info span ctxt)
-  = do { skol_info' <- zonkSkolemInfo skol_info
-       ; return (CtLoc skol_info' span ctxt) }
+zonkCtEvidence :: CtEvidence -> TcM CtEvidence
+zonkCtEvidence ctev@(CtGiven { ctev_pred = pred }) 
+  = do { pred' <- zonkTcType pred
+       ; return (ctev { ctev_pred = pred'}) }
+zonkCtEvidence ctev@(CtWanted { ctev_pred = pred })
+  = do { pred' <- zonkTcType pred
+       ; return (ctev { ctev_pred = pred' }) }
+zonkCtEvidence ctev@(CtDerived { ctev_pred = pred })
+  = do { pred' <- zonkTcType pred
+       ; return (ctev { ctev_pred = pred' }) }
 
 zonkSkolemInfo :: SkolemInfo -> TcM SkolemInfo
 zonkSkolemInfo (SigSkol cx ty)  = do { ty' <- zonkTcType ty
@@ -765,10 +881,18 @@ zonkTcType ty
 		       | otherwise	 = TyVarTy <$> updateTyVarKindM go tyvar
 		-- Ordinary (non Tc) tyvars occur inside quantified types
 
-    go (ForAllTy tyvar ty) = ASSERT2( isImmutableTyVar tyvar, ppr tyvar ) do
-                             ty' <- go ty
-                             tyvar' <- updateTyVarKindM go tyvar
-                             return (ForAllTy tyvar' ty')
+    go (ForAllTy tv ty) = do { tv' <- zonkTcTyVarBndr tv
+                             ; ty' <- go ty
+                             ; return (ForAllTy tv' ty') }
+
+zonkTcTyVarBndr :: TcTyVar -> TcM TcTyVar
+-- A tyvar binder is never a unification variable (MetaTv),
+-- rather it is always a skolems.  BUT it may have a kind 
+-- that has not yet been zonked, and may include kind
+-- unification variables.
+zonkTcTyVarBndr tyvar
+  = ASSERT2( isImmutableTyVar tyvar, ppr tyvar ) do
+    updateTyVarKindM zonkTcType tyvar
 
 zonkTcTyVar :: TcTyVar -> TcM TcType
 -- Simply look through all Flexis
@@ -778,10 +902,11 @@ zonkTcTyVar tv
       SkolemTv {}   -> zonk_kind_and_return
       RuntimeUnk {} -> zonk_kind_and_return
       FlatSkol ty   -> zonkTcType ty
-      MetaTv _ ref  -> do { cts <- readMutVar ref
-                          ; case cts of
-		               Flexi       -> zonk_kind_and_return
-			       Indirect ty -> zonkTcType ty }
+      MetaTv { mtv_ref = ref }
+         -> do { cts <- readMutVar ref
+               ; case cts of
+	            Flexi       -> zonk_kind_and_return
+	            Indirect ty -> zonkTcType ty }
   where
     zonk_kind_and_return = do { z_tv <- zonkTyVarKind tv
                               ; return (TyVarTy z_tv) }
@@ -835,6 +960,23 @@ This might not necessarily show up in kind checking.
 
 	
 \begin{code}
+check_kind :: UserTypeCtxt -> TcType -> TcM ()
+-- Check that the type's kind is acceptable for the context
+check_kind ctxt ty
+  | TySynCtxt {} <- ctxt
+  = do { ck <- xoptM Opt_ConstraintKinds
+       ; unless ck $
+         checkTc (not (returnsConstraintKind actual_kind)) 
+                 (constraintSynErr actual_kind) }
+
+  | Just k <- expectedKindInCtxt ctxt
+  = checkTc (tcIsSubKind actual_kind k) (kindErr actual_kind)
+
+  | otherwise
+  = return ()   -- Any kind will do
+  where
+    actual_kind = typeKind ty
+
 -- Depending on the context, we might accept any kind (for instance, in a TH
 -- splice), or only certain kinds (like in type signatures).
 expectedKindInCtxt :: UserTypeCtxt -> Maybe Kind
@@ -854,7 +996,6 @@ checkValidType ctxt ty
        ; rank2_flag      <- xoptM Opt_Rank2Types
        ; rankn_flag      <- xoptM Opt_RankNTypes
        ; polycomp        <- xoptM Opt_PolymorphicComponents
-       ; constraintKinds <- xoptM Opt_ConstraintKinds
        ; let gen_rank :: Rank -> Rank
              gen_rank r | rankn_flag = ArbitraryRank
 	                | rank2_flag = r2
@@ -892,25 +1033,13 @@ checkValidType ctxt ty
                  _              -> panic "checkValidType"
                                           -- Can't happen; not used for *user* sigs
 
-	     actual_kind = typeKind ty
-
-             kind_ok = case expectedKindInCtxt ctxt of
-                         Nothing -> True
-                         Just k  -> tcIsSubKind actual_kind k
-
 	-- Check the internal validity of the type itself
        ; check_type rank ty
 
 	-- Check that the thing has kind Type, and is lifted if necessary
 	-- Do this second, because we can't usefully take the kind of an 
 	-- ill-formed type such as (a~Int)
-       ; checkTc kind_ok (kindErr actual_kind)
-
-        -- Check that the thing does not have kind Constraint,
-        -- if -XConstraintKinds isn't enabled
-       ; unless constraintKinds $
-         checkTc (not (isConstraintKind actual_kind)) (predTupleErr ty)
-       }
+       ; check_kind ctxt ty }
 
 checkValidMonoType :: Type -> TcM ()
 checkValidMonoType ty = check_mono_type MustBeMonoType ty
@@ -1091,7 +1220,7 @@ unliftedArgErr  ty = sep [ptext (sLit "Illegal unlifted type:"), ppr ty]
 ubxArgTyErr     ty = sep [ptext (sLit "Illegal unboxed tuple type as function argument:"), ppr ty]
 
 kindErr :: Kind -> SDoc
-kindErr kind       = sep [ptext (sLit "Expecting an ordinary type, but found a type of kind"), ppr kind]
+kindErr kind = sep [ptext (sLit "Expecting an ordinary type, but found a type of kind"), ppr kind]
 \end{code}
 
 Note [Liberal type synonyms]
@@ -1147,10 +1276,38 @@ check_valid_theta ctxt theta = do
 
 -------------------------
 check_pred_ty :: DynFlags -> UserTypeCtxt -> PredType -> TcM ()
-check_pred_ty dflags ctxt pred = check_pred_ty' dflags ctxt (shallowPredTypePredTree pred)
+-- Check the validity of a predicate in a signature
+-- We look through any type synonyms; any constraint kinded
+-- type synonyms have been checked at their definition site
 
-check_pred_ty' :: DynFlags -> UserTypeCtxt -> PredTree -> TcM ()
-check_pred_ty' dflags ctxt (ClassPred cls tys)
+check_pred_ty dflags ctxt pred
+  | Just (tc,tys) <- tcSplitTyConApp_maybe pred
+  = case () of 
+      _ | Just cls <- tyConClass_maybe tc
+        -> check_class_pred dflags ctxt cls tys
+
+        | tc `hasKey` eqTyConKey
+        , let [_, ty1, ty2] = tys
+        -> check_eq_pred dflags ctxt ty1 ty2
+
+        | isTupleTyCon tc
+        -> check_tuple_pred dflags ctxt pred tys
+  
+        | otherwise   -- X t1 t2, where X is presumably a
+                      -- type/data family returning ConstraintKind
+        -> check_irred_pred dflags ctxt pred tys
+
+  | (TyVarTy _, arg_tys) <- tcSplitAppTys pred
+  = check_irred_pred dflags ctxt pred arg_tys
+
+  | otherwise
+  = badPred pred
+
+badPred :: PredType -> TcM ()
+badPred pred = failWithTc (ptext (sLit "Malformed predicate") <+> quotes (ppr pred))
+
+check_class_pred :: DynFlags -> UserTypeCtxt -> Class -> [TcType] -> TcM ()
+check_class_pred dflags ctxt cls tys
   = do {	-- Class predicates are valid in all contexts
        ; checkTc (arity == n_tys) arity_err
 
@@ -1167,7 +1324,8 @@ check_pred_ty' dflags ctxt (ClassPred cls tys)
     how_to_allow = parens (ptext (sLit "Use -XFlexibleContexts to permit this"))
 
 
-check_pred_ty' dflags _ctxt (EqPred ty1 ty2)
+check_eq_pred :: DynFlags -> UserTypeCtxt -> TcType -> TcType -> TcM ()
+check_eq_pred dflags _ctxt ty1 ty2
   = do {	-- Equational constraints are valid in all contexts if type
 		-- families are permitted
        ; checkTc (xopt Opt_TypeFamilies dflags || xopt Opt_GADTs dflags) 
@@ -1178,14 +1336,19 @@ check_pred_ty' dflags _ctxt (EqPred ty1 ty2)
        ; checkValidMonoType ty2
        }
 
-check_pred_ty' dflags ctxt t@(TuplePred ts)
+check_tuple_pred :: DynFlags -> UserTypeCtxt -> PredType -> [PredType] -> TcM ()
+check_tuple_pred dflags ctxt pred ts
   = do { checkTc (xopt Opt_ConstraintKinds dflags)
-                 (predTupleErr (predTreePredType t))
+                 (predTupleErr pred)
        ; mapM_ (check_pred_ty dflags ctxt) ts }
-    -- This case will not normally be executed because without -XConstraintKinds
-    -- tuple types are only kind-checked as *
+    -- This case will not normally be executed because 
+    -- without -XConstraintKinds tuple types are only kind-checked as *
 
-check_pred_ty' dflags ctxt (IrredPred pred)
+check_irred_pred :: DynFlags -> UserTypeCtxt -> PredType -> [TcType] -> TcM ()
+check_irred_pred dflags ctxt pred arg_tys
+    -- The predicate looks like (X t1 t2) or (x t1 t2) :: Constraint
+    -- But X is not a synonym; that's been expanded already
+    --
     -- Allowing irreducible predicates in class superclasses is somewhat dangerous
     -- because we can write:
     --
@@ -1199,21 +1362,13 @@ check_pred_ty' dflags ctxt (IrredPred pred)
     --
     -- It is equally dangerous to allow them in instance heads because in that case the
     -- Paterson conditions may not detect duplication of a type variable or size change.
-    --
-    -- In both cases it's OK if the predicate is actually a synonym, though.
-    -- We'll also allow it if
-  = do checkTc (xopt Opt_ConstraintKinds dflags)
-               (predIrredErr pred)
-       case tcView pred of
-         Just pred' -> 
-           -- Synonym: just look through
-           check_pred_ty dflags ctxt pred'
-         Nothing
-           | xopt Opt_UndecidableInstances dflags -> return ()
-           | otherwise -> do
-             -- Make sure it is OK to have an irred pred in this context
-             checkTc (case ctxt of ClassSCCtxt _ -> False; InstDeclCtxt -> False; _ -> True)
-                     (predIrredBadCtxtErr pred)
+  = do { checkTc (xopt Opt_ConstraintKinds dflags)
+                 (predIrredErr pred)
+       ; mapM_ checkValidMonoType arg_tys
+       ; unless (xopt Opt_UndecidableInstances dflags) $
+                 -- Make sure it is OK to have an irred pred in this context
+         checkTc (case ctxt of ClassSCCtxt _ -> False; InstDeclCtxt -> False; _ -> True)
+                 (predIrredBadCtxtErr pred) }
 
 -------------------------
 check_class_pred_tys :: DynFlags -> UserTypeCtxt -> [KindOrType] -> Bool
@@ -1275,9 +1430,9 @@ Is every call to 'g' ambiguous?  After all, we might have
    intance C [a] where ...
 at the call site.  So maybe that type is ok!  Indeed even f's
 quintessentially ambiguous type might, just possibly be callable: 
-with -XUndecidableInstances we could have
+with -XFlexibleInstances we could have
   instance C a where ...
-and now a call could be legal after all!  (But only with  -XUndecidableInstances!)
+and now a call could be legal after all!  (But only with  -XFlexibleInstances!)
 
 What about things like this:
    class D a b | a -> b where ..
@@ -1303,7 +1458,7 @@ where
   * The constraints in 'Cambig' are all of form (C a b c) 
     where a,b,c are type variables
   * 'Cambig' is non-empty
-  * '-XUndecidableInstances' is not on.
+  * '-XFlexibleInstances' is not on.
 
 And that is what checkAmbiguity does.  See Trac #6134.
 
@@ -1345,8 +1500,8 @@ so we can take their type variables into account as part of the
 checkAmbiguity :: [TyVar] -> ThetaType -> TyVarSet -> TcM ()
 -- Note [The ambiguity check for type signatures]
 checkAmbiguity forall_tyvars theta tau_tyvars
-  = do { undecidable_instances <- xoptM Opt_UndecidableInstances
-       ; unless undecidable_instances $
+  = do { flexible_instances <- xoptM Opt_FlexibleInstances
+       ; unless flexible_instances $
          mapM_  ambigErr (filter is_ambig candidates) }
   where
 	-- See Note [Implicit parameters and ambiguity] in TcSimplify
@@ -1378,7 +1533,38 @@ Note [Growing the tau-tvs using constraints]
 E.g. tvs = {a}, preds = {H [a] b, K (b,Int) c, Eq e}
 Then grow precs tvs = {a,b,c}
 
+Note [Inheriting implicit parameters]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider this:
+
+	f x = (x::Int) + ?y
+
+where f is *not* a top-level binding.
+From the RHS of f we'll get the constraint (?y::Int).
+There are two types we might infer for f:
+
+	f :: Int -> Int
+
+(so we get ?y from the context of f's definition), or
+
+	f :: (?y::Int) => Int -> Int
+
+At first you might think the first was better, becuase then
+?y behaves like a free variable of the definition, rather than
+having to be passed at each call site.  But of course, the WHOLE
+IDEA is that ?y should be passed at each call site (that's what
+dynamic binding means) so we'd better infer the second.
+
+BOTTOM LINE: when *inferring types* you *must* quantify 
+over implicit parameters. See the predicate isFreeWhenInferring.
+
 \begin{code}
+quantifyPred :: TyVarSet      -- Quantifying over these
+	     -> PredType -> Bool	    -- True <=> quantify over this wanted
+quantifyPred qtvs pred
+  | isIPPred pred = True  -- Note [Inheriting implicit parameters]
+  | otherwise	  = tyVarsOfType pred `intersectsVarSet` qtvs
+
 growThetaTyVars :: TcThetaType -> TyVarSet -> TyVarSet
 -- See Note [Growing the tau-tvs using constraints]
 growThetaTyVars theta tvs
@@ -1392,6 +1578,7 @@ growPredTyVars :: TcPredType
                -> TyVarSet	-- The set to extend
 	       -> TyVarSet	-- TyVars of the predicate if it intersects the set, 
 growPredTyVars pred tvs 
+   | isIPPred pred                   = pred_tvs   -- Always quantify over implicit parameers
    | pred_tvs `intersectsVarSet` tvs = pred_tvs
    | otherwise                       = emptyVarSet
   where
@@ -1409,15 +1596,20 @@ eqPredTyErr, predTyVarErr, predTupleErr, predIrredErr, predIrredBadCtxtErr :: Pr
 eqPredTyErr  pred = ptext (sLit "Illegal equational constraint") <+> pprType pred
 		    $$
 		    parens (ptext (sLit "Use -XGADTs or -XTypeFamilies to permit this"))
-predTyVarErr pred  = sep [ptext (sLit "Non type-variable argument"),
-			  nest 2 (ptext (sLit "in the constraint:") <+> pprType pred)]
-predTupleErr pred  = ptext (sLit "Illegal tuple constraint") <+> pprType pred $$
-                     parens (ptext (sLit "Use -XConstraintKinds to permit this"))
-predIrredErr pred  = ptext (sLit "Illegal irreducible constraint") <+> pprType pred $$
-                     parens (ptext (sLit "Use -XConstraintKinds to permit this"))
-predIrredBadCtxtErr pred = ptext (sLit "Illegal irreducible constraint") <+> pprType pred $$
-                           ptext (sLit "in superclass/instance head context") <+>
-                           parens (ptext (sLit "Use -XUndecidableInstances to permit this"))
+predTyVarErr pred  = hang (ptext (sLit "Non type-variable argument"))
+			2 (ptext (sLit "in the constraint:") <+> pprType pred)
+predTupleErr pred  = hang (ptext (sLit "Illegal tuple constraint:") <+> pprType pred)
+                        2 (parens (ptext (sLit "Use -XConstraintKinds to permit this")))
+predIrredErr pred  = hang (ptext (sLit "Illegal constraint:") <+> pprType pred)
+                        2 (parens (ptext (sLit "Use -XConstraintKinds to permit this")))
+predIrredBadCtxtErr pred = hang (ptext (sLit "Illegal constraint") <+> quotes (pprType pred)
+                                 <+> ptext (sLit "in a superclass/instance context")) 
+                               2 (parens (ptext (sLit "Use -XUndecidableInstances to permit this")))
+
+constraintSynErr :: Type -> SDoc
+constraintSynErr kind = hang (ptext (sLit "Illegal constraint synonym of kind:") <+> quotes (ppr kind))
+                           2 (parens (ptext (sLit "Use -XConstraintKinds to permit this")))
+
 dupPredWarn :: [[PredType]] -> SDoc
 dupPredWarn dups   = ptext (sLit "Duplicate constraint(s):") <+> pprWithCommas pprType (map head dups)
 
@@ -1600,19 +1792,30 @@ checkInstTermination tys theta
    fvs  = fvTypes tys
    size = sizeTypes tys
    check pred 
-      | not (null (fvType pred \\ fvs)) 
-      = addErrTc (predUndecErr pred nomoreMsg $$ parens undecidableMsg)
+      | not (null bad_tvs)
+      = addErrTc (predUndecErr pred (nomoreMsg bad_tvs) $$ parens undecidableMsg)
       | sizePred pred >= size
       = addErrTc (predUndecErr pred smallerMsg $$ parens undecidableMsg)
       | otherwise
       = return ()
+      where
+        bad_tvs = filterOut isKindVar (fvType pred \\ fvs)
+             -- Rightly or wrongly, we only check for
+             -- excessive occurrences of *type* variables.
+             -- e.g. type instance Demote {T k} a = T (Demote {k} (Any {k}))
 
 predUndecErr :: PredType -> SDoc -> SDoc
 predUndecErr pred msg = sep [msg,
 			nest 2 (ptext (sLit "in the constraint:") <+> pprType pred)]
 
-nomoreMsg, smallerMsg, undecidableMsg :: SDoc
-nomoreMsg = ptext (sLit "Variable occurs more often in a constraint than in the instance head")
+nomoreMsg :: [TcTyVar] -> SDoc
+nomoreMsg tvs 
+  = sep [ ptext (sLit "Variable") <+> plural tvs <+> quotes (pprWithCommas ppr tvs) 
+        , (if isSingleton tvs then ptext (sLit "occurs")
+                                  else ptext (sLit "occur"))
+          <+> ptext (sLit "more often than in the instance head") ]
+
+smallerMsg, undecidableMsg :: SDoc
 smallerMsg = ptext (sLit "Constraint is no smaller than the instance head")
 undecidableMsg = ptext (sLit "Use -XUndecidableInstances to permit this")
 \end{code}
@@ -1659,14 +1862,18 @@ checkFamInstRhs lhsTys famInsts
    check (tc, tys)
       | not (all isTyFamFree tys)
       = Just (famInstUndecErr famInst nestedMsg $$ parens undecidableMsg)
-      | not (null (fvTypes tys \\ fvs))
-      = Just (famInstUndecErr famInst nomoreVarMsg $$ parens undecidableMsg)
+      | not (null bad_tvs)
+      = Just (famInstUndecErr famInst (nomoreMsg bad_tvs) $$ parens undecidableMsg)
       | size <= sizeTypes tys
       = Just (famInstUndecErr famInst smallerAppMsg $$ parens undecidableMsg)
       | otherwise
       = Nothing
       where
         famInst = TyConApp tc tys
+        bad_tvs = filterOut isKindVar (fvTypes tys \\ fvs)
+             -- Rightly or wrongly, we only check for
+             -- excessive occurrences of *type* variables.
+             -- e.g. type instance Demote {T k} a = T (Demote {k} (Any {k}))
 
 -- Ensure that no type family instances occur in a type.
 --
@@ -1694,9 +1901,8 @@ famInstUndecErr ty msg
          nest 2 (ptext (sLit "in the type family application:") <+> 
                  pprType ty)]
 
-nestedMsg, nomoreVarMsg, smallerAppMsg :: SDoc
+nestedMsg, smallerAppMsg :: SDoc
 nestedMsg     = ptext (sLit "Nested type family application")
-nomoreVarMsg  = ptext (sLit "Variable occurs more often than in instance head")
 smallerAppMsg = ptext (sLit "Application is no smaller than the instance head")
 \end{code}
 
