@@ -39,7 +39,8 @@ type LlvmStatements = OrdList LlvmStatement
 --
 genLlvmProc :: LlvmEnv -> RawCmmDecl -> UniqSM (LlvmEnv, [LlvmCmmDecl])
 genLlvmProc env proc0@(CmmProc _ lbl (ListGraph blocks)) = do
-    let env' = setAliasMap env $ genAliasMap blocks
+    let !amap = genAliasMap blocks
+    let env' = setAliasMap env $ amap
     (env'', lmblocks, lmdata) <- basicBlocksCodeGen env' blocks ([], [])
     let info = topInfoTable proc0
         proc = CmmProc info lbl (ListGraph lmblocks)
@@ -51,34 +52,62 @@ genLlvmProc _ _ = panic "genLlvmProc: case that shouldn't reach here!"
 -- | Generate aliasing information for local variables
 genAliasMap :: [CmmBasicBlock] -> LlvmAliasMap
 genAliasMap blocks = let
-    plusMap = plusUFM_C Set.union
+    plusMap = plusUFM_C $ \(a,b) (c,d) -> (Set.union a c, b || d)
     
     forBlock (BasicBlock _ stmts) = foldr (plusMap.forStmt) emptyUFM stmts
     
     forStmt (CmmAssign (CmmLocal (LocalReg un _)) src) = unitUFM un (getRegsInExpr src)
-    forStmt _ = emptyUFM  
-    
+    forStmt (CmmCall target res _ _) = let
+        t = case target of
+                CmmPrim _ (Just stmts) -> foldr (plusMap.forStmt) emptyUFM stmts
+                _ -> emptyUFM
+        r = case res of
+                [CmmHinted (LocalReg un _) _] -> unitUFM un (Set.empty, False)
+                _ -> emptyUFM
+        in t `plusMap` r       
+    forStmt _ = emptyUFM 
+  
     aliasMap = foldr (plusMap.forBlock) emptyUFM blocks
     in reduceAliasMap aliasMap
 
-reduceAliasMap :: UniqFM (Set.Set CmmReg) -> LlvmAliasMap
-reduceAliasMap a = let 
-    a' = mapUFM_Directly combiner a
-    combiner un elt = reduceSet a'' elt
-      where
-        a'' = addToUFM a' un $ reduceSet emptyUFM (onlyGlobals elt)
-        onlyGlobals = Set.filter isGlobal
-        isGlobal (CmmGlobal _) = True
-        isGlobal _ = False
-    in a'
+reduceAliasMap :: UniqFM (Set.Set CmmReg, Bool) -> LlvmAliasMap
+reduceAliasMap aliasSets = let
+    expandOne :: UniqFM (Set.Set CmmReg, Bool) -> UniqFM (Set.Set CmmReg, Bool)
+    expandOne as = mapUFM expand as
+      where 
+        expand (s, loads) = Set.fold combine (Set.empty, False) $ Set.map getSet s
+          where
+            getSet (CmmLocal (LocalReg un _)) = case lookupUFM as un of
+                                                    (Just (s', loads')) -> (s', loads || loads')
+                                                    _ -> panic $ "Unknown local variable: " ++ show un
+            getSet r = (Set.singleton r, loads)
+            combine (s, b) (s', b') = (Set.union s s', b || b') 
 
-reduceSet :: LlvmAliasMap -> Set.Set CmmReg -> PtrBasis
-reduceSet a s = Set.fold reduce Memory s
+    -- Expand all instances of local variables until the number of global variables does not increase
+    doExpansion :: UniqFM (Set.Set CmmReg, Bool) -> Int -> UniqFM (Set.Set CmmReg, Bool)
+    doExpansion as g = let
+      g' = getGlobalsCount as
+      in if g' == g then as else doExpansion (expandOne as) g'
+    
+    getGlobalsCount :: UniqFM (Set.Set CmmReg, Bool) -> Int
+    getGlobalsCount as = foldUFM (+) 0 $ mapUFM (\(s,_) -> Set.fold forRegs 0 s) as
+      where forRegs (CmmGlobal _) n = n+1 
+            forRegs _ n = n   
+    onlyGlobals (s, loads) = (Set.filter isGlobal s, loads)
+    isGlobal (CmmGlobal _) = True
+    isGlobal _ = False
+    expanded = doExpansion aliasSets 0 
+    in mapUFM ((reduceSet emptyUFM).onlyGlobals) expanded
+
+reduceSet :: LlvmAliasMap -> (Set.Set CmmReg, Bool) -> PtrBasis
+reduceSet a (s, loads) = if Set.null s then 
+                            if loads then Memory else Constant
+                         else Set.fold reduce Memory s
     where
         reduce :: CmmReg -> PtrBasis -> PtrBasis
         reduce (CmmLocal (LocalReg un _)) b = case lookupUFM a un of
                                                 (Just b') -> strongestBasis b b'
-                                                _ -> error "Unknown local variable"
+                                                _ -> panic $ "Unknown local variable"
         reduce (CmmGlobal r) b = strongestBasis (Register r) b
 
 strongestBasis :: PtrBasis -> PtrBasis -> PtrBasis
@@ -92,20 +121,31 @@ strongestBasis _ (Register Hp) = Register Hp
 strongestBasis _ (Register Sp) = Register Sp
 strongestBasis (Register (VanillaReg r h)) _ = Register (VanillaReg r h)
 strongestBasis _ (Register (VanillaReg r h)) = Register (VanillaReg r h)
-strongestBasis _ _ = Memory 
+strongestBasis Memory _ = Memory
+strongestBasis _ Memory = Memory
+strongestBasis _ _ = Constant 
 
 getTBAAForExpr :: LlvmEnv -> CmmExpr -> MetaData
-getTBAAForExpr env e = case reduceSet (getAliasMap env) $ getRegsInExpr e of
-                         Memory -> memory
-                         Register r -> getTBAA r
-                         Unknown -> top
+getTBAAForExpr env e = let
+    basis = reduceSet (getAliasMap env) $ getRegsInExpr e
+    in case basis of
+        Memory -> memory
+        Register r -> getTBAA r
+        Unknown -> top
+        Constant -> top --This shouldn't happen in any sane Cmm
 
--- | Get a set of registers both local and global accessed by the CmmExpr
-getRegsInExpr :: CmmExpr -> Set.Set CmmReg
-getRegsInExpr (CmmReg r) = Set.singleton r
-getRegsInExpr (CmmMachOp _ es) = Set.unions $ map getRegsInExpr es 
-getRegsInExpr (CmmRegOff r _) = Set.singleton r
-getRegsInExpr _ = Set.empty
+-- | Get a set of registers both local and global accessed by the CmmExpr 
+-- | and whether it contains any loads.     
+getRegsInExpr :: CmmExpr -> (Set.Set CmmReg, Bool)
+getRegsInExpr (CmmReg r) = (Set.singleton r, False)
+getRegsInExpr (CmmMachOp _ es) = let
+    es' = map getRegsInExpr es
+    reduced = foldl reduce (Set.empty, False) es'
+    reduce (s, b) (s', b') = (Set.union s s', b || b') 
+    in reduced
+getRegsInExpr (CmmRegOff r _) = (Set.singleton r, False)
+getRegsInExpr (CmmLoad _ _) = (Set.empty, True)
+getRegsInExpr _ = (Set.empty, False)
 
 -- -----------------------------------------------------------------------------
 -- * Block code generation

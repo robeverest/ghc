@@ -171,7 +171,7 @@ type LlvmEnvMap = UniqFM LlvmType
 -- It is unknown if it is based both on Hp an Sp, a case that does 
 -- not appear in generated code but is possible in handwritten Cmm.
 -- In this case the TBAA node is top
-data PtrBasis = Register GlobalReg | Memory | Unknown
+data PtrBasis = Register GlobalReg | Memory | Unknown | Constant
 
 -- A map for the alias information
 type LlvmAliasMap = UniqFM PtrBasis
