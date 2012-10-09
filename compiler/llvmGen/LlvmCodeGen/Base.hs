@@ -13,7 +13,8 @@ module LlvmCodeGen.Base (
         maxSupportLlvmVersion,
 
         LlvmEnv, initLlvmEnv, clearVars, varLookup, varInsert,
-        funLookup, funInsert, getLlvmVer, setLlvmVer, getLlvmPlatform,
+        funLookup, funInsert, PtrBasis(..), LlvmAliasMap, getAliasMap,
+        setAliasMap, getLlvmVer, setLlvmVer, getLlvmPlatform, 
         getDflags, ghcInternalFunctions,
 
         cmmToLlvmType, widthToLlvmFloat, widthToLlvmInt, llvmFunTy,
@@ -154,20 +155,30 @@ minSupportLlvmVersion :: LlvmVersion
 minSupportLlvmVersion = 28
 
 maxSupportLlvmVersion :: LlvmVersion
-maxSupportLlvmVersion = 31
+maxSupportLlvmVersion = 32
 
 -- ----------------------------------------------------------------------------
 -- * Environment Handling
 --
 
--- two maps, one for functions and one for local vars.
-newtype LlvmEnv = LlvmEnv (LlvmEnvMap, LlvmEnvMap, LlvmVersion, DynFlags)
+-- Three maps, one for functions, one for local vars and one for the aliasing 
+-- information of local vars.
+newtype LlvmEnv = LlvmEnv (LlvmEnvMap, LlvmEnvMap, LlvmAliasMap, LlvmVersion, DynFlags)
 
 type LlvmEnvMap = UniqFM LlvmType
 
+-- A pointer is either based on a global register or from a load. 
+-- It is unknown if it is based both on Hp an Sp, a case that does 
+-- not appear in generated code but is possible in handwritten Cmm.
+-- In this case the TBAA node is top
+data PtrBasis = Register GlobalReg | Memory | Unknown | Constant
+
+-- A map for the alias information
+type LlvmAliasMap = UniqFM PtrBasis
+
 -- | Get initial Llvm environment.
 initLlvmEnv :: DynFlags -> LlvmEnv
-initLlvmEnv dflags = LlvmEnv (initFuncs, emptyUFM, defaultLlvmVersion, dflags)
+initLlvmEnv dflags = LlvmEnv (initFuncs, emptyUFM, emptyUFM, defaultLlvmVersion, dflags)
     where initFuncs = listToUFM $ [ (n, LMFunction ty) | (n, ty) <- ghcInternalFunctions dflags ]
 
 -- | Here we pre-initialise some functions that are used internally by GHC
@@ -190,44 +201,50 @@ ghcInternalFunctions dflags =
 
 -- | Clear variables from the environment.
 clearVars :: LlvmEnv -> LlvmEnv
-clearVars (LlvmEnv (e1, _, n, p)) = {-# SCC "llvm_env_clear" #-}
-    LlvmEnv (e1, emptyUFM, n, p)
+clearVars (LlvmEnv (e1, _, _, n, p)) = {-# SCC "llvm_env_clear" #-}
+    LlvmEnv (e1, emptyUFM, emptyUFM, n, p)
 
 -- | Insert local variables into the environment.
 varInsert :: Uniquable key => key -> LlvmType -> LlvmEnv -> LlvmEnv
-varInsert s t (LlvmEnv (e1, e2, n, p)) = {-# SCC "llvm_env_vinsert" #-}
-    LlvmEnv (e1, addToUFM e2 s t, n, p)
+varInsert s t (LlvmEnv (e1, e2, e3, n, p)) = {-# SCC "llvm_env_vinsert" #-}
+    LlvmEnv (e1, addToUFM e2 s t, e3, n, p)
 
 -- | Insert functions into the environment.
 funInsert :: Uniquable key => key -> LlvmType -> LlvmEnv -> LlvmEnv
-funInsert s t (LlvmEnv (e1, e2, n, p)) = {-# SCC "llvm_env_finsert" #-}
-    LlvmEnv (addToUFM e1 s t, e2, n, p)
+funInsert s t (LlvmEnv (e1, e2, e3, n, p)) = {-# SCC "llvm_env_finsert" #-}
+    LlvmEnv (addToUFM e1 s t, e2, e3, n, p)
 
 -- | Lookup local variables in the environment.
 varLookup :: Uniquable key => key -> LlvmEnv -> Maybe LlvmType
-varLookup s (LlvmEnv (_, e2, _, _)) = {-# SCC "llvm_env_vlookup" #-}
+varLookup s (LlvmEnv (_, e2, _, _, _)) = {-# SCC "llvm_env_vlookup" #-}
     lookupUFM e2 s
 
 -- | Lookup functions in the environment.
 funLookup :: Uniquable key => key -> LlvmEnv -> Maybe LlvmType
-funLookup s (LlvmEnv (e1, _, _, _)) = {-# SCC "llvm_env_flookup" #-}
+funLookup s (LlvmEnv (e1, _, _, _, _)) = {-# SCC "llvm_env_flookup" #-}
     lookupUFM e1 s
 
+getAliasMap :: LlvmEnv -> LlvmAliasMap
+getAliasMap (LlvmEnv (_, _, a, _, _)) = a
+
+setAliasMap:: LlvmEnv -> LlvmAliasMap -> LlvmEnv
+setAliasMap (LlvmEnv (e1, e2, _, v, p)) a = LlvmEnv (e1, e2, a, v, p) 
+    
 -- | Get the LLVM version we are generating code for
 getLlvmVer :: LlvmEnv -> LlvmVersion
-getLlvmVer (LlvmEnv (_, _, n, _)) = n
+getLlvmVer (LlvmEnv (_, _, _, n, _)) = n
 
 -- | Set the LLVM version we are generating code for
 setLlvmVer :: LlvmVersion -> LlvmEnv -> LlvmEnv
-setLlvmVer n (LlvmEnv (e1, e2, _, p)) = LlvmEnv (e1, e2, n, p)
+setLlvmVer n (LlvmEnv (e1, e2, e3, _, p)) = LlvmEnv (e1, e2, e3, n, p)
 
 -- | Get the platform we are generating code for
 getLlvmPlatform :: LlvmEnv -> Platform
-getLlvmPlatform (LlvmEnv (_, _, _, d)) = targetPlatform d
+getLlvmPlatform (LlvmEnv (_, _, _, _, d)) = targetPlatform d
 
 -- | Get the DynFlags for this compilation pass
 getDflags :: LlvmEnv -> DynFlags
-getDflags (LlvmEnv (_, _, _, d)) = d
+getDflags (LlvmEnv (_, _, _, _, d)) = d
 
 -- ----------------------------------------------------------------------------
 -- * Label handling
