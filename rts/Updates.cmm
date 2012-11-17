@@ -26,9 +26,11 @@
  * we don't mind duplicating this jump.
  */
 INFO_TABLE_RET ( stg_upd_frame, UPDATE_FRAME,
-                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,updatee) )
+                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,_ccs,_unused,updatee) )
     return (P_ ret) /* the closure being returned */
 {
+    ASSERT(HpAlloc == 0); // Note [HpAlloc]
+
     /* ToDo: it might be a PAP, so we should check... */
     TICK_UPD_CON_IN_NEW(sizeW_fromITBL(%GET_STD_INFO(updatee)));
 
@@ -42,10 +44,12 @@ INFO_TABLE_RET ( stg_upd_frame, UPDATE_FRAME,
  * another thread in the meantime.
  */
 INFO_TABLE_RET ( stg_marked_upd_frame, UPDATE_FRAME,
-                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,updatee) )
+                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,_ccs,_unused,updatee) )
     return (P_ ret) /* the closure being returned */
 {
-    W_ v, i, tso, link;
+    W_ v;
+
+    ASSERT(HpAlloc == 0); // Note [HpAlloc]
 
     // we know the closure is a BLACKHOLE
     v = StgInd_indirectee(updatee);
@@ -77,11 +81,23 @@ INFO_TABLE_RET ( stg_marked_upd_frame, UPDATE_FRAME,
  * high watermark.
  */
 INFO_TABLE_RET ( stg_bh_upd_frame, UPDATE_FRAME,
-                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,updatee) )
+                 UPDATE_FRAME_FIELDS(W_,P_,info_ptr,ccs,_unused,updatee) )
     return (P_ ret) /* the closure being returned */
 {
     // This all compiles away to a single jump instruction (sigh)
     jump RET_LBL(stg_marked_upd_frame)
-        ( UPDATE_FRAME_FIELDS(,,info_ptr,updatee) )
+        ( UPDATE_FRAME_FIELDS(,,info_ptr,ccs,_unused,updatee) )
         (ret);
 }
+
+/* Note [HpAlloc]
+ *
+ * HpAlloc is required to be zero unless we just bumped Hp and failed
+ * the heap check: see HeapStackCheck.cmm.  Failures that result from
+ * HpAlloc being non-zero are very hard to track down, because they
+ * manifest as spurious heap corruption that happens only with +RTS
+ * -N2 or greater (because then we have a lot more
+ * interruptCapability() calls happening).  Hence, we assert
+ * HpAlloc==0 as often as possible, and in the update code is a good
+ * place to do that.
+ */

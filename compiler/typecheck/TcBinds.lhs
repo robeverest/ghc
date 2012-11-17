@@ -32,6 +32,7 @@ import TysPrim
 import Id
 import Var
 import VarSet
+import Module
 import Name
 import NameSet
 import NameEnv
@@ -736,7 +737,7 @@ tcImpPrags prags
     -- code.  The latter happens when Haddocking the base library;
     -- we don't wnat complaints about lack of INLINABLE pragmas 
     not_specialising dflags
-      | not (dopt Opt_Specialise dflags) = True
+      | not (gopt Opt_Specialise dflags) = True
       | otherwise = case hscTarget dflags of
                       HscNothing -> True
                       HscInterpreted -> True

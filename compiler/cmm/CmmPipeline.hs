@@ -25,6 +25,7 @@ import ErrUtils
 import HscTypes
 import Control.Monad
 import Outputable
+import Platform
 
 -----------------------------------------------------------------------------
 -- | Top level driver for C-- pipeline
@@ -60,7 +61,7 @@ cpsTop hsc_env proc =
        -- later passes by removing lots of empty blocks, so we do it
        -- even when optimisation isn't turned on.
        --
-       CmmProc h l g <- {-# SCC "cmmCfgOpts(1)" #-}
+       CmmProc h l v g <- {-# SCC "cmmCfgOpts(1)" #-}
             return $ cmmCfgOptsProc splitting_proc_points proc
        dump Opt_D_dump_cmmz_cfg "Post control-flow optimsations" g
 
@@ -120,7 +121,7 @@ cpsTop hsc_env proc =
             dumpWith dflags Opt_D_dump_cmmz_procmap "procpoint map" pp_map
             gs <- {-# SCC "splitAtProcPoints" #-} runUniqSM $
                   splitAtProcPoints dflags l call_pps proc_points pp_map
-                                    (CmmProc h l g)
+                                    (CmmProc h l v g)
             dumps Opt_D_dump_cmmz_split "Post splitting" gs
      
             ------------- Populate info tables with stack info -----------------
@@ -133,13 +134,15 @@ cpsTop hsc_env proc =
                   return $ if optLevel dflags >= 1
                              then map (cmmCfgOptsProc splitting_proc_points) gs
                              else gs
+            gs <- return (map removeUnreachableBlocksProc gs)
+                -- Note [unreachable blocks]
             dumps Opt_D_dump_cmmz_cfg "Post control-flow optimsations" gs
 
             return (cafEnv, gs)
 
           else do
             -- attach info tables to return points
-            g <- return $ attachContInfoTables call_pps (CmmProc h l g)
+            g <- return $ attachContInfoTables call_pps (CmmProc h l v g)
 
             ------------- Populate info tables with stack info -----------------
             g <- {-# SCC "setInfoTableStackMap" #-}
@@ -151,11 +154,14 @@ cpsTop hsc_env proc =
                  return $ if optLevel dflags >= 1
                              then cmmCfgOptsProc splitting_proc_points g
                              else g
+            g <- return (removeUnreachableBlocksProc g)
+                -- Note [unreachable blocks]
             dump' Opt_D_dump_cmmz_cfg "Post control-flow optimsations" g
 
             return (cafEnv, [g])
 
   where dflags = hsc_dflags hsc_env
+        platform = targetPlatform dflags
         dump = dumpGraph dflags
         dump' = dumpWith dflags
 
@@ -163,7 +169,7 @@ cpsTop hsc_env proc =
            = mapM_ (dumpWith dflags flag name)
 
         condPass flag pass g dumpflag dumpname =
-            if dopt flag dflags
+            if gopt flag dflags
                then do
                     g <- return $ pass g
                     dump dumpflag dumpname g
@@ -177,6 +183,48 @@ cpsTop hsc_env proc =
         -- the entry point.
         splitting_proc_points = hscTarget dflags /= HscAsm
                              || not (tablesNextToCode dflags)
+                             || usingDarwinX86Pic -- Note [darwin-x86-pic]
+        usingDarwinX86Pic = platformArch platform == ArchX86
+                         && platformOS platform == OSDarwin
+                         && gopt Opt_PIC dflags
+
+{- Note [darwin-x86-pic]
+
+On x86/Darwin, PIC is implemented by inserting a sequence like
+
+    call 1f
+ 1: popl %reg
+
+at the proc entry point, and then referring to labels as offsets from
+%reg.  If we don't split proc points, then we could have many entry
+points in a proc that would need this sequence, and each entry point
+would then get a different value for %reg.  If there are any join
+points, then at the join point we don't have a consistent value for
+%reg, so we don't know how to refer to labels.
+
+Hence, on x86/Darwin, we have to split proc points, and then each proc
+point will get its own PIC initialisation sequence.
+
+This isn't an issue on x86/ELF, where the sequence is
+
+    call 1f
+ 1: popl %reg
+    addl $_GLOBAL_OFFSET_TABLE_+(.-1b), %reg
+
+so %reg always has a consistent value: the address of
+_GLOBAL_OFFSET_TABLE_, regardless of which entry point we arrived via.
+
+-}
+
+{- Note [unreachable blocks]
+
+The control-flow optimiser sometimes leaves unreachable blocks behind
+containing junk code.  If these blocks make it into the native code
+generator then they trigger a register allocator panic because they
+refer to undefined LocalRegs, so we must eliminate any unreachable
+blocks before passing the code onwards.
+
+-}
 
 runUniqSM :: UniqSM a -> IO a
 runUniqSM m = do
@@ -184,9 +232,9 @@ runUniqSM m = do
   return (initUs_ us m)
 
 
-dumpGraph :: DynFlags -> DynFlag -> String -> CmmGraph -> IO ()
+dumpGraph :: DynFlags -> DumpFlag -> String -> CmmGraph -> IO ()
 dumpGraph dflags flag name g = do
-  when (dopt Opt_DoCmmLinting dflags) $ do_lint g
+  when (gopt Opt_DoCmmLinting dflags) $ do_lint g
   dumpWith dflags flag name g
  where
   do_lint g = case cmmLintGraph dflags g of
@@ -195,7 +243,7 @@ dumpGraph dflags flag name g = do
                                 }
                  Nothing  -> return ()
 
-dumpWith :: Outputable a => DynFlags -> DynFlag -> String -> a -> IO ()
+dumpWith :: Outputable a => DynFlags -> DumpFlag -> String -> a -> IO ()
 dumpWith dflags flag txt g = do
          -- ToDo: No easy way of say "dump all the cmmz, *and* split
          -- them into files."  Also, -ddump-cmmz doesn't play nicely

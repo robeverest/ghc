@@ -14,8 +14,7 @@ module CmmInfo (
 
 #include "HsVersions.h"
 
-import OldCmm as Old
-
+import Cmm
 import CmmUtils
 import CLabel
 import SMRep
@@ -42,8 +41,8 @@ mkEmptyContInfoTable info_lbl
                  , cit_prof = NoProfilingInfo
                  , cit_srt  = NoC_SRT }
 
-cmmToRawCmm :: DynFlags -> Stream IO Old.CmmGroup ()
-            -> IO (Stream IO Old.RawCmmGroup ())
+cmmToRawCmm :: DynFlags -> Stream IO CmmGroup ()
+            -> IO (Stream IO RawCmmGroup ())
 cmmToRawCmm dflags cmms
   = do { uniqs <- mkSplitUniqSupply 'i'
        ; let do_one uniqs cmm = do
@@ -90,7 +89,7 @@ mkInfoTable :: DynFlags -> CmmDecl -> UniqSM [RawCmmDecl]
 mkInfoTable _ (CmmData sec dat)
   = return [CmmData sec dat]
 
-mkInfoTable dflags proc@(CmmProc infos entry_lbl blocks)
+mkInfoTable dflags proc@(CmmProc infos entry_lbl live blocks)
   --
   -- in the non-tables-next-to-code case, procs can have at most a
   -- single info table associated with the entry label of the proc.
@@ -99,7 +98,7 @@ mkInfoTable dflags proc@(CmmProc infos entry_lbl blocks)
   = case topInfoTable proc of   --  must be at most one
       -- no info table
       Nothing ->
-         return [CmmProc mapEmpty entry_lbl blocks]
+         return [CmmProc mapEmpty entry_lbl live blocks]
 
       Just info@CmmInfoTable { cit_lbl = info_lbl } -> do
         (top_decls, (std_info, extra_bits)) <-
@@ -108,21 +107,13 @@ mkInfoTable dflags proc@(CmmProc infos entry_lbl blocks)
           rel_std_info   = map (makeRelativeRefTo dflags info_lbl) std_info
           rel_extra_bits = map (makeRelativeRefTo dflags info_lbl) extra_bits
         --
-        case blocks of
-          ListGraph [] ->
-              -- No code; only the info table is significant
-              -- Use a zero place-holder in place of the
-              -- entry-label in the info table
-              return (top_decls ++
-                      [mkRODataLits info_lbl (zeroCLit dflags : rel_std_info ++
-                                                                rel_extra_bits)])
-          _nonempty ->
-             -- Separately emit info table (with the function entry
-             -- point as first entry) and the entry code
-             return (top_decls ++
-                     [CmmProc mapEmpty entry_lbl blocks,
-                      mkDataLits Data info_lbl
-                         (CmmLabel entry_lbl : rel_std_info ++ rel_extra_bits)])
+        -- Separately emit info table (with the function entry
+        -- point as first entry) and the entry code
+        --
+        return (top_decls ++
+                [CmmProc mapEmpty entry_lbl live blocks,
+                 mkDataLits Data info_lbl
+                    (CmmLabel entry_lbl : rel_std_info ++ rel_extra_bits)])
 
   --
   -- With tables-next-to-code, we can have many info tables,
@@ -132,9 +123,10 @@ mkInfoTable dflags proc@(CmmProc infos entry_lbl blocks)
   --
   | otherwise
   = do
-    (top_declss, raw_infos) <- unzip `fmap` mapM do_one_info (mapToList infos)
+    (top_declss, raw_infos) <-
+       unzip `fmap` mapM do_one_info (mapToList (info_tbls infos))
     return (concat top_declss ++
-            [CmmProc (mapFromList raw_infos) entry_lbl blocks])
+            [CmmProc (mapFromList raw_infos) entry_lbl live blocks])
 
   where
    do_one_info (lbl,itbl) = do
@@ -366,7 +358,7 @@ mkStdInfoTable dflags (type_descr, closure_descr) cl_type srt_len layout_lit
 
  where  
     prof_info 
-	| dopt Opt_SccProfilingOn dflags = [type_descr, closure_descr]
+	| gopt Opt_SccProfilingOn dflags = [type_descr, closure_descr]
 	| otherwise = []
 
     type_lit = packHalfWordsCLit dflags (toStgHalfWord dflags (fromIntegral cl_type)) srt_len

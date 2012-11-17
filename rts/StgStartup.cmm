@@ -24,10 +24,11 @@
  * to the scheduler marking the thread as finished.
  */
 
-#define CHECK_SENSIBLE_REGS() \
-    ASSERT(Hp != 0);			\
-    ASSERT(Sp != 0);			\
-    ASSERT(SpLim != 0);			\
+#define CHECK_SENSIBLE_REGS()                           \
+    ASSERT(Hp != 0);                                    \
+    ASSERT(HpAlloc == 0);                               \
+    ASSERT(Sp != 0);                                    \
+    ASSERT(SpLim != 0);                                 \
     ASSERT(SpLim - WDS(RESERVED_STACK_WORDS) <= Sp);
 
 /* -----------------------------------------------------------------------------
@@ -36,7 +37,7 @@
 
 INFO_TABLE_RET(stg_stop_thread, STOP_FRAME,
                W_ info_ptr,
-               PROF_HDR_FIELDS(W_))
+               PROF_HDR_FIELDS(W_,p1,p2))
 /* no return list: explicit stack layout */
 {
     /* 

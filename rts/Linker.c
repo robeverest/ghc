@@ -137,6 +137,16 @@
 #include <sys/tls.h>
 #endif
 
+// Defining this as 'int' rather than 'const int' means that we don't get
+// warnings like
+//    error: function might be possible candidate for attribute ‘noreturn’
+// from gcc:
+#ifdef DYNAMIC_BY_DEFAULT
+int dynamicByDefault = 1;
+#else
+int dynamicByDefault = 0;
+#endif
+
 /* Hash table mapping symbol names to Symbol */
 static /*Str*/HashTable *symhash;
 
@@ -1075,6 +1085,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_deRefWeakzh)                                    \
       SymI_HasProto(stg_deRefStablePtrzh)                               \
       SymI_HasProto(dirty_MUT_VAR)                                      \
+      SymI_HasProto(dirty_TVAR)                                         \
       SymI_HasProto(stg_forkzh)                                         \
       SymI_HasProto(stg_forkOnzh)                                       \
       SymI_HasProto(forkProcess)                                        \
@@ -1209,6 +1220,8 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(startTimer)                                         \
       SymI_HasProto(stg_MVAR_CLEAN_info)                                \
       SymI_HasProto(stg_MVAR_DIRTY_info)                                \
+      SymI_HasProto(stg_TVAR_CLEAN_info)                                \
+      SymI_HasProto(stg_TVAR_DIRTY_info)                                \
       SymI_HasProto(stg_IND_STATIC_info)                                \
       SymI_HasProto(stg_ARR_WORDS_info)                                 \
       SymI_HasProto(stg_MUT_ARR_PTRS_DIRTY_info)                        \
@@ -1299,6 +1312,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(n_capabilities)                                     \
       SymI_HasProto(stg_traceCcszh)                                     \
       SymI_HasProto(stg_traceEventzh)                                   \
+      SymI_HasProto(stg_traceMarkerzh)                                  \
       SymI_HasProto(getMonotonicNSec)                                   \
       SymI_HasProto(lockFile)                                           \
       SymI_HasProto(unlockFile)                                         \
@@ -1578,9 +1592,32 @@ static OpenedDLL* opened_dlls = NULL;
 
 #  if defined(OBJFORMAT_ELF) || defined(OBJFORMAT_MACHO)
 
+/* Suppose in ghci we load a temporary SO for a module containing
+       f = 1
+   and then modify the module, recompile, and load another temporary
+   SO with
+       f = 2
+   Then as we don't unload the first SO, dlsym will find the
+       f = 1
+   symbol whereas we want the
+       f = 2
+   symbol. We therefore need to keep our own SO handle list, and
+   try SOs in the right order. */
+
+typedef
+   struct _OpenedSO {
+      struct _OpenedSO* next;
+      void *handle;
+   }
+   OpenedSO;
+
+/* A list thereof. */
+static OpenedSO* openedSOs = NULL;
+
 static const char *
 internal_dlopen(const char *dll_name)
 {
+   OpenedSO* o_so;
    void *hdl;
    const char *errmsg;
    char *errmsg_copy;
@@ -1608,10 +1645,35 @@ internal_dlopen(const char *dll_name)
       strcpy(errmsg_copy, errmsg);
       errmsg = errmsg_copy;
    }
+   o_so = stgMallocBytes(sizeof(OpenedSO), "addDLL");
+   o_so->handle = hdl;
+   o_so->next   = openedSOs;
+   openedSOs    = o_so;
+
    RELEASE_LOCK(&dl_mutex);
    //--------------- End critical section -------------------
 
    return errmsg;
+}
+
+static void *
+internal_dlsym(void *hdl, const char *symbol) {
+    OpenedSO* o_so;
+    void *v;
+
+    // We acquire dl_mutex as concurrent dl* calls may alter dlerror
+    ACQUIRE_LOCK(&dl_mutex);
+    dlerror();
+    for (o_so = openedSOs; o_so != NULL; o_so = o_so->next) {
+        v = dlsym(o_so->handle, symbol);
+        if (dlerror() == NULL) {
+            RELEASE_LOCK(&dl_mutex);
+            return v;
+        }
+    }
+    v = dlsym(hdl, symbol)
+    RELEASE_LOCK(&dl_mutex);
+    return v;
 }
 #  endif
 
@@ -1788,7 +1850,7 @@ lookupSymbol( char *lbl )
     if (val == NULL) {
         IF_DEBUG(linker, debugBelch("lookupSymbol: symbol not found\n"));
 #       if defined(OBJFORMAT_ELF)
-        return dlsym(dl_prog_handle, lbl);
+        return internal_dlsym(dl_prog_handle, lbl);
 #       elif defined(OBJFORMAT_MACHO)
 #       if HAVE_DLFCN_H
         /* On OS X 10.3 and later, we use dlsym instead of the old legacy
@@ -1802,7 +1864,7 @@ lookupSymbol( char *lbl )
         */
         IF_DEBUG(linker, debugBelch("lookupSymbol: looking up %s with dlsym\n", lbl));
 	ASSERT(lbl[0] == '_');
-	return dlsym(dl_prog_handle, lbl + 1);
+	return internal_dlsym(dl_prog_handle, lbl + 1);
 #       else
         if (NSIsSymbolNameDefined(lbl)) {
             NSSymbol symbol = NSLookupAndBindSymbol(lbl);
@@ -2043,6 +2105,10 @@ loadArchive( pathchar *path )
 
     IF_DEBUG(linker, debugBelch("loadArchive: start\n"));
     IF_DEBUG(linker, debugBelch("loadArchive: Loading archive `%" PATH_FMT" '\n", path));
+
+    if (dynamicByDefault) {
+        barf("loadArchive called, but using dynlibs by default (%s)", path);
+    }
 
     gnuFileIndex = NULL;
     gnuFileIndexSize = 0;
@@ -2434,6 +2500,10 @@ loadObj( pathchar *path )
 #  endif
 #endif
    IF_DEBUG(linker, debugBelch("loadObj %" PATH_FMT "\n", path));
+
+   if (dynamicByDefault) {
+       barf("loadObj called, but using dynlibs by default (%s)", path);
+   }
 
    initLinker();
 
@@ -4935,7 +5005,7 @@ do_Elf_Rel_relocations ( ObjectCode* oc, char* ehdrC,
 #        endif // arm_HOST_ARCH
 
          default:
-            errorBelch("%s: unhandled ELF relocation(Rel) type %" FMT_SizeT "\n",
+            errorBelch("%s: unhandled ELF relocation(Rel) type %" FMT_Word "\n",
                   oc->fileName, (W_)ELF_R_TYPE(info));
             return 0;
       }
@@ -5250,7 +5320,7 @@ do_Elf_Rela_relocations ( ObjectCode* oc, char* ehdrC,
 #endif
 
          default:
-            errorBelch("%s: unhandled ELF relocation(RelA) type %" FMT_SizeT "\n",
+            errorBelch("%s: unhandled ELF relocation(RelA) type %" FMT_Word "\n",
                   oc->fileName, (W_)ELF_R_TYPE(info));
             return 0;
       }

@@ -40,9 +40,9 @@ import CoreFVs
 import MkCore
 
 import DynFlags
-import StaticFlags
 import CostCentre
 import Id
+import Module
 import VarSet
 import VarEnv
 import DataCon
@@ -297,8 +297,8 @@ dsExpr (ExplicitTuple tup_args boxity)
                            (map (Type . exprType) args ++ args) }
 
 dsExpr (HsSCC cc expr@(L loc _)) = do
-    mod_name <- getModuleDs
-    count <- doptM Opt_ProfCountEntries
+    mod_name <- getModule
+    count <- goptM Opt_ProfCountEntries
     uniq <- newUnique
     Tick (ProfNote (mkUserCC cc mod_name loc uniq) count True) <$> dsLExpr expr
 
@@ -688,8 +688,8 @@ dsExplicitList elt_ty xs
   = do { dflags <- getDynFlags
        ; xs' <- mapM dsLExpr xs
        ; let (dynamic_prefix, static_suffix) = spanTail is_static xs'
-       ; if opt_SimpleListLiterals                      -- -fsimple-list-literals
-         || not (dopt Opt_EnableRewriteRules dflags)    -- Rewrite rules off
+       ; if gopt Opt_SimpleListLiterals dflags        -- -fsimple-list-literals
+         || not (gopt Opt_EnableRewriteRules dflags)  -- Rewrite rules off
                 -- Don't generate a build if there are no rules to eliminate it!
                 -- See Note [Desugaring RULE left hand sides] in Desugar
          || null dynamic_prefix   -- Avoid build (\c n. foldr c n xs)!

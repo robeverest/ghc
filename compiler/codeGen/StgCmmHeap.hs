@@ -366,21 +366,17 @@ entryHeapCheck' is_fastf node arity args code
 
               Function (fast): call (NativeNode) stg_gc_fun(fun, args)
 
-              Function (slow): R1 = fun
-                               call (slow) stg_gc_fun(args)
-               XXX: this is a bit naughty, we should really pass R1 as an
-               argument and use a special calling convention.
+              Function (slow): call (slow) stg_gc_fun(fun, args)
            -}
            gc_call upd
                | is_thunk
-                 = mkJump dflags stg_gc_enter1 [node] upd
+                 = mkJump dflags NativeNodeCall stg_gc_enter1 [node] upd
 
                | is_fastf
-                 = mkJump dflags stg_gc_fun (node : args') upd
+                 = mkJump dflags NativeNodeCall stg_gc_fun (node : args') upd
 
                | otherwise
-                 = mkAssign nodeReg node <*>
-                   mkForeignJump dflags Slow stg_gc_fun args' upd
+                 = mkJump dflags Slow stg_gc_fun (node : args') upd
 
        updfr_sz <- getUpdFrameOff
 
@@ -416,7 +412,7 @@ altOrNoEscapeHeapCheck checkYield regs code = do
       Nothing -> genericGC checkYield code
       Just gc -> do
         lret <- newLabelC
-        let (off, copyin) = copyInOflow dflags NativeReturn (Young lret) regs []
+        let (off, _, copyin) = copyInOflow dflags NativeReturn (Young lret) regs []
         lcont <- newLabelC
         emitOutOfLine lret (copyin <*> mkBranch lcont)
         emitLabel lcont
@@ -584,7 +580,7 @@ do_checks mb_stk_hwm checkYield mb_alloc_lit do_gc = do
      emitAssign hpReg bump_hp
      emit =<< mkCmmIfThen hp_oflo (alloc_n <*> mkBranch gc_id)
     else do
-      when (not (dopt Opt_OmitYields dflags) && checkYield) $ do
+      when (not (gopt Opt_OmitYields dflags) && checkYield) $ do
          -- Yielding if HpLim == 0
          let yielding = CmmMachOp (mo_wordEq dflags)
                                   [CmmReg (CmmGlobal HpLim),

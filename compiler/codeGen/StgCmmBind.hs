@@ -273,7 +273,7 @@ mkRhsClosure    dflags bndr _cc _bi
         && all (isGcPtrRep . idPrimRep . stripNV) fvs
         && isUpdatable upd_flag
         && arity <= mAX_SPEC_AP_SIZE dflags
-        && not (dopt Opt_SccProfilingOn dflags)
+        && not (gopt Opt_SccProfilingOn dflags)
                                   -- not when profiling: we don't want to
                                   -- lose information about this particular
                                   -- thunk (e.g. its type) (#949)
@@ -450,7 +450,7 @@ closureCodeBody top_lvl bndr cl_info cc args arity body fv_details
         ; emitClosureProcAndInfoTable top_lvl bndr lf_info info_tbl args $
             \(_offset, node, arg_regs) -> do
                 -- Emit slow-entry code (for entering a closure through a PAP)
-                { mkSlowEntryCode cl_info arg_regs
+                { mkSlowEntryCode bndr cl_info arg_regs
 
                 ; dflags <- getDynFlags
                 ; let lf_info = closureLFInfo cl_info
@@ -494,21 +494,22 @@ load_fvs node lf_info = mapM_ (\ (reg, off) ->
 --
 -- The slow entry point is used for unknown calls: eg. stg_PAP_entry
 
-mkSlowEntryCode :: ClosureInfo -> [LocalReg] -> FCode ()
+mkSlowEntryCode :: Id -> ClosureInfo -> [LocalReg] -> FCode ()
 -- If this function doesn't have a specialised ArgDescr, we need
 -- to generate the function's arg bitmap and slow-entry code.
 -- Here, we emit the slow-entry code.
-mkSlowEntryCode cl_info arg_regs -- function closure is already in `Node'
+mkSlowEntryCode bndr cl_info arg_regs -- function closure is already in `Node'
   | Just (_, ArgGen _) <- closureFunInfo cl_info
   = do dflags <- getDynFlags
-       let slow_lbl = closureSlowEntryLabel  cl_info
+       let node = idToReg dflags (NonVoid bndr)
+           slow_lbl = closureSlowEntryLabel  cl_info
            fast_lbl = closureLocalEntryLabel dflags cl_info
            -- mkDirectJump does not clobber `Node' containing function closure
-           jump = mkDirectJump dflags
-                               (mkLblExpr fast_lbl)
-                               (map (CmmReg . CmmLocal) arg_regs)
-                               (initUpdFrameOff dflags)
-       emitProcWithConvention Slow Nothing slow_lbl arg_regs jump
+           jump = mkJump dflags NativeNodeCall
+                                (mkLblExpr fast_lbl)
+                                (map (CmmReg . CmmLocal) (node : arg_regs))
+                                (initUpdFrameOff dflags)
+       emitProcWithConvention Slow Nothing slow_lbl (node : arg_regs) jump
   | otherwise = return ()
 
 -----------------------------------------
@@ -574,8 +575,8 @@ emitBlackHoleCode is_single_entry node = do
   -- Note the eager-blackholing check is here rather than in blackHoleOnEntry,
   -- because emitBlackHoleCode is called from CmmParse.
 
-  let  eager_blackholing =  not (dopt Opt_SccProfilingOn dflags)
-                         && dopt Opt_EagerBlackHoling dflags
+  let  eager_blackholing =  not (gopt Opt_SccProfilingOn dflags)
+                         && gopt Opt_EagerBlackHoling dflags
              -- Profiling needs slop filling (to support LDV
              -- profiling), so currently eager blackholing doesn't
              -- work with profiling.
@@ -603,8 +604,8 @@ setupUpdate closure_info node body
           dflags <- getDynFlags
           let
               bh = blackHoleOnEntry closure_info &&
-                   not (dopt Opt_SccProfilingOn dflags) &&
-                   dopt Opt_EagerBlackHoling dflags
+                   not (gopt Opt_SccProfilingOn dflags) &&
+                   gopt Opt_EagerBlackHoling dflags
 
               lbl | bh        = mkBHUpdInfoLabel
                   | otherwise = mkUpdInfoLabel
@@ -728,7 +729,7 @@ link_caf node _is_upd = do
         -- assuming lots of things, like the stack pointer hasn't
         -- moved since we entered the CAF.
        (let target = entryCode dflags (closureInfoPtr dflags (CmmReg (CmmLocal node))) in
-        mkJump dflags target [] updfr)
+        mkJump dflags NativeNodeCall target [] updfr)
 
   ; return hp_rel }
 

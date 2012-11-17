@@ -40,6 +40,7 @@ import DynFlags
 import BasicTypes	( FixityDirection(..) )
 import PrelNames
 
+import Module
 import Name
 import NameSet
 import RdrName
@@ -100,7 +101,7 @@ finishHsVar :: Name -> RnM (HsExpr Name, FreeVars)
 -- when renaming infix expressions
 -- See Note [Adding the implicit parameter to 'assert']
 finishHsVar name 
- = do { ignore_asserts <- doptM Opt_IgnoreAsserts
+ = do { ignore_asserts <- goptM Opt_IgnoreAsserts
       ; if ignore_asserts || not (name `hasKey` assertIdKey)
 	then return (HsVar name, unitFV name)
 	else do { e <- mkAssertErrorExpr

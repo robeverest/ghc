@@ -28,8 +28,8 @@ import Literal
 import TyCon
 import PrimOp
 import FastString
+import StgCmmLayout     ( ArgRep(..) )
 import SMRep
-import ClosureInfo -- CgRep stuff
 import DynFlags
 import Outputable
 import Platform
@@ -207,8 +207,8 @@ sizeSS (SizedSeq n _) = n
 data Operand
   = Op Word
   | SmallOp Word16
-  | LargeOp Word
   | LabelOp Word16
+-- (unused)  | LargeOp Word
 
 data Assembler a
   = AllocPtr (IO BCOPtr) (Word -> Assembler a)
@@ -244,10 +244,10 @@ type LabelEnv = Word16 -> Word
 
 largeOp :: Bool -> Operand -> Bool
 largeOp long_jumps op = case op of
-  LargeOp _ -> True
-  SmallOp _ -> False
-  Op w      -> isLarge w
-  LabelOp _ -> long_jumps
+   SmallOp _ -> False
+   Op w      -> isLarge w
+   LabelOp _ -> long_jumps
+-- LargeOp _ -> True
 
 runAsm :: DynFlags -> Bool -> LabelEnv -> Assembler a -> State AsmState IO a
 runAsm dflags long_jumps e = go
@@ -272,9 +272,9 @@ runAsm dflags long_jumps e = go
             | otherwise = w
           words = concatMap expand ops
           expand (SmallOp w) = [w]
-          expand (LargeOp w) = largeArg dflags w
           expand (LabelOp w) = expand (Op (e w))
           expand (Op w) = if largeOps then largeArg dflags w else [fromIntegral w]
+--        expand (LargeOp w) = largeArg dflags w
       State $ \(st_i0,st_l0,st_p0) -> do
         let st_i1 = addListToSS st_i0 (opcode : words)
         return ((st_i1,st_l0,st_p0), ())
@@ -306,9 +306,9 @@ inspectAsm dflags long_jumps initial_offset
         size = sum (map count ops) + 1
         largeOps = any (largeOp long_jumps) ops
         count (SmallOp _) = 1
-        count (LargeOp _) = largeArg16s dflags
         count (LabelOp _) = count (Op 0)
         count (Op _) = if largeOps then largeArg16s dflags else 1
+--      count (LargeOp _) = largeArg16s dflags
 
 -- Bring in all the bci_ bytecode constants.
 #include "rts/Bytecodes.h"
@@ -440,21 +440,21 @@ assembleI dflags i = case i of
 isLarge :: Word -> Bool
 isLarge n = n > 65535
 
-push_alts :: CgRep -> Word16
-push_alts NonPtrArg = bci_PUSH_ALTS_N
-push_alts FloatArg  = bci_PUSH_ALTS_F
-push_alts DoubleArg = bci_PUSH_ALTS_D
-push_alts VoidArg   = bci_PUSH_ALTS_V
-push_alts LongArg   = bci_PUSH_ALTS_L
-push_alts PtrArg    = bci_PUSH_ALTS_P
+push_alts :: ArgRep -> Word16
+push_alts V = bci_PUSH_ALTS_V
+push_alts P = bci_PUSH_ALTS_P
+push_alts N = bci_PUSH_ALTS_N
+push_alts L = bci_PUSH_ALTS_L
+push_alts F = bci_PUSH_ALTS_F
+push_alts D = bci_PUSH_ALTS_D
 
-return_ubx :: CgRep -> Word16
-return_ubx NonPtrArg = bci_RETURN_N
-return_ubx FloatArg  = bci_RETURN_F
-return_ubx DoubleArg = bci_RETURN_D
-return_ubx VoidArg   = bci_RETURN_V
-return_ubx LongArg   = bci_RETURN_L
-return_ubx PtrArg    = bci_RETURN_P
+return_ubx :: ArgRep -> Word16
+return_ubx V = bci_RETURN_V
+return_ubx P = bci_RETURN_P
+return_ubx N = bci_RETURN_N
+return_ubx L = bci_RETURN_L
+return_ubx F = bci_RETURN_F
+return_ubx D = bci_RETURN_D
 
 -- Make lists of host-sized words for literals, so that when the
 -- words are placed in memory at increasing addresses, the

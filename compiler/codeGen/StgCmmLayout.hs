@@ -30,7 +30,9 @@ module StgCmmLayout (
         cmmGetClosureType,
 	infoTable, infoTableClosureType,
 	infoTablePtrs, infoTableNonPtrs,
-	funInfoTable
+        funInfoTable,
+
+        ArgRep(..), toArgRep, argRepSizeW
   ) where
 
 
@@ -119,12 +121,12 @@ emitCallWithExtraStack (callConv, retConv) fun args extra_stack
 	; updfr_off <- getUpdFrameOff
         ; case sequel of
             Return _ -> do
-              emit $ mkForeignJumpExtra dflags callConv fun args updfr_off extra_stack
+              emit $ mkJumpExtra dflags callConv fun args updfr_off extra_stack
               return AssignedDirectly
             AssignTo res_regs _ -> do
               k <- newLabelC
               let area = Young k
-                  (off, copyin) = copyInOflow dflags retConv area res_regs []
+                  (off, _, copyin) = copyInOflow dflags retConv area res_regs []
                   copyout = mkCallReturnsTo dflags fun callConv args k off updfr_off
                                    extra_stack
               emit (copyout <*> mkLabel k <*> copyin)
@@ -291,7 +293,7 @@ just more arguments that we are passing on the stack (cml_args).
 slowArgs :: DynFlags -> [(ArgRep, Maybe CmmExpr)] -> [(ArgRep, Maybe CmmExpr)]
 slowArgs _ [] = []
 slowArgs dflags args -- careful: reps contains voids (V), but args does not
-  | dopt Opt_SccProfilingOn dflags
+  | gopt Opt_SccProfilingOn dflags
               = save_cccs ++ this_pat ++ slowArgs dflags rest_args
   | otherwise =              this_pat ++ slowArgs dflags rest_args
   where
@@ -329,15 +331,15 @@ slowCallPattern []		      = (fsLit "stg_ap_0", 0)
 --      Classifying arguments: ArgRep
 -------------------------------------------------------------------------
 
--- ArgRep is not exported (even abstractly)
--- It's a local helper type for classification
+-- ArgRep is exported, but only for use in the byte-code generator which
+-- also needs to know about the classification of arguments.
 
-data ArgRep = P 	-- GC Ptr
-	  | N   -- One-word non-ptr
-	  | L	-- Two-word non-ptr (long)
-	  | V	-- Void
-	  | F	-- Float
-	  | D	-- Double
+data ArgRep = P   -- GC Ptr
+            | N   -- Word-sized non-ptr
+            | L   -- 64-bit non-ptr (long)
+            | V   -- Void
+            | F   -- Float
+            | D   -- Double
 instance Outputable ArgRep where
   ppr P = text "P"
   ppr N = text "N"
@@ -519,7 +521,7 @@ emitClosureProcAndInfoTable top_lvl bndr lf_info info_tbl args body
         ; let args' = if node_points then (node : arg_regs) else arg_regs
               conv  = if nodeMustPointToIt dflags lf_info then NativeNodeCall
                                                           else NativeDirectCall
-              (offset, _) = mkCallEntry dflags conv args' []
+              (offset, _, _) = mkCallEntry dflags conv args' []
         ; emitClosureAndInfoTable info_tbl conv args' $ body (offset, node, arg_regs)
         }
 
@@ -547,7 +549,7 @@ stdInfoTableSizeW dflags
   = size_fixed + size_prof
   where
     size_fixed = 2	-- layout, type
-    size_prof | dopt Opt_SccProfilingOn dflags = 2
+    size_prof | gopt Opt_SccProfilingOn dflags = 2
 	      | otherwise	   = 0
 
 stdInfoTableSizeB  :: DynFlags -> ByteOff

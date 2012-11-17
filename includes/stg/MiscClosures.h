@@ -101,6 +101,8 @@ RTS_ENTRY(stg_DEAD_WEAK);
 RTS_ENTRY(stg_STABLE_NAME);
 RTS_ENTRY(stg_MVAR_CLEAN);
 RTS_ENTRY(stg_MVAR_DIRTY);
+RTS_ENTRY(stg_TVAR_CLEAN);
+RTS_ENTRY(stg_TVAR_DIRTY);
 RTS_ENTRY(stg_TSO);
 RTS_ENTRY(stg_STACK);
 RTS_ENTRY(stg_ARR_WORDS);
@@ -130,7 +132,6 @@ RTS_ENTRY(stg_atomically);
 RTS_ENTRY(stg_TVAR_WATCH_QUEUE);
 RTS_ENTRY(stg_INVARIANT_CHECK_QUEUE);
 RTS_ENTRY(stg_ATOMIC_INVARIANT);
-RTS_ENTRY(stg_TVAR);
 RTS_ENTRY(stg_TREC_CHUNK);
 RTS_ENTRY(stg_TREC_HEADER);
 RTS_ENTRY(stg_END_STM_WATCH_QUEUE);
@@ -213,7 +214,7 @@ RTS_THUNK(stg_ap_5_upd);
 RTS_THUNK(stg_ap_6_upd);
 RTS_THUNK(stg_ap_7_upd);
 
-/* standard application routines (see also rts/gen_apply.py, 
+/* standard application routines (see also utils/genapply, 
  * and compiler/codeGen/CgStackery.lhs).
  */
 RTS_RET(stg_ap_v);
@@ -261,6 +262,7 @@ RTS_RET(stg_ret_f);
 RTS_RET(stg_ret_d);
 RTS_RET(stg_ret_l);
 
+RTS_FUN_DECL(stg_gc_prim);
 RTS_FUN_DECL(stg_gc_prim_p);
 RTS_FUN_DECL(stg_gc_prim_pp);
 RTS_FUN_DECL(stg_gc_prim_n);
@@ -392,6 +394,7 @@ RTS_FUN_DECL(stg_deRefStablePtrzh);
 RTS_FUN_DECL(stg_forkzh);
 RTS_FUN_DECL(stg_forkOnzh);
 RTS_FUN_DECL(stg_yieldzh);
+RTS_FUN_DECL(stg_killMyself);
 RTS_FUN_DECL(stg_killThreadzh);
 RTS_FUN_DECL(stg_getMaskingStatezh);
 RTS_FUN_DECL(stg_maskAsyncExceptionszh);
@@ -431,6 +434,7 @@ RTS_FUN_DECL(stg_noDuplicatezh);
 
 RTS_FUN_DECL(stg_traceCcszh);
 RTS_FUN_DECL(stg_traceEventzh);
+RTS_FUN_DECL(stg_traceMarkerzh);
 
 /* Other misc stuff */
 // See wiki:Commentary/Compiler/Backends/PprC#Prototypes
@@ -469,10 +473,10 @@ extern StgWord RTS_VAR(stable_ptr_table);
 // Profiling.c
 extern unsigned int RTS_VAR(era);
 extern unsigned int RTS_VAR(entering_PAP);
-extern StgWord      RTS_VAR(CC_LIST);               /* registered CC list */
+extern StgWord      RTS_VAR(CC_LIST);          /* registered CC list */
 extern StgWord      RTS_VAR(CCS_LIST);         /* registered CCS list */
 extern StgWord      CCS_SYSTEM[];
-extern unsigned int RTS_VAR(CC_ID);	/* global ids */
+extern unsigned int RTS_VAR(CC_ID);            /* global ids */
 extern unsigned int RTS_VAR(CCS_ID);
 
 #endif

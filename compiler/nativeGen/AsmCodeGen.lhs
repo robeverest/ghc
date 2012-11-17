@@ -7,6 +7,7 @@
 -- -----------------------------------------------------------------------------
 
 \begin{code}
+{-# LANGUAGE GADTs #-}
 module AsmCodeGen ( nativeCodeGen ) where
 
 #include "HsVersions.h"
@@ -50,9 +51,11 @@ import NCGMonad
 
 import BlockId
 import CgUtils          ( fixStgRegisters )
-import OldCmm
+import Cmm
+import CmmUtils
+import Hoopl
 import CmmOpt           ( cmmMachOpFold )
-import OldPprCmm
+import PprCmm
 import CLabel
 
 import UniqFM
@@ -207,6 +210,12 @@ nativeCodeGen dflags h us cmms
                      panic "nativeCodeGen: No NCG for ARM"
                  ArchPPC_64 ->
                      panic "nativeCodeGen: No NCG for PPC 64"
+                 ArchAlpha ->
+                     panic "nativeCodeGen: No NCG for Alpha"
+                 ArchMipseb ->
+                     panic "nativeCodeGen: No NCG for mipseb"
+                 ArchMipsel ->
+                     panic "nativeCodeGen: No NCG for mipsel"
                  ArchUnknown ->
                      panic "nativeCodeGen: No NCG for unknown arch"
 
@@ -287,11 +296,11 @@ nativeCodeGen' dflags ncgImpl h us cmms
         return  ()
 
  where  add_split tops
-                | dopt Opt_SplitObjs dflags = split_marker : tops
+                | gopt Opt_SplitObjs dflags = split_marker : tops
                 | otherwise                 = tops
 
-        split_marker = CmmProc mapEmpty mkSplitMarkerLabel (ListGraph [])
-
+        split_marker = CmmProc mapEmpty mkSplitMarkerLabel []
+                               (ofBlockList (panic "split_marker_entry") [])
 
 cmmNativeGenStream :: (Outputable statics, Outputable instr, Instruction instr)
               => DynFlags
@@ -432,8 +441,8 @@ cmmNativeGen dflags ncgImpl us cmm count
 
         -- allocate registers
         (alloced, usAlloc, ppr_raStatsColor, ppr_raStatsLinear) <-
-         if ( dopt Opt_RegsGraph dflags
-           || dopt Opt_RegsIterative dflags)
+         if ( gopt Opt_RegsGraph dflags
+           || gopt Opt_RegsIterative dflags)
           then do
                 -- the regs usable for allocation
                 let (alloc_regs :: UniqFM (UniqSet RealReg))
@@ -550,8 +559,8 @@ cmmNativeGen dflags ncgImpl us cmm count
 
 x86fp_kludge :: NatCmmDecl (Alignment, CmmStatics) X86.Instr.Instr -> NatCmmDecl (Alignment, CmmStatics) X86.Instr.Instr
 x86fp_kludge top@(CmmData _ _) = top
-x86fp_kludge (CmmProc info lbl (ListGraph code)) =
-        CmmProc info lbl (ListGraph $ X86.Instr.i386_insert_ffrees code)
+x86fp_kludge (CmmProc info lbl live (ListGraph code)) =
+        CmmProc info lbl live (ListGraph $ X86.Instr.i386_insert_ffrees code)
 
 
 -- | Build a doc for all the imports.
@@ -627,8 +636,8 @@ sequenceTop
     => NcgImpl statics instr jumpDest -> NatCmmDecl statics instr -> NatCmmDecl statics instr
 
 sequenceTop _       top@(CmmData _ _) = top
-sequenceTop ncgImpl (CmmProc info lbl (ListGraph blocks)) =
-  CmmProc info lbl (ListGraph $ ncgMakeFarBranches ncgImpl $ sequenceBlocks info blocks)
+sequenceTop ncgImpl (CmmProc info lbl live (ListGraph blocks)) =
+  CmmProc info lbl live (ListGraph $ ncgMakeFarBranches ncgImpl $ sequenceBlocks info blocks)
 
 -- The algorithm is very simple (and stupid): we make a graph out of
 -- the blocks where there is an edge from one block to another iff the
@@ -744,7 +753,7 @@ generateJumpTables
         :: NcgImpl statics instr jumpDest
         -> [NatCmmDecl statics instr] -> [NatCmmDecl statics instr]
 generateJumpTables ncgImpl xs = concatMap f xs
-    where f p@(CmmProc _ _ (ListGraph xs)) = p : concatMap g xs
+    where f p@(CmmProc _ _ _ (ListGraph xs)) = p : concatMap g xs
           f p = [p]
           g (BasicBlock _ xs) = catMaybes (map (generateJumpTableForInstr ncgImpl) xs)
 
@@ -768,10 +777,10 @@ build_mapping :: NcgImpl statics instr jumpDest
               -> GenCmmDecl d (BlockEnv t) (ListGraph instr)
               -> (GenCmmDecl d (BlockEnv t) (ListGraph instr), UniqFM jumpDest)
 build_mapping _ top@(CmmData _ _) = (top, emptyUFM)
-build_mapping _ (CmmProc info lbl (ListGraph []))
-  = (CmmProc info lbl (ListGraph []), emptyUFM)
-build_mapping ncgImpl (CmmProc info lbl (ListGraph (head:blocks)))
-  = (CmmProc info lbl (ListGraph (head:others)), mapping)
+build_mapping _ (CmmProc info lbl live (ListGraph []))
+  = (CmmProc info lbl live (ListGraph []), emptyUFM)
+build_mapping ncgImpl (CmmProc info lbl live (ListGraph (head:blocks)))
+  = (CmmProc info lbl live (ListGraph (head:others)), mapping)
         -- drop the shorted blocks, but don't ever drop the first one,
         -- because it is pointed to by a global label.
   where
@@ -804,8 +813,8 @@ apply_mapping :: NcgImpl statics instr jumpDest
               -> GenCmmDecl statics h (ListGraph instr)
 apply_mapping ncgImpl ufm (CmmData sec statics)
   = CmmData sec (shortcutStatics ncgImpl (lookupUFM ufm) statics)
-apply_mapping ncgImpl ufm (CmmProc info lbl (ListGraph blocks))
-  = CmmProc info lbl (ListGraph $ map short_bb blocks)
+apply_mapping ncgImpl ufm (CmmProc info lbl live (ListGraph blocks))
+  = CmmProc info lbl live (ListGraph $ map short_bb blocks)
   where
     short_bb (BasicBlock id insns) = BasicBlock id $! map short_insn insns
     short_insn i = shortcutJump ncgImpl (lookupUFM ufm) i
@@ -878,9 +887,9 @@ Ideas for other things we could do (put these in Hoopl please!):
 
 cmmToCmm :: DynFlags -> RawCmmDecl -> (RawCmmDecl, [CLabel])
 cmmToCmm _ top@(CmmData _ _) = (top, [])
-cmmToCmm dflags (CmmProc info lbl (ListGraph blocks)) = runCmmOpt dflags $ do
-  blocks' <- mapM cmmBlockConFold blocks
-  return $ CmmProc info lbl (ListGraph blocks')
+cmmToCmm dflags (CmmProc info lbl live graph) = runCmmOpt dflags $ do
+  blocks' <- mapM cmmBlockConFold (toBlockList graph)
+  return $ CmmProc info lbl live (ofBlockList (g_entry graph) blocks')
 
 newtype CmmOptM a = CmmOptM (([CLabel], DynFlags) -> (# a, [CLabel] #))
 
@@ -903,10 +912,13 @@ runCmmOpt :: DynFlags -> CmmOptM a -> (a, [CLabel])
 runCmmOpt dflags (CmmOptM f) = case f ([], dflags) of
                         (# result, imports #) -> (result, imports)
 
-cmmBlockConFold :: CmmBasicBlock -> CmmOptM CmmBasicBlock
-cmmBlockConFold (BasicBlock id stmts) = do
+cmmBlockConFold :: CmmBlock -> CmmOptM CmmBlock
+cmmBlockConFold block = do
+  let (entry, middle, last) = blockSplit block
+      stmts = blockToList middle
   stmts' <- mapM cmmStmtConFold stmts
-  return $ BasicBlock id stmts'
+  last' <- cmmStmtConFold last
+  return $ blockJoin entry (blockFromList stmts') last'
 
 -- This does three optimizations, but they're very quick to check, so we don't
 -- bother turning them off even when the Hoopl code is active.  Since
@@ -917,13 +929,13 @@ cmmBlockConFold (BasicBlock id stmts) = do
 -- We might be tempted to skip this step entirely of not Opt_PIC, but
 -- there is some PowerPC code for the non-PIC case, which would also
 -- have to be separated.
-cmmStmtConFold :: CmmStmt -> CmmOptM CmmStmt
+cmmStmtConFold :: CmmNode e x -> CmmOptM (CmmNode e x)
 cmmStmtConFold stmt
    = case stmt of
         CmmAssign reg src
            -> do src' <- cmmExprConFold DataReference src
                  return $ case src' of
-                   CmmReg reg' | reg == reg' -> CmmNop
+                   CmmReg reg' | reg == reg' -> CmmComment (fsLit "nop")
                    new_src -> CmmAssign reg new_src
 
         CmmStore addr src
@@ -931,35 +943,26 @@ cmmStmtConFold stmt
                  src'  <- cmmExprConFold DataReference src
                  return $ CmmStore addr' src'
 
-        CmmJump addr live
+        CmmCall { cml_target = addr }
            -> do addr' <- cmmExprConFold JumpReference addr
-                 return $ CmmJump addr' live
+                 return $ stmt { cml_target = addr' }
 
-        CmmCall target regs args returns
+        CmmUnsafeForeignCall target regs args
            -> do target' <- case target of
-                              CmmCallee e conv -> do
+                              ForeignTarget e conv -> do
                                 e' <- cmmExprConFold CallReference e
-                                return $ CmmCallee e' conv
-                              op@(CmmPrim _ Nothing) ->
-                                return op
-                              CmmPrim op (Just stmts) ->
-                                do stmts' <- mapM cmmStmtConFold stmts
-                                   return $ CmmPrim op (Just stmts')
-                 args' <- mapM (\(CmmHinted arg hint) -> do
-                                  arg' <- cmmExprConFold DataReference arg
-                                  return (CmmHinted arg' hint)) args
-                 return $ CmmCall target' regs args' returns
+                                return $ ForeignTarget e' conv
+                              PrimTarget _ ->
+                                return target
+                 args' <- mapM (cmmExprConFold DataReference) args
+                 return $ CmmUnsafeForeignCall target' regs args'
 
-        CmmCondBranch test dest
+        CmmCondBranch test true false
            -> do test' <- cmmExprConFold DataReference test
-                 dflags <- getDynFlags
                  return $ case test' of
-                   CmmLit (CmmInt 0 _) ->
-                     CmmComment (mkFastString ("deleted: " ++
-                                        showSDoc dflags (pprStmt stmt)))
-
-                   CmmLit (CmmInt _ _) -> CmmBranch dest
-                   _other -> CmmCondBranch test' dest
+                   CmmLit (CmmInt 0 _) -> CmmBranch false
+                   CmmLit (CmmInt _ _) -> CmmBranch true
+                   _other -> CmmCondBranch test' true false
 
         CmmSwitch expr ids
            -> do expr' <- cmmExprConFold DataReference expr
@@ -1024,15 +1027,15 @@ cmmExprNative referenceKind expr = do
         -- to use the register table, so we replace these registers
         -- with the corresponding labels:
         CmmReg (CmmGlobal EagerBlackholeInfo)
-          | arch == ArchPPC && not (dopt Opt_PIC dflags)
+          | arch == ArchPPC && not (gopt Opt_PIC dflags)
           -> cmmExprNative referenceKind $
              CmmLit (CmmLabel (mkCmmCodeLabel rtsPackageId (fsLit "__stg_EAGER_BLACKHOLE_info")))
         CmmReg (CmmGlobal GCEnter1)
-          | arch == ArchPPC && not (dopt Opt_PIC dflags)
+          | arch == ArchPPC && not (gopt Opt_PIC dflags)
           -> cmmExprNative referenceKind $
              CmmLit (CmmLabel (mkCmmCodeLabel rtsPackageId (fsLit "__stg_gc_enter_1")))
         CmmReg (CmmGlobal GCFun)
-          | arch == ArchPPC && not (dopt Opt_PIC dflags)
+          | arch == ArchPPC && not (gopt Opt_PIC dflags)
           -> cmmExprNative referenceKind $
              CmmLit (CmmLabel (mkCmmCodeLabel rtsPackageId (fsLit "__stg_gc_fun")))
 
