@@ -42,7 +42,7 @@ type LlvmStatements = OrdList LlvmStatement
 --
 genLlvmProc env (CmmProc infos lbl live graph) = do
     let blocks = toBlockListEntryFirst graph
-    let !amap = genAliasMap blocks
+    let amap = genAliasMap blocks
     let env' = setAliasMap env $ amap
     (env'', lmblocks, lmdata) <- basicBlocksCodeGen env' live blocks ([], [])
     let info = mapLookup (g_entry graph) infos
@@ -52,21 +52,25 @@ genLlvmProc env (CmmProc infos lbl live graph) = do
 genLlvmProc _ _ = panic "genLlvmProc: case that shouldn't reach here!"
 
 -- | Generate aliasing information for local variables
-genAliasMap :: [CmmBasicBlock] -> LlvmAliasMap
+genAliasMap :: [CmmBlock] -> LlvmAliasMap
 genAliasMap blocks = let
     plusMap = plusUFM_C $ \(a,b) (c,d) -> (Set.union a c, b || d)
     
-    forBlock (BasicBlock _ stmts) = foldr (plusMap.forStmt) emptyUFM stmts
+    forBlock block = 
+      let (_, nodes, _)  = blockSplit block
+          stmts = blockToList nodes
+      in foldr (plusMap.forStmt) emptyUFM stmts
     
+    forStmt :: CmmNode t t1 -> UniqFM (Set.Set CmmReg, Bool)
     forStmt (CmmAssign (CmmLocal (LocalReg un _)) src) = unitUFM un (getRegsInExpr src)
-    forStmt (CmmCall target res _ _) = let
-        t = case target of
-                CmmPrim _ (Just stmts) -> foldr (plusMap.forStmt) emptyUFM stmts
-                _ -> emptyUFM
-        r = case res of
-                [CmmHinted (LocalReg un _) _] -> unitUFM un (Set.empty, False)
-                _ -> emptyUFM
-        in t `plusMap` r       
+    forStmt (CmmUnsafeForeignCall _ res _) = 
+      case res of
+                [LocalReg un _] -> unitUFM un (Set.empty, False)
+                _ -> emptyUFM   
+    forStmt (CmmForeignCall {res = res}) = 
+      case res of
+                [LocalReg un _] -> unitUFM un (Set.empty, False)
+                _ -> emptyUFM       
     forStmt _ = emptyUFM 
   
     aliasMap = foldr (plusMap.forBlock) emptyUFM blocks
