@@ -194,7 +194,7 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
 
     checkVendor() {
         case [$]1 in
-        dec|unknown|hp|apple|next|sun|sgi|ibm)
+        dec|unknown|hp|apple|next|sun|sgi|ibm|montavista)
             ;;
         *)
             echo "Unknown vendor [$]1"
@@ -1049,7 +1049,7 @@ fi
 # output variable GccVersion.
 AC_DEFUN([FP_GCC_VERSION],
 [AC_REQUIRE([AC_PROG_CC])
-if test -z "$GCC"
+if test -z "$CC"
 then
   AC_MSG_ERROR([gcc is required])
 fi

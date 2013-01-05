@@ -241,7 +241,7 @@ tcLocalBinds (HsIPBinds (IPBinds ip_binds _)) thing_inside
     -- co : t -> IP "x" t
     toDict ipClass x ty =
       case unwrapNewTyCon_maybe (classTyCon ipClass) of
-        Just (_,_,ax) -> HsWrap $ WpCast $ mkTcSymCo $ mkTcAxInstCo ax [x,ty]
+        Just (_,_,ax) -> HsWrap $ WpCast $ mkTcSymCo $ mkTcUnbranchedAxInstCo ax [x,ty]
         Nothing       -> panic "The dictionary for `IP` is not a newtype?"
 
 
@@ -1305,8 +1305,8 @@ decideGeneralisationPlan dflags type_env bndr_names lbinds sig_fn
                                                            && no_sig (unLoc v)
     restricted (AbsBinds {}) = panic "isRestrictedGroup/unrestricted AbsBinds"
 
-    restricted_match (MatchGroup (L _ (Match [] _ _) : _) _) = True
-    restricted_match _                                       = False
+    restricted_match (MG { mg_alts = L _ (Match [] _ _) : _ }) = True
+    restricted_match _                                         = False
         -- No args => like a pattern binding
         -- Some args => a function binding
 

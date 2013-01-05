@@ -1,6 +1,6 @@
 /* -----------------------------------------------------------------------------
  *
- * (c) The GHC Team, 2000-2004
+ * (c) The GHC Team, 2000-2012
  *
  * RTS Object Linker
  *
@@ -1310,6 +1310,7 @@ typedef struct _RtsSymbolVal {
       SymI_NeedsProto(rts_stop_on_exception)                            \
       SymI_HasProto(stopTimer)                                          \
       SymI_HasProto(n_capabilities)                                     \
+      SymI_HasProto(enabled_capabilities)                               \
       SymI_HasProto(stg_traceCcszh)                                     \
       SymI_HasProto(stg_traceEventzh)                                   \
       SymI_HasProto(stg_traceMarkerzh)                                  \
@@ -1475,7 +1476,7 @@ initLinker( void )
     IF_DEBUG(linker, debugBelch("initLinker: start\n"));
 
     /* Make initLinker idempotent, so we can call it
-       before evey relevant operation; that means we
+       before every relevant operation; that means we
        don't need to initialise the linker separately */
     if (linker_init_done == 1) {
         IF_DEBUG(linker, debugBelch("initLinker: idempotent return\n"));

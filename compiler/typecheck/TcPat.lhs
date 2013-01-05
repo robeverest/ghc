@@ -350,7 +350,8 @@ tc_lpats :: PatEnv
        	 -> TcM a	
        	 -> TcM ([LPat TcId], a)
 tc_lpats penv pats tys thing_inside 
-  =  tcMultiple (\(p,t) -> tc_lpat p t) 
+  = ASSERT2( equalLength pats tys, ppr pats $$ ppr tys )
+    tcMultiple (\(p,t) -> tc_lpat p t) 
                 (zipEqual "tc_lpats" pats tys)
                 penv thing_inside 
 
@@ -753,7 +754,7 @@ matchExpectedConTy data_tc pat_ty
        ; co1 <- unifyType (mkTyConApp fam_tc (substTys subst fam_args)) pat_ty
        	     -- co1 : T (ty1,ty2) ~ pat_ty
 
-       ; let co2 = mkTcAxInstCo co_tc tys
+       ; let co2 = mkTcUnbranchedAxInstCo co_tc tys
        	     -- co2 : T (ty1,ty2) ~ T7 ty1 ty2
 
        ; return (mkTcSymCo co2 `mkTcTransCo` co1, tys) }

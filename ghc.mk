@@ -52,7 +52,7 @@
 #     * For each package:
 #	    o configure, generate package-data.mk and inplace-pkg-info
 #           o register each package into inplace/lib/package.conf
-#     * build libffi
+#     * build libffi (if not disabled by --with-system-libffi)
 #     * With bootstrapping compiler:
 #	    o Build libraries/{filepath,hpc,Cabal}
 #           o Build compiler (stage 1)
@@ -330,7 +330,7 @@ endif
 # They do not say "this package will be built"; see $(PACKAGES_xx) for that
 
 # Packages that are built but not installed
-PKGS_THAT_ARE_INTREE_ONLY := haskeline transformers terminfo xhtml
+PKGS_THAT_ARE_INTREE_ONLY := haskeline terminfo xhtml
 
 PKGS_THAT_ARE_DPH := \
     dph/dph-base \
@@ -355,7 +355,7 @@ PKGS_THAT_USE_TH := $(PKGS_THAT_ARE_DPH)
 #
 # We assume that the stage0 compiler has a suitable bytestring package,
 # so we don't have to include it below.
-PKGS_THAT_BUILD_WITH_STAGE0 = Cabal/Cabal hpc binary bin-package-db hoopl
+PKGS_THAT_BUILD_WITH_STAGE0 = Cabal/Cabal hpc binary bin-package-db hoopl transformers
 
 # $(EXTRA_PACKAGES)  is another classification, of packages built but
 #                    not installed
@@ -1044,6 +1044,7 @@ unix-binary-dist-prep:
 	echo "BUILD_DOCBOOK_PDF  = $(BUILD_DOCBOOK_PDF)"  >> $(BIN_DIST_MK)
 	echo "BUILD_MAN          = $(BUILD_MAN)"          >> $(BIN_DIST_MK)
 	echo "GHC_CABAL_INPLACE  = utils/ghc-cabal/dist-install/build/tmp/ghc-cabal-bindist" >> $(BIN_DIST_MK)
+	echo "UseSystemLibFFI    = $(UseSystemLibFFI)"    >> $(BIN_DIST_MK)
 	cd $(BIN_DIST_PREP_DIR) && autoreconf
 	$(call removeFiles,$(BIN_DIST_PREP_TAR))
 # h means "follow symlinks", e.g. if aclocal.m4 is a symlink to a source
@@ -1336,17 +1337,17 @@ BINDIST_LIBRARY_FLAGS = --enable-library-vanilla --disable-shared
 endif
 BINDIST_LIBRARY_FLAGS += --disable-library-prof
 
-.PHONY: validate_build_transformers
-validate_build_transformers:
-	cd libraries/transformers && "$(BINDIST_PREFIX)/bin/ghc" --make Setup
-	cd libraries/transformers && ./Setup configure --with-ghc="$(BINDIST_PREFIX)/bin/ghc" $(BINDIST_HADDOCK_FLAG) $(BINDIST_LIBRARY_FLAGS) --global --builddir=dist-bindist --prefix="$(BINDIST_PREFIX)"
-	cd libraries/transformers && ./Setup build   --builddir=dist-bindist
+.PHONY: validate_build_xhtml
+validate_build_xhtml:
+	cd libraries/xhtml && "$(BINDIST_PREFIX)/bin/ghc" --make Setup
+	cd libraries/xhtml && ./Setup configure --with-ghc="$(BINDIST_PREFIX)/bin/ghc" $(BINDIST_HADDOCK_FLAG) $(BINDIST_LIBRARY_FLAGS) --global --builddir=dist-bindist --prefix="$(BINDIST_PREFIX)"
+	cd libraries/xhtml && ./Setup build   --builddir=dist-bindist
 ifeq "$(HADDOCK_DOCS)" "YES"
-	cd libraries/transformers && ./Setup haddock --builddir=dist-bindist
+	cd libraries/xhtml && ./Setup haddock --builddir=dist-bindist
 endif
-	cd libraries/transformers && ./Setup install --builddir=dist-bindist
-	cd libraries/transformers && ./Setup clean   --builddir=dist-bindist
-	cd libraries/transformers && rm -f Setup Setup.exe Setup.hi Setup.o
+	cd libraries/xhtml && ./Setup install --builddir=dist-bindist
+	cd libraries/xhtml && ./Setup clean   --builddir=dist-bindist
+	cd libraries/xhtml && rm -f Setup Setup.exe Setup.hi Setup.o
 
 # -----------------------------------------------------------------------------
 # Numbered phase targets
