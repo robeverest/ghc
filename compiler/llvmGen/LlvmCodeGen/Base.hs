@@ -178,9 +178,9 @@ newtype LlvmEnv = LlvmEnv (LlvmEnvMap, LlvmEnvMap, LlvmAliasMap, LlvmVersion, Dy
 type LlvmEnvMap = UniqFM LlvmType
 
 -- A pointer is either based on a global register or from a load. 
--- It is unknown if it is based both on Hp an Sp, a case that does 
--- not appear in generated code but is possible in handwritten Cmm.
--- In this case the TBAA node is top
+-- It is unknown if it is based on both Hp an Sp, a case that does 
+-- not appear in generated code (or at least is extremely improbable) but is 
+-- possible in handwritten Cmm. In this case the TBAA node is top.
 data PtrBasis = Register GlobalReg | Memory | Unknown | Constant
 
 -- A map for the alias information

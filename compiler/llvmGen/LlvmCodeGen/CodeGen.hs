@@ -51,7 +51,12 @@ genLlvmProc env (CmmProc infos lbl live graph) = do
 
 genLlvmProc _ _ = panic "genLlvmProc: case that shouldn't reach here!"
 
--- | Generate aliasing information for local variables
+-- | Generate aliasing information for local variables.
+-- | The basis information of each local register can be represented by a pair 
+-- | consisting of a set of all registers contained within the expression and 
+-- | a flag indicating whether or not the expression contains a load. This 
+-- | representation can then be reduced (with knowledge of all other local 
+-- | variables) to a PtrBasis for each local variable (see reduceAliasMap).
 genAliasMap :: [CmmBlock] -> LlvmAliasMap
 genAliasMap blocks = let
     plusMap = plusUFM_C $ \(a,b) (c,d) -> (Set.union a c, b || d)
@@ -76,8 +81,15 @@ genAliasMap blocks = let
     aliasMap = foldr (plusMap.forBlock) emptyUFM blocks
     in reduceAliasMap aliasMap
 
+-- | Reduce the basis information for each local variable down to a PtrBasis.
+-- | In order to do this instances of local registers in each of the sets must 
+-- | be expanded out. 
 reduceAliasMap :: UniqFM (Set.Set CmmReg, Bool) -> LlvmAliasMap
 reduceAliasMap aliasSets = let
+    -- Perform one level of expansion of the basis information for every entry
+    -- in the map. That is, for every local variable contained in the sets, replace
+    -- it with all the registers on which it is based, thus growing the set. Additionally
+    -- we must also keep track of whether the variable is based on a load.
     expandOne :: UniqFM (Set.Set CmmReg, Bool) -> UniqFM (Set.Set CmmReg, Bool)
     expandOne as = mapUFM expand as
       where 
@@ -89,7 +101,9 @@ reduceAliasMap aliasSets = let
             getSet r = (Set.singleton r, loads)
             combine (s, b) (s', b') = (Set.union s s', b || b') 
 
-    -- Expand all instances of local variables until the number of global variables does not increase
+    -- Expand all instances of local variables until the number of global variables does not increase.
+    -- This is necessary as simply doing the expansion naively will not always terminate, 
+    -- due to the fact that local registers can be mutually based on each other.
     doExpansion :: UniqFM (Set.Set CmmReg, Bool) -> Int -> UniqFM (Set.Set CmmReg, Bool)
     doExpansion as g = let
       g' = getGlobalsCount as
@@ -105,6 +119,7 @@ reduceAliasMap aliasSets = let
     expanded = doExpansion aliasSets 0 
     in mapUFM ((reduceSet emptyUFM).onlyGlobals) expanded
 
+-- | For one instance of the basis information, reduce it down to a PtrBasis.
 reduceSet :: LlvmAliasMap -> (Set.Set CmmReg, Bool) -> PtrBasis
 reduceSet a (s, loads) = if Set.null s then 
                             if loads then Memory else Constant
@@ -116,6 +131,10 @@ reduceSet a (s, loads) = if Set.null s then
                                                 _ -> panic $ "Unknown local variable"
         reduce (CmmGlobal r) b = strongestBasis (Register r) b
 
+-- | Given two PtrBasis, return the "strongest" one.
+-- | The strongest one being the one that contains the pointer and not 
+-- | an offset; i.e Sp and Hp always contain pointer values, whereas memory
+-- | and vanilla registers can contain both pointers and offsets.
 strongestBasis :: PtrBasis -> PtrBasis -> PtrBasis
 strongestBasis Unknown _ = Unknown
 strongestBasis _ Unknown = Unknown
@@ -137,11 +156,11 @@ getTBAAForExpr env e = let
     in case basis of
         Memory -> memory
         Register r -> getTBAA r
-        Unknown -> top
+        Unknown -> top -- This should only occur in hand-written Cmm
         Constant -> top --This shouldn't happen in any sane Cmm
 
--- | Get a set of registers both local and global accessed by the CmmExpr 
--- | and whether it contains any loads.     
+-- | Get a set of registers, both local and global, accessed by the given CmmExpr 
+-- | as well as whether it contains any loads.     
 getRegsInExpr :: CmmExpr -> (Set.Set CmmReg, Bool)
 getRegsInExpr (CmmReg r) = (Set.singleton r, False)
 getRegsInExpr (CmmMachOp _ es) = let
